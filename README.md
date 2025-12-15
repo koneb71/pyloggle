@@ -58,6 +58,11 @@ export PYLOGGLE_API_KEY="YOUR_PROJECT_API_KEY"
 export PYLOGGLE_PROJECT_ID="default"   # project id you created in /ui/projects
 ```
 
+Open the UI and keep it handy:
+
+- `/ui/logs` for application + access logs
+- `/ui/issues` for errors (created by hitting the `/boom` endpoints below)
+
 Run script example (from repo root):
 
 ```bash
@@ -70,11 +75,25 @@ Run Flask example:
 python examples/flask_app.py
 ```
 
+Generate logs + an error (in another terminal):
+
+```bash
+curl -sS "http://127.0.0.1:5050/hello"
+curl -sS "http://127.0.0.1:5050/boom"
+```
+
 Run FastAPI example:
 
 ```bash
 python -m pip install "fastapi>=0.100" "uvicorn[standard]>=0.23"
-python -m uvicorn examples.fastapi_app:app --reload --port 5051
+python -m uvicorn examples.fastapi_app:app --reload --port 5051 --access-log --log-level info
+```
+
+Generate logs + an error:
+
+```bash
+curl -sS "http://127.0.0.1:5051/hello"
+curl -sS "http://127.0.0.1:5051/boom"
 ```
 
 ### API auth (important)

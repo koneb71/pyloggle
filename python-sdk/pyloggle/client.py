@@ -21,6 +21,11 @@ class ClientConfig:
     env: str = "prod"
     project_id: str = "default"
 
+    # per-request telemetry
+    # When enabled, framework integrations may emit/attach request latency information.
+    # Default is off to avoid extra noise/cost unless explicitly opted in.
+    emit_request_latency: bool = False
+
     # user impact (hashed to avoid PII). If provided, used as an HMAC key when hashing user ids.
     user_id_salt: Optional[str] = None
 

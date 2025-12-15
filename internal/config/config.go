@@ -29,6 +29,10 @@ type Config struct {
 	// Used to sign UI cookies (session + transient oauth state).
 	UISessionSecret string
 
+	// WebUI live refresh polling interval (HTMX). Used by results containers via hx-trigger="every Ns".
+	// Set via PYLOGGLE_UI_POLL_SECONDS. Defaults to 2.
+	UIPollSeconds int
+
 	// Ingestion protections
 	MaxQueueSize      int
 	MaxStreams        int
@@ -84,6 +88,7 @@ func FromEnv() Config {
 		AzureClientSecret: os.Getenv("PYLOGGLE_AZURE_CLIENT_SECRET"),
 		AzureRedirectURL:  strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_REDIRECT_URL")),
 		UISessionSecret:   os.Getenv("PYLOGGLE_UI_SESSION_SECRET"),
+		UIPollSeconds:     getenvInt("PYLOGGLE_UI_POLL_SECONDS", 2),
 		MaxQueueSize:      getenvInt("INGEST_MAX_QUEUE_SIZE", 10000),
 		MaxStreams:        getenvInt("INGEST_MAX_STREAMS", 200),
 		MaxQueuePerStream: getenvInt("INGEST_MAX_QUEUE_PER_STREAM", 2000),
