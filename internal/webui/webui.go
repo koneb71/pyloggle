@@ -2,8 +2,8 @@ package webui
 
 import (
 	"context"
-	"errors"
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -26,11 +26,27 @@ const apiKeyCookie = "pyloggle_api_key"
 const uiProjectIDCookie = "pyloggle_ui_project_id"
 
 type UI struct {
-	cfg config.Config
-	ch  *clickhouse.Client
-	res *tenant.Resolver
-	tpl map[string]*template.Template
+	cfg  config.Config
+	ch   *clickhouse.Client
+	res  *tenant.Resolver
+	tpl  map[string]*template.Template
 	jwks *jwksCache
+}
+
+func isHXRequest(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("HX-Request")), "true")
+}
+
+func (u *UI) renderPageOrPartial(w http.ResponseWriter, r *http.Request, page string, data any) {
+	// Make sure caches/CDNs don't mix full vs partial responses.
+	w.Header().Add("Vary", "HX-Request")
+
+	name := page
+	if isHXRequest(r) {
+		// Each page template defines a "content" template; rendering it yields a fragment suitable for HTMX swaps.
+		name = "content"
+	}
+	_ = u.tpl[page].ExecuteTemplate(w, name, data)
 }
 
 func New(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver) http.Handler {
@@ -40,6 +56,15 @@ func New(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver) http.Ha
 				return ""
 			}
 			return t.UTC().Format(time.RFC3339)
+		},
+		"formatDTLocal": func(s string) string {
+			// Render a datetime-local value in UTC when possible.
+			// If the incoming value isn't parseable, return "" so the control doesn't show a misleading value.
+			t := parseTimeUI(s)
+			if t.IsZero() {
+				return ""
+			}
+			return t.UTC().Format("2006-01-02T15:04")
 		},
 		"short": func(s string, n int) string {
 			s = strings.TrimSpace(s)
@@ -51,15 +76,15 @@ func New(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver) http.Ha
 		"badgeClass": func(status string, regressed bool) string {
 			s := strings.ToLower(strings.TrimSpace(status))
 			if regressed {
-				return "badge badge-regressed"
+				return "badge text-bg-danger"
 			}
 			switch s {
 			case "resolved":
-				return "badge badge-resolved"
+				return "badge text-bg-success"
 			case "ignored":
-				return "badge badge-ignored"
+				return "badge text-bg-secondary"
 			default:
-				return "badge badge-open"
+				return "badge text-bg-primary"
 			}
 		},
 		"urlq": func(s string) string { return url.QueryEscape(s) },
@@ -74,12 +99,12 @@ func New(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver) http.Ha
 		))
 	}
 	tpls := map[string]*template.Template{
-		"login.html":       parsePage("login.html"),
-		"issues.html":      parsePage("issues.html"),
-		"issue_detail.html":parsePage("issue_detail.html"),
-		"logs.html":        parsePage("logs.html"),
-		"dashboards.html":  parsePage("dashboards.html"),
-		"projects.html":    parsePage("projects.html"),
+		"login.html":        parsePage("login.html"),
+		"issues.html":       parsePage("issues.html"),
+		"issue_detail.html": parsePage("issue_detail.html"),
+		"logs.html":         parsePage("logs.html"),
+		"dashboards.html":   parsePage("dashboards.html"),
+		"projects.html":     parsePage("projects.html"),
 	}
 	return &UI{cfg: cfg, ch: ch, res: res, tpl: tpls}
 }
@@ -91,6 +116,7 @@ type baseData struct {
 	CurrentURI string
 	Now        time.Time
 	Error      string
+	PollSeconds int
 }
 
 type issuesData struct {
@@ -98,6 +124,8 @@ type issuesData struct {
 	Service string
 	Env     string
 	Status  string
+	From    string
+	To      string
 	Limit   int
 	Issues  []api.IssueSummary
 }
@@ -114,6 +142,10 @@ type issueDetailData struct {
 	baseData
 	IssueID      string
 	Issue        *api.IssueSummary
+	From         string
+	To           string
+	Limit        int
+	Back         string
 	Occurrences  []api.ErrorOccurrence
 	LatestFrames []frame
 }
@@ -129,6 +161,11 @@ type logsData struct {
 	From      string
 	To        string
 	Limit     int
+	Cursors   []string
+	NewerURL  string
+	OlderURL  string
+	HasNewer  bool
+	HasOlder  bool
 	Events    []api.LogEvent
 }
 
@@ -192,15 +229,6 @@ func (u *UI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (u *UI) authed(w http.ResponseWriter, r *http.Request) {
 	switch {
-	case r.URL.Path == "/ui/sse/issues":
-		u.sseIssues(w, r)
-		return
-	case r.URL.Path == "/ui/sse/logs":
-		u.sseLogs(w, r)
-		return
-	case r.URL.Path == "/ui/sse/dashboards":
-		u.sseDashboards(w, r)
-		return
 	case r.URL.Path == "/ui/issues":
 		u.issues(w, r)
 		return
@@ -502,11 +530,11 @@ func (u *UI) login(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = u.tpl["login.html"].ExecuteTemplate(w, "login.html", loginData{
 			baseData: baseData{
-				Title:   "Login",
-				Project: tenant.Project{}, // set by withProject on authed routes
+				Title:      "Login",
+				Project:    tenant.Project{}, // set by withProject on authed routes
 				CurrentURI: r.URL.RequestURI(),
-				Now:     time.Now().UTC(),
-				Error:   errMsg,
+				Now:        time.Now().UTC(),
+				Error:      errMsg,
 			},
 			UIAuthMode:   mode,
 			HasUISession: hasSess && claims.Sub != "",
@@ -571,9 +599,14 @@ func (u *UI) issues(w http.ResponseWriter, r *http.Request) {
 	service := q.Get("service")
 	env := q.Get("env")
 	status := strings.ToLower(strings.TrimSpace(q.Get("status")))
+	fromStr := q.Get("from")
+	toStr := q.Get("to")
 	limit := parseInt(q.Get("limit"), 50)
 
-	items, err := u.ch.ListIssues(r.Context(), p.ID, service, env, limit)
+	from := parseTimeUI(fromStr)
+	to := parseToExclusiveTimeUI(toStr)
+
+	items, err := u.ch.ListIssues(r.Context(), p.ID, service, env, from, to, limit)
 	if err != nil {
 		http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -589,17 +622,20 @@ func (u *UI) issues(w http.ResponseWriter, r *http.Request) {
 		items = filtered
 	}
 
-	_ = u.tpl["issues.html"].ExecuteTemplate(w, "issues.html", issuesData{
+	u.renderPageOrPartial(w, r, "issues.html", issuesData{
 		baseData: baseData{
-			Title:   "Issues",
-			Project: p,
-			Projects: u.topbarProjects(r.Context()),
+			Title:      "Issues",
+			Project:    p,
+			Projects:   u.topbarProjects(r.Context()),
 			CurrentURI: r.URL.RequestURI(),
-			Now:     time.Now().UTC(),
+			Now:        time.Now().UTC(),
+			PollSeconds: u.cfg.UIPollSeconds,
 		},
 		Service: service,
 		Env:     env,
 		Status:  status,
+		From:    fromStr,
+		To:      toStr,
 		Limit:   limit,
 		Issues:  items,
 	})
@@ -615,8 +651,26 @@ func (u *UI) issueDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	occLimit := parseInt(r.URL.Query().Get("limit"), 50)
-	occs, err := u.ch.ListIssueOccurrences(r.Context(), p.ID, issueID, occLimit)
+	qp := r.URL.Query()
+	occLimit := parseInt(qp.Get("limit"), 50)
+	fromStr := qp.Get("from")
+	toStr := qp.Get("to")
+	back := safeNextUI(qp.Get("back"))
+
+	from := parseTimeUI(fromStr)
+	to := parseToExclusiveTimeUI(toStr)
+
+	summary, ok, err := u.ch.GetIssueSummary(r.Context(), p.ID, issueID)
+	if err != nil {
+		http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var issue *api.IssueSummary
+	if ok {
+		issue = &summary
+	}
+
+	occs, err := u.ch.ListIssueOccurrences(r.Context(), p.ID, issueID, from, to, occLimit)
 	if err != nil {
 		http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -627,16 +681,21 @@ func (u *UI) issueDetail(w http.ResponseWriter, r *http.Request) {
 		latestFrames = framesFromOccurrence(occs[0])
 	}
 
-	_ = u.tpl["issue_detail.html"].ExecuteTemplate(w, "issue_detail.html", issueDetailData{
+	u.renderPageOrPartial(w, r, "issue_detail.html", issueDetailData{
 		baseData: baseData{
-			Title:   fmt.Sprintf("Issue %s", issueID),
-			Project: p,
-			Projects: u.topbarProjects(r.Context()),
+			Title:      fmt.Sprintf("Issue %s", issueID),
+			Project:    p,
+			Projects:   u.topbarProjects(r.Context()),
 			CurrentURI: r.URL.RequestURI(),
-			Now:     time.Now().UTC(),
+			Now:        time.Now().UTC(),
+			PollSeconds: u.cfg.UIPollSeconds,
 		},
 		IssueID:      issueID,
-		Issue:        nil, // optional; detail page is occurrence-driven for now
+		Issue:        issue,
+		From:         fromStr,
+		To:           toStr,
+		Limit:        occLimit,
+		Back:         back,
 		Occurrences:  occs,
 		LatestFrames: latestFrames,
 	})
@@ -648,7 +707,7 @@ func (u *UI) logs(w http.ResponseWriter, r *http.Request) {
 
 	service := qp.Get("service")
 	env := qp.Get("env")
-	level := qp.Get("level")
+	level := strings.TrimSpace(qp.Get("level"))
 	search := qp.Get("q")
 	traceID := qp.Get("trace_id")
 	requestID := qp.Get("request_id")
@@ -659,19 +718,76 @@ func (u *UI) logs(w http.ResponseWriter, r *http.Request) {
 	from := parseTimeUI(fromStr)
 	to := parseTimeUI(toStr)
 
-	events, err := u.ch.ListLogs(r.Context(), p.ID, service, env, level, search, traceID, requestID, from, to, limit)
+	// Cursor pagination:
+	// - URL may contain a stack of `cursor` query params; each cursor is a timestamp boundary (exclusive upper bound).
+	// - The "current page" uses the *last* cursor as its effective `to`.
+	// - "Older" appends the oldest timestamp from the current page.
+	// - "Newer" pops one cursor from the stack.
+	cursors := make([]string, 0, len(qp["cursor"]))
+	for _, c := range qp["cursor"] {
+		c = strings.TrimSpace(c)
+		if c != "" {
+			cursors = append(cursors, c)
+		}
+	}
+	if len(cursors) > 0 {
+		if t := parseTimeUI(cursors[len(cursors)-1]); !t.IsZero() {
+			to = t
+		}
+	}
+
+	fetchLimit := limit
+	if fetchLimit < 500 {
+		fetchLimit = limit + 1
+	}
+
+	events, err := u.ch.ListLogs(r.Context(), p.ID, service, env, level, search, traceID, requestID, from, to, fetchLimit)
 	if err != nil {
 		http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	_ = u.tpl["logs.html"].ExecuteTemplate(w, "logs.html", logsData{
+	hasOlder := false
+	if len(events) > limit {
+		hasOlder = true
+		events = events[:limit]
+	} else if fetchLimit == limit && limit >= 500 && len(events) == limit {
+		// Best-effort when limit is maxed and we can't ask for limit+1.
+		hasOlder = true
+	}
+	hasNewer := len(cursors) > 0
+
+	cloneWithCursors := func(newCursors []string) string {
+		q := r.URL.Query()
+		q.Del("cursor")
+		for _, c := range newCursors {
+			q.Add("cursor", c)
+		}
+		u2 := *r.URL
+		u2.RawQuery = q.Encode()
+		return u2.String()
+	}
+
+	newerURL := ""
+	if hasNewer {
+		newerURL = cloneWithCursors(cursors[:len(cursors)-1])
+	}
+	olderURL := ""
+	if len(events) > 0 {
+		// Oldest event is the last row (ORDER BY ts DESC).
+		oldest := events[len(events)-1].TS.UTC()
+		olderCursors := append(append([]string{}, cursors...), strconv.FormatInt(oldest.UnixMilli(), 10))
+		olderURL = cloneWithCursors(olderCursors)
+	}
+
+	u.renderPageOrPartial(w, r, "logs.html", logsData{
 		baseData: baseData{
-			Title:   "Logs",
-			Project: p,
-			Projects: u.topbarProjects(r.Context()),
+			Title:      "Logs",
+			Project:    p,
+			Projects:   u.topbarProjects(r.Context()),
 			CurrentURI: r.URL.RequestURI(),
-			Now:     time.Now().UTC(),
+			Now:        time.Now().UTC(),
+			PollSeconds: u.cfg.UIPollSeconds,
 		},
 		Service:   service,
 		Env:       env,
@@ -682,6 +798,11 @@ func (u *UI) logs(w http.ResponseWriter, r *http.Request) {
 		From:      fromStr,
 		To:        toStr,
 		Limit:     limit,
+		Cursors:   cursors,
+		NewerURL:  newerURL,
+		OlderURL:  olderURL,
+		HasNewer:  hasNewer,
+		HasOlder:  hasOlder,
 		Events:    events,
 	})
 }
@@ -707,13 +828,14 @@ func (u *UI) dashboards(w http.ResponseWriter, r *http.Request) {
 
 	svg := renderTrendSVG(pts, 820, 180)
 
-	_ = u.tpl["dashboards.html"].ExecuteTemplate(w, "dashboards.html", dashboardsData{
+	u.renderPageOrPartial(w, r, "dashboards.html", dashboardsData{
 		baseData: baseData{
-			Title:   "Dashboards",
-			Project: p,
-			Projects: u.topbarProjects(r.Context()),
+			Title:      "Dashboards",
+			Project:    p,
+			Projects:   u.topbarProjects(r.Context()),
 			CurrentURI: r.URL.RequestURI(),
-			Now:     time.Now().UTC(),
+			Now:        time.Now().UTC(),
+			PollSeconds: u.cfg.UIPollSeconds,
 		},
 		Service: service,
 		Env:     env,
@@ -741,8 +863,11 @@ func parseTimeUI(s string) time.Time {
 	if s == "" {
 		return time.Time{}
 	}
-	// datetime-local (e.g. 2025-12-13T10:15)
+	// datetime-local (e.g. 2025-12-13T10:15 or 2025-12-13T10:15:30)
 	if t, err := time.Parse("2006-01-02T15:04", s); err == nil {
+		return t.UTC()
+	}
+	if t, err := time.Parse("2006-01-02T15:04:05", s); err == nil {
 		return t.UTC()
 	}
 	// unix seconds/millis
@@ -760,6 +885,22 @@ func parseTimeUI(s string) time.Time {
 		return t.UTC()
 	}
 	return time.Time{}
+}
+
+// parseToExclusiveTimeUI parses the UI time and normalizes it for use as an exclusive upper bound.
+// For datetime-local inputs without seconds (minute precision), users typically expect "to" to include
+// the full minute; we convert it to [to, to+1m) for queries that use "< to".
+func parseToExclusiveTimeUI(s string) time.Time {
+	t := parseTimeUI(s)
+	if t.IsZero() {
+		return t
+	}
+	raw := strings.TrimSpace(s)
+	// datetime-local minute precision: "2006-01-02T15:04" (len=16, exactly one colon)
+	if len(raw) == len("2006-01-02T15:04") && strings.Count(raw, ":") == 1 {
+		return t.Add(time.Minute)
+	}
+	return t
 }
 
 func framesFromOccurrence(occ api.ErrorOccurrence) []frame {
@@ -855,5 +996,3 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
-
-

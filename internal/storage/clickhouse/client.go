@@ -381,7 +381,85 @@ type issueSummaryRow struct {
 	TopFunction      string    `ch:"top_frame_function"`
 }
 
-func (c *Client) ListIssues(ctx context.Context, projectID, service, env string, limit int) ([]api.IssueSummary, error) {
+func (c *Client) GetIssueSummary(ctx context.Context, projectID, issueID string) (api.IssueSummary, bool, error) {
+	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(issueID) == "" {
+		return api.IssueSummary{}, false, errors.New("missing project_id/issue_id")
+	}
+
+	q := `
+		SELECT
+			s.issue_id,
+			s.service,
+			s.env,
+			s.project_id,
+			s.title,
+			coalesce(st.status, 'open') as status,
+			coalesce(st.updated_at, toDateTime64(0, 3, 'UTC')) as status_updated_at,
+			s.first_seen,
+			s.last_seen,
+			s.occurrence_count,
+			s.affected_users,
+			s.exception_type,
+			s.stack_fingerprint,
+			s.top_frame_filename,
+			s.top_frame_lineno,
+			s.top_frame_function
+		FROM issues_stats s
+		LEFT JOIN (
+			SELECT
+				project_id, service, env, issue_id,
+				argMax(status, ist.updated_at) as status,
+				max(ist.updated_at) as updated_at
+			FROM issues_state AS ist
+			GROUP BY project_id, service, env, issue_id
+		) st
+		ON st.project_id = s.project_id
+		AND st.service = s.service
+		AND st.env = s.env
+		AND st.issue_id = s.issue_id
+		WHERE s.project_id = ?
+		AND s.issue_id = ?
+		ORDER BY s.last_seen DESC
+		LIMIT 1
+	`
+
+	rows := make([]issueSummaryRow, 0, 1)
+	if err := c.conn.Select(ctx, &rows, q, projectID, issueID); err != nil {
+		return api.IssueSummary{}, false, err
+	}
+	if len(rows) == 0 {
+		return api.IssueSummary{}, false, nil
+	}
+
+	r := rows[0]
+	isRegressed := false
+	// Compute regression: if the issue is marked resolved but we have new occurrences after status_updated_at.
+	if strings.EqualFold(r.Status, "resolved") && r.LastSeen.After(r.StatusUpdatedAt) {
+		isRegressed = true
+	}
+
+	return api.IssueSummary{
+		IssueID:          r.IssueID,
+		Service:          r.Service,
+		Env:              r.Env,
+		ProjectID:        r.ProjectID,
+		Title:            r.Title,
+		Status:           r.Status,
+		IsRegressed:      isRegressed,
+		StatusUpdatedAt:  r.StatusUpdatedAt,
+		FirstSeen:        r.FirstSeen,
+		LastSeen:         r.LastSeen,
+		OccurrenceCount:  r.OccurrenceCount,
+		AffectedUsers:    r.AffectedUsers,
+		ExceptionType:    r.ExceptionType,
+		TopFilename:      r.TopFilename,
+		TopLineno:        r.TopLineno,
+		TopFunction:      r.TopFunction,
+		StackFingerprint: r.StackFingerprint,
+	}, true, nil
+}
+
+func (c *Client) ListIssues(ctx context.Context, projectID, service, env string, from, to time.Time, limit int) ([]api.IssueSummary, error) {
 	if strings.TrimSpace(projectID) == "" {
 		return nil, errors.New("missing project_id")
 	}
@@ -427,7 +505,7 @@ func (c *Client) ListIssues(ctx context.Context, projectID, service, env string,
 	`
 
 	rows := make([]issueSummaryRow, 0, limit)
-	args := make([]any, 0, 4)
+	args := make([]any, 0, 6)
 	args = append(args, projectID)
 	if service != "" {
 		q += " AND s.service = ?\n"
@@ -436,6 +514,14 @@ func (c *Client) ListIssues(ctx context.Context, projectID, service, env string,
 	if env != "" {
 		q += " AND s.env = ?\n"
 		args = append(args, env)
+	}
+	if !from.IsZero() {
+		q += " AND s.last_seen >= ?\n"
+		args = append(args, from.UTC())
+	}
+	if !to.IsZero() {
+		q += " AND s.last_seen < ?\n"
+		args = append(args, to.UTC())
 	}
 	q += " ORDER BY s.last_seen DESC\n LIMIT ?\n"
 	args = append(args, limit)
@@ -530,7 +616,7 @@ type occurrenceRow struct {
 	Attrs            map[string]string `ch:"attrs"`
 }
 
-func (c *Client) ListIssueOccurrences(ctx context.Context, projectID, issueID string, limit int) ([]api.ErrorOccurrence, error) {
+func (c *Client) ListIssueOccurrences(ctx context.Context, projectID, issueID string, from, to time.Time, limit int) ([]api.ErrorOccurrence, error) {
 	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(issueID) == "" {
 		return nil, errors.New("missing project_id/issue_id")
 	}
@@ -552,11 +638,22 @@ func (c *Client) ListIssueOccurrences(ctx context.Context, projectID, issueID st
 		FROM error_occurrences
 		WHERE project_id = ?
 		  AND issue_id = ?
-		ORDER BY ts DESC
-		LIMIT ?
 	`
+	args := make([]any, 0, 5)
+	args = append(args, projectID, issueID)
+	if !from.IsZero() {
+		q += " AND ts >= ?\n"
+		args = append(args, from.UTC())
+	}
+	if !to.IsZero() {
+		q += " AND ts < ?\n"
+		args = append(args, to.UTC())
+	}
+	q += " ORDER BY ts DESC\n LIMIT ?\n"
+	args = append(args, limit)
+
 	rows := make([]occurrenceRow, 0, limit)
-	if err := c.conn.Select(ctx, &rows, q, projectID, issueID, limit); err != nil {
+	if err := c.conn.Select(ctx, &rows, q, args...); err != nil {
 		return nil, err
 	}
 

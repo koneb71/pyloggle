@@ -5,7 +5,12 @@ from flask import Flask
 from pyloggle import Client, ClientConfig
 from pyloggle.flask import init_app
 
+import logging
+
 app = Flask(__name__)
+
+# Ensure INFO-level application logs are emitted (Pyloggle's handler doesn't change levels).
+logging.basicConfig(level=logging.INFO)
 
 client = Client(
     ClientConfig(
@@ -20,8 +25,15 @@ client = Client(
 init_app(app, client)
 
 
+@app.get("/hello")
+def hello():
+    logging.getLogger(__name__).info("hello from flask")
+    return {"ok": True}
+
+
 @app.get("/boom")
 def boom():
+    logging.getLogger(__name__).warning("about to raise from flask")
     raise RuntimeError("boom from flask")
 
 

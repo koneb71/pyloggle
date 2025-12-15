@@ -5,7 +5,12 @@ from fastapi import FastAPI
 from pyloggle import Client, ClientConfig
 from pyloggle.fastapi import PyloggleFastAPIMiddleware
 
+import logging
+
 app = FastAPI()
+
+# Ensure INFO-level application logs are emitted (Pyloggle's handler doesn't change levels).
+logging.basicConfig(level=logging.INFO)
 
 client = Client(
     ClientConfig(
@@ -20,8 +25,15 @@ client = Client(
 app.add_middleware(PyloggleFastAPIMiddleware, client=client)
 
 
+@app.get("/hello")
+def hello():
+    logging.getLogger(__name__).info("hello from fastapi")
+    return {"ok": True}
+
+
 @app.get("/boom")
 def boom():
+    logging.getLogger(__name__).warning("about to raise from fastapi")
     raise RuntimeError("boom from fastapi")
 
 

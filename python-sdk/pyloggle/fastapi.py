@@ -16,16 +16,24 @@ class PyloggleFastAPIMiddleware:
         client: Client,
         *,
         user_id_getter: Optional[Callable[[dict], Optional[Any]]] = None,
+        capture_logs: bool = True,
     ):
         self.app = app
         self.client = client
         self.user_id_getter = user_id_getter
 
+        if capture_logs:
+            try:
+                from .logging_handler import install_pyloggle_logging
+
+                install_pyloggle_logging(client)
+            except Exception:
+                pass
+
     async def __call__(self, scope, receive, send):
         if scope.get("type") != "http":
             return await self.app(scope, receive, send)
 
-        rid = scope.get("headers", [])
         # ensure request id for correlation
         request_id = ensure_request_id()
         set_request_id(request_id)
@@ -39,7 +47,7 @@ class PyloggleFastAPIMiddleware:
                 # never break the app due to identity extraction
                 pass
 
-        start = time.time()
+        start = time.perf_counter()
         status_code = 500
 
         async def send_wrapper(message):
@@ -53,7 +61,7 @@ class PyloggleFastAPIMiddleware:
         except Exception as exc:
             route = _route_path(scope)
             method = scope.get("method", "")
-            headers = dict((k.decode("latin1"), v.decode("latin1")) for k, v in (scope.get("headers") or []))
+            headers = _headers_dict(scope)
             ua = headers.get("user-agent", "")
             remote = ""
             client_addr = scope.get("client")
@@ -61,6 +69,10 @@ class PyloggleFastAPIMiddleware:
                 remote = str(client_addr[0])
 
             user_id_hash = get_user_id_hash() or ""
+
+            attrs = {}
+            if bool(getattr(self.client.config, "emit_request_latency", False)):
+                attrs["latency_ms"] = str(int((time.perf_counter() - start) * 1000))
 
             self.client.emit(
                 {
@@ -78,12 +90,51 @@ class PyloggleFastAPIMiddleware:
                         "remote_addr": remote,
                     },
                     **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
-                    "attrs": {
-                        "latency_ms": str(int((time.time() - start) * 1000)),
-                    },
+                    "attrs": attrs,
                 }
             )
             raise
+        else:
+            # Successful request completion. Optionally emit a per-request timing event.
+            if not bool(getattr(self.client.config, "emit_request_latency", False)):
+                return
+
+            route = _route_path(scope)
+            method = scope.get("method", "")
+            headers = _headers_dict(scope)
+            ua = headers.get("user-agent", "")
+            remote = ""
+            client_addr = scope.get("client")
+            if client_addr and len(client_addr) >= 1:
+                remote = str(client_addr[0])
+
+            user_id_hash = get_user_id_hash() or ""
+            latency_ms = str(int((time.perf_counter() - start) * 1000))
+
+            level = "info"
+            if int(status_code) >= 500:
+                level = "error"
+            elif int(status_code) >= 400:
+                level = "warn"
+
+            self.client.emit(
+                {
+                    "ts": _iso_now(),
+                    "level": level,
+                    "logger": "pyloggle.fastapi",
+                    "message": "request",
+                    "request_id": request_id,
+                    "http": {
+                        "method": method,
+                        "route": route,
+                        "status": int(status_code),
+                        "user_agent": ua,
+                        "remote_addr": remote,
+                    },
+                    **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
+                    "attrs": {"latency_ms": latency_ms},
+                }
+            )
 
 
 def _route_path(scope) -> str:
@@ -97,5 +148,16 @@ def _route_path(scope) -> str:
 
 def _iso_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _headers_dict(scope) -> dict[str, str]:
+    # scope["headers"] is list[tuple[bytes, bytes]]
+    out: dict[str, str] = {}
+    for k, v in (scope.get("headers") or []):
+        try:
+            out[k.decode("latin1").lower()] = v.decode("latin1")
+        except Exception:
+            continue
+    return out
 
 

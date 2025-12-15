@@ -90,8 +90,10 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 		projectID := auth.ProjectIDFromContext(r.Context())
 		service := q.Get("service")
 		env := q.Get("env")
+		from := parseTime(q.Get("from"))
+		to := parseTime(q.Get("to"))
 		limit := parseInt(q.Get("limit"), 50)
-		items, err := ch.ListIssues(r.Context(), projectID, service, env, limit)
+		items, err := ch.ListIssues(r.Context(), projectID, service, env, from, to, limit)
 		if err != nil {
 			http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -108,7 +110,7 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 		projectID := auth.ProjectIDFromContext(r.Context())
 		service := q.Get("service")
 		env := q.Get("env")
-		level := q.Get("level")
+		level := strings.TrimSpace(q.Get("level"))
 		search := q.Get("q")
 		traceID := q.Get("trace_id")
 		requestID := q.Get("request_id")
@@ -135,8 +137,10 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 			http.Error(w, "missing issue_id", http.StatusBadRequest)
 			return
 		}
+		from := parseTime(q.Get("from"))
+		to := parseTime(q.Get("to"))
 		limit := parseInt(q.Get("limit"), 50)
-		items, err := ch.ListIssueOccurrences(r.Context(), projectID, issueID, limit)
+		items, err := ch.ListIssueOccurrences(r.Context(), projectID, issueID, from, to, limit)
 		if err != nil {
 			http.Error(w, "query failed: "+err.Error(), http.StatusInternalServerError)
 			return
