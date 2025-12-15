@@ -1,0 +1,64 @@
+{{define "issues.html"}}{{template "base" .}}{{end}}
+
+{{define "content"}}
+  <div class="panel" id="pyloggle-live-issues">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap">
+      <h1 class="h1">Issues</h1>
+      <div class="muted">showing {{len .Issues}} issues</div>
+    </div>
+
+    <form method="get" action="/ui/issues" class="row" style="margin-bottom:12px">
+      <input name="service" placeholder="service" value="{{.Service}}" />
+      <input name="env" placeholder="env" value="{{.Env}}" />
+      <select name="status">
+        <option value="" {{if eq .Status ""}}selected{{end}}>any status</option>
+        <option value="open" {{if eq .Status "open"}}selected{{end}}>open</option>
+        <option value="resolved" {{if eq .Status "resolved"}}selected{{end}}>resolved</option>
+        <option value="ignored" {{if eq .Status "ignored"}}selected{{end}}>ignored</option>
+      </select>
+      <input name="limit" style="width:110px" placeholder="limit" value="{{.Limit}}" />
+      <button type="submit">Filter</button>
+    </form>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Title</th>
+          <th>Service</th>
+          <th>Env</th>
+          <th>Last seen</th>
+          <th>Count</th>
+          <th>Affected users</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Issues}}
+          <tr>
+            <td><span class="{{badgeClass .Status .IsRegressed}}">{{if .IsRegressed}}regressed{{else}}{{.Status}}{{end}}</span></td>
+            <td>
+              <a href="/ui/issues/{{.IssueID}}">{{.Title}}</a>
+              <div class="muted" style="margin-top:4px">{{.ExceptionType}} · <span class="code">{{.TopFilename}}:{{.TopLineno}}</span></div>
+            </td>
+            <td class="code">{{.Service}}</td>
+            <td class="code">{{.Env}}</td>
+            <td class="code">{{formatTS .LastSeen}}</td>
+            <td class="code">{{.OccurrenceCount}}</td>
+            <td class="code">{{.AffectedUsers}}</td>
+          </tr>
+        {{end}}
+        {{if eq (len .Issues) 0}}
+          <tr><td colspan="7" class="muted">No issues found.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <script>
+    window.__pyloggleLive = {
+      sse: "/ui/sse/issues" + window.location.search,
+      target: "#pyloggle-live-issues"
+    };
+  </script>
+{{end}}
+
+

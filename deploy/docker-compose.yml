@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    container_name: pyloggle-clickhouse
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9000:9000"  # Native interface
+      - "9009:9009"  # Native interface with TLS
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./ddl:/docker-entrypoint-initdb.d
+    environment:
+      CLICKHOUSE_DB: pyloggle
+      CLICKHOUSE_USER: pyloggle
+      CLICKHOUSE_PASSWORD: pyloggle
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    healthcheck:
+      # Wait until schema is initialized (initdb scripts can fail/abort early, and "SELECT 1" is too weak).
+      test: ["CMD-SHELL", "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query \"SELECT count() FROM system.tables WHERE database='pyloggle' AND name='projects'\" | grep -q 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ingestd:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.ingestd
+    container_name: pyloggle-ingestd
+    ports:
+      - "8080:8080"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      # Force a single long-lived connection. On some Docker-for-Mac setups we've seen new native TCP
+      # connections intermittently stall, while an established connection stays healthy.
+      CLICKHOUSE_DSN: "clickhouse://pyloggle:pyloggle@clickhouse:9000/pyloggle?dial_timeout=30s&read_timeout=60s&compress=none&max_open_conns=1&max_idle_conns=1&conn_max_lifetime=0s"
+      INGEST_PORT: "8080"
+      # Local dev: disable UI auth (bypasses Azure session enforcement).
+      PYLOGGLE_UI_AUTH: "disabled"
+      INGEST_MAX_QUEUE_SIZE: "10000"
+      INGEST_BATCH_SIZE: "500"
+      INGEST_BATCH_TIMEOUT: "5s"
+    restart: unless-stopped
+
+volumes:
+  clickhouse_data:

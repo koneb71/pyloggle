@@ -1,0 +1,67 @@
+{{define "logs.html"}}{{template "base" .}}{{end}}
+
+{{define "content"}}
+  <div class="panel" id="pyloggle-live-logs">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap">
+      <h1 class="h1">Log search</h1>
+      <div class="muted">showing {{len .Events}} events</div>
+    </div>
+
+    <form method="get" action="/ui/logs" class="row" style="margin-bottom:12px">
+      <input name="service" placeholder="service" value="{{.Service}}" />
+      <input name="env" placeholder="env" value="{{.Env}}" />
+      <select name="level">
+        <option value="" {{if eq .Level ""}}selected{{end}}>any level</option>
+        <option value="error" {{if eq .Level "error"}}selected{{end}}>error</option>
+        <option value="warn" {{if eq .Level "warn"}}selected{{end}}>warn</option>
+        <option value="info" {{if eq .Level "info"}}selected{{end}}>info</option>
+        <option value="debug" {{if eq .Level "debug"}}selected{{end}}>debug</option>
+      </select>
+      <input name="q" placeholder="message contains…" value="{{.Q}}" style="min-width:260px" />
+      <input name="request_id" placeholder="request_id" value="{{.RequestID}}" />
+      <input name="trace_id" placeholder="trace_id" value="{{.TraceID}}" />
+      <input name="from" placeholder="from (RFC3339/unix/datetime-local)" value="{{.From}}" style="min-width:260px" />
+      <input name="to" placeholder="to (RFC3339/unix/datetime-local)" value="{{.To}}" style="min-width:260px" />
+      <input name="limit" style="width:110px" placeholder="limit" value="{{.Limit}}" />
+      <button type="submit">Search</button>
+    </form>
+
+    <table>
+      <thead>
+        <tr>
+          <th>TS</th>
+          <th>Level</th>
+          <th>Service</th>
+          <th>Env</th>
+          <th>Message</th>
+          <th>Req</th>
+          <th>Trace</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Events}}
+          <tr>
+            <td class="code">{{formatTS .TS}}</td>
+            <td class="code">{{.Level}}</td>
+            <td class="code">{{.Service}}</td>
+            <td class="code">{{.Env}}</td>
+            <td class="code">{{.Message}}</td>
+            <td class="code">{{.RequestID}}</td>
+            <td class="code">{{.TraceID}}</td>
+          </tr>
+        {{end}}
+        {{if eq (len .Events) 0}}
+          <tr><td colspan="7" class="muted">No events found.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <script>
+    window.__pyloggleLive = {
+      sse: "/ui/sse/logs" + window.location.search,
+      target: "#pyloggle-live-logs"
+    };
+  </script>
+{{end}}
+
+

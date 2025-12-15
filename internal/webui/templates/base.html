@@ -1,0 +1,142 @@
+{{define "base"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{.Title}} · Pyloggle</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#101a34; --panel2:#0f1730; --text:#e8eefc; --muted:#a9b6d9;
+      --border:rgba(255,255,255,.08); --link:#8ab4ff;
+      --green:#2dd4bf; --yellow:#fbbf24; --red:#fb7185; --gray:#94a3b8;
+    }
+    *{box-sizing:border-box}
+    body{margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:linear-gradient(180deg,var(--bg),#070b16); color:var(--text)}
+    a{color:var(--link); text-decoration:none}
+    a:hover{text-decoration:underline}
+    .wrap{max-width:1100px; margin:0 auto; padding:20px}
+    .topbar{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 16px; border:1px solid var(--border); background:rgba(16,26,52,.6); border-radius:14px; backdrop-filter: blur(8px)}
+    .brand{font-weight:700; letter-spacing:.2px}
+    .nav{display:flex; gap:12px; align-items:center; flex-wrap:wrap}
+    .pill{padding:6px 10px; border:1px solid var(--border); border-radius:999px; background:rgba(255,255,255,.04)}
+    .content{margin-top:16px}
+    .panel{border:1px solid var(--border); background:rgba(16,26,52,.55); border-radius:14px; padding:16px}
+    .panel + .panel{margin-top:14px}
+    .muted{color:var(--muted)}
+    .h1{font-size:18px; margin:0 0 12px}
+    .row{display:flex; gap:10px; flex-wrap:wrap}
+    input, select{padding:9px 10px; border-radius:10px; border:1px solid var(--border); background:rgba(15,23,48,.85); color:var(--text); outline:none}
+    input::placeholder{color:rgba(169,182,217,.65)}
+    button{padding:9px 12px; border-radius:10px; border:1px solid var(--border); background:rgba(255,255,255,.06); color:var(--text); cursor:pointer}
+    button:hover{background:rgba(255,255,255,.10)}
+    table{width:100%; border-collapse:collapse}
+    th, td{padding:10px 8px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top}
+    th{color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.06em}
+    .badge{display:inline-block; padding:3px 8px; border-radius:999px; font-size:12px; border:1px solid var(--border)}
+    .badge-open{background:rgba(251,113,133,.15); color:var(--red)}
+    .badge-resolved{background:rgba(45,212,191,.14); color:var(--green)}
+    .badge-ignored{background:rgba(148,163,184,.14); color:var(--gray)}
+    .badge-regressed{background:rgba(251,191,36,.16); color:var(--yellow)}
+    .code{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size:12px; white-space:pre-wrap}
+    .stack{border:1px solid var(--border); background:rgba(7,11,22,.6); border-radius:12px; overflow:hidden}
+    .frame{padding:10px 12px; border-bottom:1px solid var(--border)}
+    .frame:last-child{border-bottom:0}
+    .frame.inapp{background:rgba(138,180,255,.12)}
+    .frame .loc{font-weight:600}
+    .chart-bg{fill:rgba(7,11,22,.65); stroke:rgba(255,255,255,.06); stroke-width:1}
+    .chart-line{stroke:rgba(138,180,255,.95); stroke-width:2.2}
+    .chart-label{fill:rgba(169,182,217,.8); font-size:12px}
+    .err{padding:10px 12px; border:1px solid rgba(251,113,133,.35); background:rgba(251,113,133,.12); border-radius:12px; color:var(--text)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand"><a href="/ui/issues">Pyloggle</a></div>
+      <div class="nav">
+        <a class="pill" href="/ui/issues">Issues</a>
+        <a class="pill" href="/ui/logs">Logs</a>
+        <a class="pill" href="/ui/dashboards">Dashboards</a>
+        <a class="pill" href="/ui/projects">Projects</a>
+        {{if gt (len .Projects) 0}}
+          <form method="post" action="/ui/select-project" style="display:flex; gap:8px; align-items:center; margin:0">
+            <input type="hidden" name="next" value="{{.CurrentURI}}" />
+            <select name="project_id" onchange="this.form.submit()">
+              <option value="" {{if eq .Project.ID ""}}selected{{end}}>(select project)</option>
+              {{range .Projects}}
+                <option value="{{.ID}}" {{if eq $.Project.ID .ID}}selected{{end}}>{{.ID}}{{if .Name}} — {{.Name}}{{end}}</option>
+              {{end}}
+            </select>
+          </form>
+        {{else}}
+          {{if .Project.ID}}
+            <span class="pill muted">project: {{.Project.ID}}{{if .Project.Name}} ({{.Project.Name}}){{end}}</span>
+          {{else}}
+            <a class="pill muted" href="/ui/login">project: (none)</a>
+          {{end}}
+        {{end}}
+        <a class="pill" href="/ui/logout">Logout</a>
+      </div>
+    </div>
+
+    <div class="content">
+      {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+      {{template "content" .}}
+    </div>
+
+    <div class="muted" style="margin-top:16px; font-size:12px">server time: {{formatTS .Now}}</div>
+  </div>
+
+  <script>
+    (function () {
+      var cfg = window.__pyloggleLive;
+      if (!cfg || !cfg.sse || !cfg.target) return;
+      if (!window.EventSource) return;
+
+      var targetSel = cfg.target;
+      var refreshInFlight = false;
+      var refreshQueued = false;
+
+      function doRefresh() {
+        if (refreshInFlight) {
+          refreshQueued = true;
+          return;
+        }
+        refreshInFlight = true;
+        fetch(window.location.href, { headers: { "X-Requested-With": "pyloggle-sse" } })
+          .then(function (r) { return r.text(); })
+          .then(function (html) {
+            var doc = new DOMParser().parseFromString(html, "text/html");
+            var nextEl = doc.querySelector(targetSel);
+            var curEl = document.querySelector(targetSel);
+            if (nextEl && curEl) curEl.replaceWith(nextEl);
+          })
+          .catch(function () { /* ignore */ })
+          .finally(function () {
+            refreshInFlight = false;
+            if (refreshQueued) {
+              refreshQueued = false;
+              doRefresh();
+            }
+          });
+      }
+
+      function connect() {
+        var es = new EventSource(cfg.sse, { withCredentials: true });
+        es.addEventListener("update", function () { doRefresh(); });
+        es.addEventListener("hello", function () { /* connected */ });
+        es.onerror = function () {
+          try { es.close(); } catch (e) {}
+          setTimeout(connect, 1500);
+        };
+      }
+
+      connect();
+    })();
+  </script>
+</body>
+</html>
+{{end}}
+
+

@@ -1,0 +1,33 @@
+name: run-tests-head
+
+permissions: write-all
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+  pull_request:
+    types: [opened, labeled, synchronize, reopened]
+
+jobs:
+  test-ch-head:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'tests:run-head'))
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      max-parallel: 1
+      matrix:
+        go:
+          - "1.23"
+    steps:
+      - uses: actions/checkout@main
+
+      - name: Install Go ${{ matrix.go }}
+        uses: actions/setup-go@v2.1.5
+        with:
+          stable: false
+          go-version: ${{ matrix.go }}
+
+      - name: Run tests
+        run: |
+          CLICKHOUSE_VERSION=head make test

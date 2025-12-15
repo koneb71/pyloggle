@@ -1,0 +1,33 @@
+{{define "dashboards.html"}}{{template "base" .}}{{end}}
+
+{{define "content"}}
+  <div class="panel" id="pyloggle-live-dashboards">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap">
+      <h1 class="h1">Dashboards</h1>
+      <div class="muted">error trend</div>
+    </div>
+
+    <form method="get" action="/ui/dashboards" class="row" style="margin-bottom:12px">
+      <input name="service" placeholder="service" value="{{.Service}}" />
+      <input name="env" placeholder="env" value="{{.Env}}" />
+      <input name="from" placeholder="from (RFC3339/unix/datetime-local)" value="{{.From}}" style="min-width:260px" />
+      <input name="to" placeholder="to (RFC3339/unix/datetime-local)" value="{{.To}}" style="min-width:260px" />
+      <input name="bucket_seconds" placeholder="bucket seconds" value="{{.Bucket}}" style="width:150px" />
+      <button type="submit">Update</button>
+    </form>
+
+    <div class="panel" style="background:rgba(16,26,52,.35)">
+      {{.SVG}}
+    </div>
+
+    <div class="muted" style="margin-top:10px">Tip: leave from/to empty for default (last ~1h).</div>
+  </div>
+  <script>
+    window.__pyloggleLive = {
+      sse: "/ui/sse/dashboards" + window.location.search,
+      target: "#pyloggle-live-dashboards"
+    };
+  </script>
+{{end}}
+
+

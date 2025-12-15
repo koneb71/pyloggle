@@ -1,0 +1,26 @@
+{{define "login.html"}}{{template "base" .}}{{end}}
+
+{{define "content"}}
+  <div class="panel">
+    <h1 class="h1">Login</h1>
+    {{if eq .UIAuthMode "azure"}}
+      {{if .HasUISession}}
+        <div class="muted" style="margin-bottom:10px">You’re signed in. Paste a project API key to select a project (stored in an HttpOnly cookie). If you configured a default project, you may not need this.</div>
+        <form method="post" action="/ui/login" class="row">
+          <input name="api_key" placeholder="Project API key" style="min-width:360px" />
+          <button type="submit">Save</button>
+        </form>
+      {{else}}
+        <div class="muted">Redirecting you to Microsoft sign-in…</div>
+      {{end}}
+    {{else}}
+      <div class="muted" style="margin-bottom:10px">Paste a project API key (sent when you create a project). It will be stored in an HttpOnly cookie.</div>
+      <form method="post" action="/ui/login" class="row">
+        <input name="api_key" placeholder="Project API key" style="min-width:360px" />
+        <button type="submit">Save</button>
+      </form>
+    {{end}}
+  </div>
+{{end}}
+
+

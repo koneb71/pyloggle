@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyloggle"
+version = "0.1.0"
+description = "Lightweight log + error tracking SDK for Pyloggle"
+requires-python = ">=3.9"
+authors = [{name = "Pyloggle"}]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+

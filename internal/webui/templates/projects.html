@@ -1,0 +1,93 @@
+{{define "projects.html"}}{{template "base" .}}{{end}}
+
+{{define "content"}}
+  {{if .Flash}}
+    <div class="panel">
+      <h1 class="h1">API key {{if eq .Flash.Action "rotated"}}rotated{{else}}created{{end}} (shown once)</h1>
+      <div class="muted" style="margin-bottom:10px">
+        Copy and store this API key now. It will not be shown again.
+      </div>
+      <div class="row" style="align-items:center">
+        <div class="pill muted">project: {{.Flash.ProjectID}}</div>
+      </div>
+      <div class="panel" style="margin-top:12px">
+        <div class="muted" style="margin-bottom:6px">API key</div>
+        <div class="code">{{.Flash.APIKey}}</div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <form method="post" action="/ui/login">
+          <input type="hidden" name="api_key" value="{{.Flash.APIKey}}" />
+          <button type="submit">Use this key in UI</button>
+        </form>
+      </div>
+    </div>
+  {{end}}
+
+  <div class="panel">
+    <h1 class="h1">Create project</h1>
+    <form method="post" action="/ui/projects/create" class="row">
+      <input name="id" placeholder="id (required)" style="min-width:220px" />
+      <input name="name" placeholder="name (required)" style="min-width:240px" />
+      <input name="description" placeholder="description" style="min-width:320px" />
+      <input name="max_events_per_second" placeholder="max events/sec" style="width:160px" />
+      <input name="max_storage_gb" placeholder="max storage (GB)" style="width:160px" />
+      <label class="pill muted" style="display:flex; gap:8px; align-items:center">
+        <input type="checkbox" name="set_active" value="true" />
+        set active in UI
+      </label>
+      <button type="submit">Create</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <h1 class="h1">Projects</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name / Description</th>
+          <th>Limits</th>
+          <th>API key</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Projects}}
+          <tr>
+            <td><div class="code">{{.ID}}</div></td>
+            <td>
+              <form method="post" action="/ui/projects/update" class="row" style="gap:8px">
+                <input type="hidden" name="id" value="{{.ID}}" />
+                <input name="name" value="{{.Name}}" style="min-width:220px" />
+                <input name="description" value="{{.Description}}" placeholder="description" style="min-width:260px" />
+                <input name="max_events_per_second" value="{{.MaxEventsPerSec}}" style="width:140px" />
+                <input name="max_storage_gb" value="{{.MaxStorageGB}}" style="width:140px" />
+                <button type="submit">Save</button>
+              </form>
+            </td>
+            <td class="muted">
+              <div>eps: {{.MaxEventsPerSec}}</div>
+              <div>gb: {{.MaxStorageGB}}</div>
+            </td>
+            <td class="muted">
+              <div>hash: <span class="code">{{short .APIKeyHash 12}}</span>…</div>
+              <div>created: {{formatTS .APIKeyCreatedAt}}</div>
+            </td>
+            <td>
+              <form method="post" action="/ui/projects/rotate-key" class="row" style="gap:8px">
+                <input type="hidden" name="id" value="{{.ID}}" />
+                <label class="pill muted" style="display:flex; gap:8px; align-items:center">
+                  <input type="checkbox" name="set_active" value="true" />
+                  set active in UI
+                </label>
+                <button type="submit">Rotate key</button>
+              </form>
+            </td>
+          </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+{{end}}
+
+

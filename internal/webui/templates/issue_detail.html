@@ -1,0 +1,77 @@
+{{define "issue_detail.html"}}{{template "base" .}}{{end}}
+
+{{define "content"}}
+  <div class="panel">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap">
+      <h1 class="h1">Issue <span class="code">{{.IssueID}}</span></h1>
+      <a class="pill" href="/ui/issues">← Back to issues</a>
+    </div>
+
+    {{if gt (len .Occurrences) 0}}
+      <div class="muted" style="margin-top:6px">
+        latest: <span class="code">{{formatTS (index .Occurrences 0).TS}}</span>
+        {{with (index .Occurrences 0)}} · {{.HTTPMethod}} {{.HTTPRoute}} · status {{.HTTPStatus}}{{end}}
+      </div>
+    {{end}}
+  </div>
+
+  <div class="panel">
+    <h1 class="h1">Latest stack trace</h1>
+    {{if eq (len .LatestFrames) 0}}
+      <div class="muted">No stack frames captured.</div>
+    {{else}}
+      <div class="stack">
+        {{range .LatestFrames}}
+          <div class="frame {{if .IsInApp}}inapp{{end}}">
+            <div class="loc code">{{.Filename}}:{{.Lineno}} · {{.Function}}</div>
+            {{if (trim .Context)}}<div class="code muted" style="margin-top:6px">{{.Context}}</div>{{end}}
+          </div>
+        {{end}}
+      </div>
+      <div class="muted" style="margin-top:8px">Highlighted rows are <b>in-app</b> frames.</div>
+    {{end}}
+  </div>
+
+  <div class="panel">
+    <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap">
+      <h1 class="h1">Recent occurrences</h1>
+      <div class="muted">showing {{len .Occurrences}}</div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>TS</th>
+          <th>Route</th>
+          <th>Req</th>
+          <th>Trace</th>
+          <th>User</th>
+          <th>Message</th>
+          <th>Logs</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Occurrences}}
+          <tr>
+            <td class="code">{{formatTS .TS}}</td>
+            <td class="code">{{.HTTPMethod}} {{.HTTPRoute}} ({{.HTTPStatus}})</td>
+            <td class="code">{{.RequestID}}</td>
+            <td class="code">{{.TraceID}}</td>
+            <td class="code">{{.UserIDHash}}</td>
+            <td>
+              <div class="code">{{.ExceptionType}}</div>
+              <div class="muted code" style="margin-top:6px">{{.ExceptionMessage}}</div>
+            </td>
+            <td>
+              {{if .RequestID}}<a href="/ui/logs?request_id={{urlq .RequestID}}&limit=200">search</a>{{end}}
+            </td>
+          </tr>
+        {{end}}
+        {{if eq (len .Occurrences) 0}}
+          <tr><td colspan="7" class="muted">No occurrences found.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+{{end}}
+
+
