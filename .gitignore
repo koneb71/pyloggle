@@ -14,6 +14,12 @@
 go.work
 go.work.sum
 
+# Go module/download cache if GOPATH/GOMODCACHE is set inside the repo
+.go/
+go/pkg/mod/
+pkg/mod/
+.cache/go-build/
+
 # Common Go build output dirs
 bin/
 dist/
