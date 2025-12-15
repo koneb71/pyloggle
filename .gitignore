@@ -19,6 +19,9 @@ go.work.sum
 go/pkg/mod/
 pkg/mod/
 .cache/go-build/
+.gomodcache/
+.gocache/
+.gopath/
 
 # Common Go build output dirs
 bin/
