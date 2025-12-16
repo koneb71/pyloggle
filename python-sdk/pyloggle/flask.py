@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Optional, Callable, Any
 
@@ -7,6 +8,115 @@ from .client import Client
 from .context import ensure_request_id, set_request_id, set_user_id_hash, get_user_id_hash
 from .stack import exception_to_payload
 from .user import hash_user_id
+
+
+def _pyloggle_get_full_url(request) -> str:
+    """
+    Best-effort full URL for the current request, including query string.
+    """
+    try:
+        url = getattr(request, "url", "") or ""
+        return str(url)
+    except Exception:
+        return ""
+
+
+def _pyloggle_get_server_addr(request) -> str:
+    """
+    Best-effort server address (host[:port]) for the current Flask/Werkzeug request.
+
+    Prefer WSGI environ server fields; fall back to request.host.
+    """
+    try:
+        env = getattr(request, "environ", None) or {}
+    except Exception:
+        env = {}
+
+    name = ""
+    port = None
+    try:
+        name = str(env.get("SERVER_NAME") or env.get("SERVER_ADDR") or "")
+    except Exception:
+        name = ""
+    try:
+        port = env.get("SERVER_PORT")
+    except Exception:
+        port = None
+
+    def _wrap_ipv6(h: str) -> str:
+        if ":" in h and not h.startswith("[") and not h.endswith("]"):
+            return f"[{h}]"
+        return h
+
+    if name:
+        if port is None:
+            return name
+        try:
+            port_i = int(port)
+        except Exception:
+            return name
+        return f"{_wrap_ipv6(name)}:{port_i}"
+
+    # Fallback: Werkzeug's host string (may come from Host header).
+    try:
+        return str(getattr(request, "host", "") or "")
+    except Exception:
+        return ""
+
+
+def _pyloggle_capture_request_body(client: Client, request) -> tuple[object | None, bool]:
+    """
+    Capture request body/payload in a size-limited way. Returns (body, truncated).
+
+    - Only captures when client.config.emit_request_body is truthy.
+    - Enforces client.config.max_request_body_bytes.
+    - Prefers JSON decoding when possible and when not truncated.
+    """
+    if not bool(getattr(client.config, "emit_request_body", False)):
+        return None, False
+
+    try:
+        max_bytes = int(getattr(client.config, "max_request_body_bytes", 4096) or 4096)
+    except Exception:
+        max_bytes = 4096
+    if max_bytes <= 0:
+        return None, False
+
+    try:
+        raw: bytes = request.get_data(cache=True, as_text=False) or b""
+    except Exception:
+        return None, False
+    if not raw:
+        return None, False
+
+    truncated = len(raw) > max_bytes
+    if truncated:
+        raw = raw[:max_bytes]
+
+    # Only attempt JSON decode when we have the complete payload (not truncated).
+    if not truncated:
+        try:
+            ct = (getattr(request, "mimetype", "") or "").lower()
+        except Exception:
+            ct = ""
+        looks_json = "json" in ct
+        if not looks_json:
+            try:
+                looks_json = raw.lstrip().startswith((b"{", b"["))
+            except Exception:
+                looks_json = False
+
+        if looks_json:
+            try:
+                return json.loads(raw.decode("utf-8")), False
+            except Exception:
+                pass
+
+    # Fallback: best-effort UTF-8 text.
+    try:
+        return raw.decode("utf-8", errors="replace"), truncated
+    except Exception:
+        return None, truncated
 
 
 def init_app(
@@ -76,6 +186,7 @@ def init_app(
             method = request.method
             ua = request.headers.get("User-Agent", "")
             remote = request.remote_addr or ""
+            server_addr = _pyloggle_get_server_addr(request)
             rid = ensure_request_id()
             user_id_hash = get_user_id_hash() or ""
 
@@ -91,6 +202,12 @@ def init_app(
             elif status >= 400:
                 level = "warn"
 
+            url = _pyloggle_get_full_url(request)
+            body, body_truncated = _pyloggle_capture_request_body(client, request)
+            attrs: dict[str, Any] = ({"latency_ms": latency_ms} if latency_ms is not None else {})
+            if body_truncated:
+                attrs["request_body_truncated"] = True
+
             client.emit(
                 {
                     "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -102,11 +219,14 @@ def init_app(
                         "method": method,
                         "route": route,
                         "status": status,
+                        "url": url,
                         "user_agent": ua,
                         "remote_addr": remote,
+                        "server_addr": server_addr,
+                        **({"body": body} if body is not None else {}),
                     },
                     **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
-                    "attrs": ({"latency_ms": latency_ms} if latency_ms is not None else {}),
+                    "attrs": attrs,
                 }
             )
         except Exception:
@@ -125,6 +245,7 @@ def init_app(
             method = request.method
             ua = request.headers.get("User-Agent", "")
             remote = request.remote_addr or ""
+            server_addr = _pyloggle_get_server_addr(request)
             rid = ensure_request_id()
             user_id_hash = get_user_id_hash() or ""
 
@@ -136,6 +257,11 @@ def init_app(
                         attrs["latency_ms"] = str(int((time.perf_counter() - start) * 1000))
                 except Exception:
                     pass
+
+            url = _pyloggle_get_full_url(request)
+            body, body_truncated = _pyloggle_capture_request_body(client, request)
+            if body_truncated:
+                attrs["request_body_truncated"] = True
 
             client.emit(
                 {
@@ -149,8 +275,11 @@ def init_app(
                         "method": method,
                         "route": route,
                         "status": 500,
+                        "url": url,
                         "user_agent": ua,
                         "remote_addr": remote,
+                        "server_addr": server_addr,
+                        **({"body": body} if body is not None else {}),
                     },
                     **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
                     "attrs": attrs,

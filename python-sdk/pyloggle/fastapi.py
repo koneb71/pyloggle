@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Callable, Optional, Any
 
@@ -34,6 +35,9 @@ class PyloggleFastAPIMiddleware:
         if scope.get("type") != "http":
             return await self.app(scope, receive, send)
 
+        url = _pyloggle_get_full_url(scope)
+        server_addr = _pyloggle_get_server_addr(scope)
+
         # ensure request id for correlation
         request_id = ensure_request_id()
         set_request_id(request_id)
@@ -50,6 +54,40 @@ class PyloggleFastAPIMiddleware:
         start = time.perf_counter()
         status_code = 500
 
+        # Optional request body capture: wrap receive to buffer while replaying messages unchanged.
+        body_buf: bytearray | None = None
+        body_truncated = False
+        max_body_bytes = 0
+        if bool(getattr(self.client.config, "emit_request_body", False)):
+            try:
+                max_body_bytes = int(getattr(self.client.config, "max_request_body_bytes", 4096) or 4096)
+            except Exception:
+                max_body_bytes = 4096
+            if max_body_bytes > 0:
+                body_buf = bytearray()
+
+                async def receive_wrapper():
+                    nonlocal body_truncated
+                    msg = await receive()
+                    if msg and msg.get("type") == "http.request" and body_buf is not None:
+                        b = msg.get("body") or b""
+                        if isinstance(b, bytearray):
+                            b = bytes(b)
+                        if isinstance(b, (bytes,)):
+                            if b:
+                                remaining = max(0, max_body_bytes - len(body_buf))
+                                if remaining > 0:
+                                    body_buf.extend(b[:remaining])
+                                if len(b) > remaining:
+                                    body_truncated = True
+                    return msg
+
+                receive_to_app = receive_wrapper
+            else:
+                receive_to_app = receive
+        else:
+            receive_to_app = receive
+
         async def send_wrapper(message):
             nonlocal status_code
             if message.get("type") == "http.response.start":
@@ -57,7 +95,7 @@ class PyloggleFastAPIMiddleware:
             await send(message)
 
         try:
-            await self.app(scope, receive, send_wrapper)
+            await self.app(scope, receive_to_app, send_wrapper)
         except Exception as exc:
             route = _route_path(scope)
             method = scope.get("method", "")
@@ -74,6 +112,14 @@ class PyloggleFastAPIMiddleware:
             if bool(getattr(self.client.config, "emit_request_latency", False)):
                 attrs["latency_ms"] = str(int((time.perf_counter() - start) * 1000))
 
+            body_obj = None
+            if body_buf is not None and len(body_buf) > 0:
+                body_obj, body_truncated2 = _pyloggle_decode_request_body(scope, bytes(body_buf), body_truncated)
+                if body_truncated2:
+                    body_truncated = True
+            if body_truncated:
+                attrs["request_body_truncated"] = True
+
             self.client.emit(
                 {
                     "ts": _iso_now(),
@@ -86,8 +132,11 @@ class PyloggleFastAPIMiddleware:
                         "method": method,
                         "route": route,
                         "status": 500,
+                        "url": url,
                         "user_agent": ua,
                         "remote_addr": remote,
+                        "server_addr": server_addr,
+                        **({"body": body_obj} if body_obj is not None else {}),
                     },
                     **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
                     "attrs": attrs,
@@ -117,6 +166,15 @@ class PyloggleFastAPIMiddleware:
             elif int(status_code) >= 400:
                 level = "warn"
 
+            attrs: dict[str, Any] = {"latency_ms": latency_ms}
+            body_obj = None
+            if body_buf is not None and len(body_buf) > 0:
+                body_obj, body_truncated2 = _pyloggle_decode_request_body(scope, bytes(body_buf), body_truncated)
+                if body_truncated2:
+                    body_truncated = True
+            if body_truncated:
+                attrs["request_body_truncated"] = True
+
             self.client.emit(
                 {
                     "ts": _iso_now(),
@@ -128,13 +186,134 @@ class PyloggleFastAPIMiddleware:
                         "method": method,
                         "route": route,
                         "status": int(status_code),
+                        "url": url,
                         "user_agent": ua,
                         "remote_addr": remote,
+                        "server_addr": server_addr,
+                        **({"body": body_obj} if body_obj is not None else {}),
                     },
                     **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
-                    "attrs": {"latency_ms": latency_ms},
+                    "attrs": attrs,
                 }
             )
+
+
+def _pyloggle_get_full_url(scope) -> str:
+    """
+    Best-effort full URL for the current request, including query string.
+    """
+    try:
+        scheme = str(scope.get("scheme") or "http")
+    except Exception:
+        scheme = "http"
+
+    headers = _headers_dict(scope)
+    host = headers.get("host", "")
+    if not host:
+        try:
+            server = scope.get("server") or ()
+            if server and len(server) >= 1:
+                host = str(server[0])
+                if len(server) >= 2 and server[1] is not None:
+                    host = f"{host}:{int(server[1])}"
+        except Exception:
+            host = ""
+
+    try:
+        path = str(scope.get("root_path") or "") + str(scope.get("path") or "")
+    except Exception:
+        path = str(scope.get("path") or "")
+
+    try:
+        qs = scope.get("query_string") or b""
+        if isinstance(qs, str):
+            qs_str = qs
+        else:
+            qs_str = bytes(qs).decode("latin1", errors="ignore")
+    except Exception:
+        qs_str = ""
+
+    if host:
+        base = f"{scheme}://{host}{path}"
+    else:
+        base = path
+    if qs_str:
+        return f"{base}?{qs_str}"
+    return base
+
+
+def _pyloggle_get_server_addr(scope) -> str:
+    """
+    Best-effort server address (host[:port]) for the current ASGI request.
+
+    Prefer scope["server"] (ASGI server endpoint) over Host header.
+    """
+    try:
+        server = scope.get("server") or ()
+        if not server or len(server) < 1:
+            return ""
+        host = server[0]
+        port = server[1] if len(server) >= 2 else None
+    except Exception:
+        return ""
+
+    try:
+        host_s = str(host)
+    except Exception:
+        host_s = ""
+    if not host_s:
+        return ""
+
+    # Wrap IPv6 literals when attaching a port.
+    def _wrap_ipv6(h: str) -> str:
+        if ":" in h and not h.startswith("[") and not h.endswith("]"):
+            return f"[{h}]"
+        return h
+
+    if port is None:
+        return host_s
+    try:
+        port_i = int(port)
+    except Exception:
+        return host_s
+    return f"{_wrap_ipv6(host_s)}:{port_i}"
+
+
+def _pyloggle_decode_request_body(scope, raw: bytes, truncated: bool) -> tuple[object | None, bool]:
+    """
+    Decode a request body captured from ASGI receive() buffers.
+
+    - Prefers JSON decoding when possible and when not truncated.
+    - Falls back to best-effort UTF-8 text.
+    """
+    if not raw:
+        return None, False
+
+    looks_json = False
+    if not truncated:
+        try:
+            headers = _headers_dict(scope)
+            ct = (headers.get("content-type", "") or "").lower()
+        except Exception:
+            ct = ""
+        if "json" in ct:
+            looks_json = True
+        else:
+            try:
+                looks_json = raw.lstrip().startswith((b"{", b"["))
+            except Exception:
+                looks_json = False
+
+        if looks_json:
+            try:
+                return json.loads(raw.decode("utf-8")), False
+            except Exception:
+                pass
+
+    try:
+        return raw.decode("utf-8", errors="replace"), truncated
+    except Exception:
+        return None, truncated
 
 
 def _route_path(scope) -> str:

@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS logs_raw (
     trace_id String, -- for distributed tracing
     span_id String,
     request_id String, -- correlates logs within a request
+    http_remote_addr String, -- end-user/client address (may be IP or hostname)
+    http_server_addr String, -- app/server address (may be IP or hostname)
     project_id String, -- multi-tenant support
     attrs Map(String, String), -- structured attributes (user_id, http_method, etc.)
 
@@ -64,6 +66,7 @@ CREATE TABLE IF NOT EXISTS error_occurrences (
     http_status UInt16,
     http_user_agent String,
     http_remote_addr String,
+    http_server_addr String,
 
     -- User impact (hashed to avoid PII)
     user_id_hash String, -- hash(user_id) for counting unique users affected

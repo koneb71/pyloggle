@@ -26,6 +26,12 @@ class ClientConfig:
     # Default is off to avoid extra noise/cost unless explicitly opted in.
     emit_request_latency: bool = False
 
+    # request body capture (opt-in; size-limited)
+    # When enabled, framework integrations may attach the incoming request body/payload
+    # to per-request events under event["http"]["body"].
+    emit_request_body: bool = False
+    max_request_body_bytes: int = 4096
+
     # user impact (hashed to avoid PII). If provided, used as an HMAC key when hashing user ids.
     user_id_salt: Optional[str] = None
 

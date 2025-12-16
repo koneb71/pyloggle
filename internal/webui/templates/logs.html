@@ -130,7 +130,32 @@
                   <td class="font-monospace small">{{.Level}}</td>
                   <td class="font-monospace small">{{.Service}}</td>
                   <td class="font-monospace small">{{.Env}}</td>
-                  <td class="font-monospace small">{{.Message}}</td>
+                  <td class="font-monospace small">
+                    <div>{{.Message}}</div>
+                    {{with .Attrs}}
+                      {{with index . "http.url"}}
+                        <div class="small text-secondary mt-1">
+                          URL: <span class="font-monospace">{{.}}</span>
+                        </div>
+                      {{end}}
+                      {{with index . "http.remote_addr"}}
+                        <div class="small text-secondary mt-1">
+                          Remote: <span class="font-monospace">{{.}}</span>
+                        </div>
+                      {{end}}
+                      {{with index . "http.server_addr"}}
+                        <div class="small text-secondary mt-1">
+                          Server: <span class="font-monospace">{{.}}</span>
+                        </div>
+                      {{end}}
+                      {{with index . "http.body"}}
+                        <details class="mt-1">
+                          <summary class="small text-secondary">Body</summary>
+                          <pre class="mb-0 mt-1 small text-secondary font-monospace">{{.}}</pre>
+                        </details>
+                      {{end}}
+                    {{end}}
+                  </td>
                   <td class="font-monospace small">{{.RequestID}}</td>
                   <td class="font-monospace small">{{.TraceID}}</td>
                 </tr>

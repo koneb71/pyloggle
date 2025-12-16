@@ -135,7 +135,32 @@
               {{range .Occurrences}}
                 <tr>
                   <td class="font-monospace small text-secondary">{{formatTS .TS}}</td>
-                  <td class="font-monospace small">{{.HTTPMethod}} {{.HTTPRoute}} ({{.HTTPStatus}})</td>
+                  <td class="font-monospace small">
+                    <div>{{.HTTPMethod}} {{.HTTPRoute}} ({{.HTTPStatus}})</div>
+                    {{with .Attrs}}
+                      {{with index . "http.url"}}
+                        <div class="small text-secondary mt-1">
+                          URL: <span class="font-monospace">{{.}}</span>
+                        </div>
+                      {{end}}
+                      {{with index . "http.remote_addr"}}
+                        <div class="small text-secondary mt-1">
+                          Remote: <span class="font-monospace">{{.}}</span>
+                        </div>
+                      {{end}}
+                      {{with index . "http.server_addr"}}
+                        <div class="small text-secondary mt-1">
+                          Server: <span class="font-monospace">{{.}}</span>
+                        </div>
+                      {{end}}
+                      {{with index . "http.body"}}
+                        <details class="mt-1">
+                          <summary class="small text-secondary">Body</summary>
+                          <pre class="mb-0 mt-1 small text-secondary font-monospace">{{.}}</pre>
+                        </details>
+                      {{end}}
+                    {{end}}
+                  </td>
                   <td class="font-monospace small">{{.RequestID}}</td>
                   <td class="font-monospace small">{{.TraceID}}</td>
                   <td class="font-monospace small">{{.UserIDHash}}</td>

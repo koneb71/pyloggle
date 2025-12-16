@@ -102,6 +102,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// skip invalid line, but continue
 			continue
 		}
+		// Normalize commonly used structured fields into attrs so downstream consumers (UI)
+		// can display them without needing new API fields.
+		if ev.HTTP != nil {
+			if ev.Attrs == nil {
+				ev.Attrs = make(map[string]string, 4)
+			}
+			if ev.HTTP.RemoteAddr != "" {
+				ev.Attrs["http.remote_addr"] = ev.HTTP.RemoteAddr
+			}
+			if ev.HTTP.ServerAddr != "" {
+				ev.Attrs["http.server_addr"] = ev.HTTP.ServerAddr
+			}
+		}
 		if ev.Timestamp.IsZero() {
 			ev.Timestamp = now
 		}
