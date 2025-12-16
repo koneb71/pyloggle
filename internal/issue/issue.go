@@ -30,6 +30,7 @@ type ErrorOccurrence struct {
 	HTTPStatus     uint16
 	HTTPUserAgent  string
 	HTTPRemoteAddr string
+	HTTPServerAddr string
 
 	UserIDHash string
 
@@ -63,6 +64,7 @@ func FromEvent(ev model.Event) ErrorOccurrence {
 		occ.HTTPStatus = ev.HTTP.Status
 		occ.HTTPUserAgent = ev.HTTP.UserAgent
 		occ.HTTPRemoteAddr = ev.HTTP.RemoteAddr
+		occ.HTTPServerAddr = ev.HTTP.ServerAddr
 	}
 	if ev.User != nil {
 		occ.UserIDHash = ev.User.IDHash

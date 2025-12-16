@@ -223,13 +223,20 @@ func (c *Client) flushLogs(events []model.Event) error {
 	batch, err := c.conn.PrepareBatch(ctx, `
 		INSERT INTO logs_raw (
 			ts, service, env, level, logger, message,
-			trace_id, span_id, request_id, project_id, attrs
+			trace_id, span_id, request_id, project_id,
+			http_remote_addr, http_server_addr,
+			attrs
 		)
 	`)
 	if err != nil {
 		return err
 	}
 	for _, ev := range events {
+		var httpRemoteAddr, httpServerAddr string
+		if ev.HTTP != nil {
+			httpRemoteAddr = ev.HTTP.RemoteAddr
+			httpServerAddr = ev.HTTP.ServerAddr
+		}
 		if err := batch.Append(
 			ev.Timestamp.UTC(),
 			ev.Service,
@@ -241,6 +248,8 @@ func (c *Client) flushLogs(events []model.Event) error {
 			ev.SpanID,
 			ev.RequestID,
 			ev.ProjectID,
+			httpRemoteAddr,
+			httpServerAddr,
 			ev.Attrs,
 		); err != nil {
 			_ = batch.Abort()
@@ -260,7 +269,7 @@ func (c *Client) flushErrors(occs []issue.ErrorOccurrence) error {
 			exception_type, exception_message, stack_fingerprint, title,
 			stack_frames,
 			trace_id, span_id, request_id,
-			http_method, http_route, http_status, http_user_agent, http_remote_addr,
+			http_method, http_route, http_status, http_user_agent, http_remote_addr, http_server_addr,
 			user_id_hash, attrs
 		)
 	`)
@@ -299,6 +308,7 @@ func (c *Client) flushErrors(occs []issue.ErrorOccurrence) error {
 			occ.HTTPStatus,
 			occ.HTTPUserAgent,
 			occ.HTTPRemoteAddr,
+			occ.HTTPServerAddr,
 			occ.UserIDHash,
 			occ.Attrs,
 		); err != nil {

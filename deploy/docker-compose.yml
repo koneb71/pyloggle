@@ -4,10 +4,6 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.3-alpine
     container_name: pyloggle-clickhouse
-    ports:
-      - "8123:8123"  # HTTP interface
-      - "9000:9000"  # Native interface
-      - "9009:9009"  # Native interface with TLS
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - ./ddl:/docker-entrypoint-initdb.d

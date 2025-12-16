@@ -45,6 +45,7 @@ type HTTPInfo struct {
 	Status     uint16 `json:"status"`
 	UserAgent  string `json:"user_agent"`
 	RemoteAddr string `json:"remote_addr"`
+	ServerAddr string `json:"server_addr"`
 }
 
 type UserInfo struct {
