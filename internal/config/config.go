@@ -46,11 +46,22 @@ type Config struct {
 	DefaultProjID     string
 
 	// Rate limiting (per project+service) and sampling (non-errors only).
-	RateLimitRPS   float64
-	RateLimitBurst float64
-	SampleDebug    float64
-	SampleInfo     float64
-	SampleWarn     float64
+	RateLimitRPS    float64
+	RateLimitBurst  float64
+	SampleDebug     float64
+	SampleInfo      float64
+	SampleWarn      float64
+	SampleByRequest bool // seed sampling by request_id so a kept request keeps all its lines
+
+	// Schema management and retention.
+	AutoMigrate         bool // apply embedded migrations at startup
+	MigrateRebuild      bool // v2 upgrade: rebuild event tables with daily partitions (copies the retention window)
+	RetentionLogsDays   int
+	RetentionErrorsDays int
+	RetentionStatsDays  int
+
+	// OTLP ingestion: store OK server spans as "request" log rows (off by default to limit volume).
+	OTLPStoreServerSpans bool
 
 	// Alerting (optional)
 	AlertingEnabled      bool
@@ -100,11 +111,20 @@ func FromEnv() Config {
 		DefaultSvc:        getenv("PYLOGGLE_DEFAULT_SERVICE", "unknown"),
 		DefaultProjID:     getenv("PYLOGGLE_DEFAULT_PROJECT_ID", "default"),
 
-		RateLimitRPS:   getenvFloat("INGEST_RATE_LIMIT_RPS", 2000),   // per service by default
-		RateLimitBurst: getenvFloat("INGEST_RATE_LIMIT_BURST", 4000), // allow bursts
-		SampleDebug:    getenvFloat("INGEST_SAMPLE_DEBUG", 0.05),
-		SampleInfo:     getenvFloat("INGEST_SAMPLE_INFO", 0.20),
-		SampleWarn:     getenvFloat("INGEST_SAMPLE_WARN", 1.00),
+		RateLimitRPS:    getenvFloat("INGEST_RATE_LIMIT_RPS", 2000),   // per service by default
+		RateLimitBurst:  getenvFloat("INGEST_RATE_LIMIT_BURST", 4000), // allow bursts
+		SampleDebug:     getenvFloat("INGEST_SAMPLE_DEBUG", 0.10),
+		SampleInfo:      getenvFloat("INGEST_SAMPLE_INFO", 1.00), // a log explorer must show the INFO lines people search for
+		SampleWarn:      getenvFloat("INGEST_SAMPLE_WARN", 1.00),
+		SampleByRequest: getenvBool("INGEST_SAMPLE_BY_REQUEST", true),
+
+		AutoMigrate:         getenvBool("PYLOGGLE_AUTO_MIGRATE", true),
+		MigrateRebuild:      getenvBool("PYLOGGLE_MIGRATE_REBUILD", true),
+		RetentionLogsDays:   getenvInt("PYLOGGLE_RETENTION_LOGS_DAYS", 30),
+		RetentionErrorsDays: getenvInt("PYLOGGLE_RETENTION_ERRORS_DAYS", 30),
+		RetentionStatsDays:  getenvInt("PYLOGGLE_RETENTION_STATS_DAYS", 365),
+
+		OTLPStoreServerSpans: getenvBool("OTLP_STORE_SERVER_SPANS", false),
 
 		AlertingEnabled:      getenvBool("ALERTING_ENABLED", false),
 		AlertingPollInterval: getenvDuration("ALERTING_POLL_INTERVAL", 30*time.Second),

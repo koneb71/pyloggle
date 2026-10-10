@@ -6,15 +6,14 @@ services:
     container_name: pyloggle-clickhouse
     volumes:
       - clickhouse_data:/var/lib/clickhouse
-      - ./ddl:/docker-entrypoint-initdb.d
     environment:
       CLICKHOUSE_DB: pyloggle
       CLICKHOUSE_USER: pyloggle
       CLICKHOUSE_PASSWORD: pyloggle
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     healthcheck:
-      # Wait until schema is initialized (initdb scripts can fail/abort early, and "SELECT 1" is too weak).
-      test: ["CMD-SHELL", "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query \"SELECT count() FROM system.tables WHERE database='pyloggle' AND name='projects'\" | grep -q 1"]
+      # The schema is applied by ingestd at startup (embedded migrations); only wait for the server.
+      test: ["CMD-SHELL", "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query \"SELECT 1\""]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,6 +39,9 @@ services:
       INGEST_MAX_QUEUE_SIZE: "10000"
       INGEST_BATCH_SIZE: "500"
       INGEST_BATCH_TIMEOUT: "5s"
+      # Retention (days). Expired partitions are dropped whole, which costs almost nothing.
+      PYLOGGLE_RETENTION_LOGS_DAYS: "30"
+      PYLOGGLE_RETENTION_ERRORS_DAYS: "30"
     restart: unless-stopped
 
 volumes:
