@@ -296,7 +296,7 @@ func (c *Client) flushLogs(events []model.Event) error {
 			ev.ProjectID,
 			httpRemoteAddr,
 			httpServerAddr,
-			ev.Attrs,
+			map[string]string(ev.Attrs),
 		); err != nil {
 			_ = batch.Abort()
 			return err

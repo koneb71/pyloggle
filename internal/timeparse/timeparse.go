@@ -49,6 +49,24 @@ func ParseAt(s string, now time.Time) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// ParseAbsolute is ParseAt without the relative forms ("now", "-15m"): the right choice for
+// timestamps carried on the wire, where only absolute or numeric values make sense.
+func ParseAbsolute(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	if t, ok := FromUnix(s); ok {
+		return t, true
+	}
+	for _, layout := range absoluteLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
 // FromUnix interprets a numeric string as a unix timestamp, picking the unit by magnitude:
 // seconds (< 1e11), milliseconds (< 1e15), microseconds (< 1e18), else nanoseconds.
 func FromUnix(s string) (time.Time, bool) {

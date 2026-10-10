@@ -99,8 +99,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 
 	var (
-		now = time.Now().UTC()
-		n   int
+		now      = time.Now().UTC()
+		n        int
+		rejected int
+		errs     []string
 	)
 
 	for sc.Scan() {
@@ -111,24 +113,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		var ev model.Event
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			// skip invalid line, but continue
+			// Count and report rejected lines instead of dropping them silently.
+			rejected++
+			if len(errs) < 5 {
+				errs = append(errs, "line "+itoa(n+rejected)+": "+err.Error())
+			}
 			continue
 		}
+		ev.Normalize()
+		ev.Source = "sdk"
 		// Normalize commonly used structured fields into attrs so downstream consumers (UI)
 		// can display them without needing new API fields.
 		if ev.HTTP != nil {
-			if ev.Attrs == nil {
-				ev.Attrs = make(map[string]string, 4)
-			}
 			if ev.HTTP.RemoteAddr != "" {
-				ev.Attrs["http.remote_addr"] = ev.HTTP.RemoteAddr
+				ev.Attrs = ev.Attrs.Set("http.remote_addr", ev.HTTP.RemoteAddr)
 			}
 			if ev.HTTP.ServerAddr != "" {
-				ev.Attrs["http.server_addr"] = ev.HTTP.ServerAddr
+				ev.Attrs = ev.Attrs.Set("http.server_addr", ev.HTTP.ServerAddr)
 			}
 		}
 		if ev.Timestamp.IsZero() {
-			ev.Timestamp = now
+			ev.Timestamp = model.At(now)
 		}
 		if ev.Service == "" {
 			ev.Service = h.cfg.DefaultSvc
@@ -153,11 +158,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Always store raw log row.
 		_ = h.rt.EnqueueLog(r.Context(), ev)
 
-		// Store error occurrence if exception present (or level=error).
-		if ev.Exception != nil || strings.EqualFold(ev.Level, "error") {
+		// Store error occurrence if exception present (or level=error/fatal), unless the
+		// producer flagged the line as a duplicate of an already-reported exception.
+		if ev.IsError() && !ev.SkipIssue {
 			occ := issue.FromEvent(ev)
 			_ = h.rt.EnqueueErrorOccurrence(r.Context(), occ)
-			// regression detection / lifecycle will be added next (issues_state).
 		}
 
 		n++
@@ -168,8 +173,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_, _ = w.Write([]byte(`{"accepted":` + itoa(n) + `}`))
+	resp := map[string]any{"accepted": n, "rejected": rejected}
+	if len(errs) > 0 {
+		resp["errors"] = errs
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func maybeGzipBody(r *http.Request) (io.Reader, io.Closer, error) {

@@ -75,9 +75,9 @@ func FromEvent(ev model.Event) ErrorOccurrence {
 		occ.StackFrames = make([]StackFrame, 0, len(ev.Exception.Frames))
 		for _, f := range ev.Exception.Frames {
 			var inApp uint8
-			// Prefer explicit in_app from SDK; otherwise fall back to server-side heuristics
-			// so grouping remains stable and the "your code" frame is highlighted.
-			if f.InApp || isInAppFilename(f.Filename) {
+			// Honor an explicit in_app from the SDK; fall back to the path heuristic only when
+			// the producer did not say (e.g. OTLP-parsed frames).
+			if f.IsInApp(isInAppFilename) {
 				inApp = 1
 			}
 			occ.StackFrames = append(occ.StackFrames, StackFrame{

@@ -90,7 +90,7 @@ func sampleProb(cfg config.Config, level string) float64 {
 		return cfg.SampleInfo
 	case "warn", "warning":
 		return cfg.SampleWarn
-	case "error":
+	case "error", "fatal", "critical":
 		return 1
 	default:
 		// unknown -> treat as info
@@ -99,10 +99,7 @@ func sampleProb(cfg config.Config, level string) float64 {
 }
 
 func isErrorEvent(ev model.Event) bool {
-	if ev.Exception != nil {
-		return true
-	}
-	return strings.EqualFold(ev.Level, "error")
+	return ev.Exception != nil || model.IsErrorLevel(ev.Level)
 }
 
 func stableHash64(s string) uint64 {
