@@ -110,12 +110,12 @@ func New(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver) http.Ha
 }
 
 type baseData struct {
-	Title      string
-	Project    tenant.Project
-	Projects   []clickhouse.ProjectView
-	CurrentURI string
-	Now        time.Time
-	Error      string
+	Title       string
+	Project     tenant.Project
+	Projects    []clickhouse.ProjectView
+	CurrentURI  string
+	Now         time.Time
+	Error       string
 	PollSeconds int
 }
 
@@ -624,11 +624,11 @@ func (u *UI) issues(w http.ResponseWriter, r *http.Request) {
 
 	u.renderPageOrPartial(w, r, "issues.html", issuesData{
 		baseData: baseData{
-			Title:      "Issues",
-			Project:    p,
-			Projects:   u.topbarProjects(r.Context()),
-			CurrentURI: r.URL.RequestURI(),
-			Now:        time.Now().UTC(),
+			Title:       "Issues",
+			Project:     p,
+			Projects:    u.topbarProjects(r.Context()),
+			CurrentURI:  r.URL.RequestURI(),
+			Now:         time.Now().UTC(),
 			PollSeconds: u.cfg.UIPollSeconds,
 		},
 		Service: service,
@@ -683,11 +683,11 @@ func (u *UI) issueDetail(w http.ResponseWriter, r *http.Request) {
 
 	u.renderPageOrPartial(w, r, "issue_detail.html", issueDetailData{
 		baseData: baseData{
-			Title:      fmt.Sprintf("Issue %s", issueID),
-			Project:    p,
-			Projects:   u.topbarProjects(r.Context()),
-			CurrentURI: r.URL.RequestURI(),
-			Now:        time.Now().UTC(),
+			Title:       fmt.Sprintf("Issue %s", issueID),
+			Project:     p,
+			Projects:    u.topbarProjects(r.Context()),
+			CurrentURI:  r.URL.RequestURI(),
+			Now:         time.Now().UTC(),
 			PollSeconds: u.cfg.UIPollSeconds,
 		},
 		IssueID:      issueID,
@@ -782,11 +782,11 @@ func (u *UI) logs(w http.ResponseWriter, r *http.Request) {
 
 	u.renderPageOrPartial(w, r, "logs.html", logsData{
 		baseData: baseData{
-			Title:      "Logs",
-			Project:    p,
-			Projects:   u.topbarProjects(r.Context()),
-			CurrentURI: r.URL.RequestURI(),
-			Now:        time.Now().UTC(),
+			Title:       "Logs",
+			Project:     p,
+			Projects:    u.topbarProjects(r.Context()),
+			CurrentURI:  r.URL.RequestURI(),
+			Now:         time.Now().UTC(),
 			PollSeconds: u.cfg.UIPollSeconds,
 		},
 		Service:   service,
@@ -830,11 +830,11 @@ func (u *UI) dashboards(w http.ResponseWriter, r *http.Request) {
 
 	u.renderPageOrPartial(w, r, "dashboards.html", dashboardsData{
 		baseData: baseData{
-			Title:      "Dashboards",
-			Project:    p,
-			Projects:   u.topbarProjects(r.Context()),
-			CurrentURI: r.URL.RequestURI(),
-			Now:        time.Now().UTC(),
+			Title:       "Dashboards",
+			Project:     p,
+			Projects:    u.topbarProjects(r.Context()),
+			CurrentURI:  r.URL.RequestURI(),
+			Now:         time.Now().UTC(),
 			PollSeconds: u.cfg.UIPollSeconds,
 		},
 		Service: service,

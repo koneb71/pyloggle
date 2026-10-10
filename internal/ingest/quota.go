@@ -52,5 +52,3 @@ func (q *quotaTracker) allow(projectID string, isError bool, bytes int, maxStora
 	q.mu.Unlock()
 	return true
 }
-
-

@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"pyloggle/internal/ingest"
 	"pyloggle/internal/storage/clickhouse"
 	"pyloggle/internal/tenant"
+	"pyloggle/internal/timeparse"
 	"pyloggle/internal/webui"
 )
 
@@ -31,8 +33,8 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 		mux: http.NewServeMux(),
 	}
 
-	ing := ingest.NewHandler(cfg, ch)
 	res := tenant.NewResolver(ch, 60*time.Second)
+	ing := ingest.NewHandler(cfg, ch, res)
 
 	// Best-effort: auto-create the default project (unlimited limits) so single-tenant/UI fallback works
 	// even on a fresh database.
@@ -76,6 +78,11 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 
 	// Health
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("verbose") != "" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "clickhouse": ch.Stats()})
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
@@ -553,26 +560,8 @@ func parseBool(s string, def bool) bool {
 }
 
 func parseTime(s string) time.Time {
-	if strings.TrimSpace(s) == "" {
-		return time.Time{}
-	}
-	// unix seconds
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 && n < 1_000_000_000_000 {
-		// heuristic: treat as seconds when small, millis when larger
-		if n > 10_000_000_000 {
-			return time.UnixMilli(n).UTC()
-		}
-		return time.Unix(n, 0).UTC()
-	}
-	// RFC3339
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UTC()
-	}
-	// RFC3339Nano
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t.UTC()
-	}
-	return time.Time{}
+	t, _ := timeparse.Parse(s)
+	return t
 }
 
 func checkAdmin(adminToken string, r *http.Request) bool {
@@ -580,5 +569,5 @@ func checkAdmin(adminToken string, r *http.Request) bool {
 		return false
 	}
 	key := r.Header.Get("X-Admin-Token")
-	return key != "" && key == adminToken
+	return key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(adminToken)) == 1
 }

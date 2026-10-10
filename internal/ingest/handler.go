@@ -3,6 +3,7 @@ package ingest
 import (
 	"bufio"
 	"compress/gzip"
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -25,15 +26,26 @@ type Handler struct {
 	qt  *quotaTracker
 }
 
-func NewHandler(cfg config.Config, ch *clickhouse.Client) *Handler {
+func NewHandler(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver) *Handler {
+	if res == nil {
+		res = tenant.NewResolver(ch, 60*time.Second)
+	}
 	return &Handler{
 		cfg: cfg,
 		ch:  ch,
 		lim: newLimiter(cfg),
-		res: tenant.NewResolver(ch, 60*time.Second),
+		res: res,
 		rt:  newStreamRouter(cfg, ch),
 		qt:  newQuotaTracker(),
 	}
+}
+
+// secretEqual compares secrets in constant time; an empty configured secret never matches.
+func secretEqual(provided, configured string) bool {
+	if configured == "" || provided == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(configured)) == 1
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +61,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	burst := h.cfg.RateLimitBurst
 	var maxStorageGB uint32
 
-	if apiKey := r.Header.Get("X-API-Key"); apiKey != "" && apiKey != h.cfg.SharedSecret {
+	if apiKey := r.Header.Get("X-API-Key"); apiKey != "" && !secretEqual(apiKey, h.cfg.SharedSecret) {
 		p, ok, err := h.res.ResolveByAPIKey(r.Context(), apiKey)
 		if err != nil {
 			http.Error(w, "auth lookup failed", http.StatusInternalServerError)

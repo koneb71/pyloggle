@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	uiSessionCookieName   = "pyloggle_ui_session"
-	uiOAuthStateCookie    = "pyloggle_ui_oauth"
-	uiSessionMaxAge       = 60 * 60 * 8 // 8h
-	uiOAuthStateMaxAge    = 60 * 10     // 10m
-	uiCookieTokenVersion  = "v1"
-	uiCookieTokenParts    = 3
+	uiSessionCookieName  = "pyloggle_ui_session"
+	uiOAuthStateCookie   = "pyloggle_ui_oauth"
+	uiSessionMaxAge      = 60 * 60 * 8 // 8h
+	uiOAuthStateMaxAge   = 60 * 10     // 10m
+	uiCookieTokenVersion = "v1"
+	uiCookieTokenParts   = 3
 )
 
 type uiSessionClaims struct {
@@ -174,5 +174,3 @@ func (u *UI) getUISession(r *http.Request) (uiSessionClaims, bool) {
 	}
 	return claims, true
 }
-
-

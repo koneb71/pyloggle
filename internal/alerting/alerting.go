@@ -230,5 +230,3 @@ func (r *Runner) fire(ctx context.Context, ev AlertEvent) {
 		Payload:       ev,
 	})
 }
-
-

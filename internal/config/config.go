@@ -68,8 +68,8 @@ type Config struct {
 	AlertWebhookTimeout time.Duration
 
 	// Telegram notifier (Bot API). If AlertTelegramBotToken is empty, Telegram notifications are disabled.
-	AlertTelegramBotToken string
-	AlertTelegramTimeout  time.Duration
+	AlertTelegramBotToken  string
+	AlertTelegramTimeout   time.Duration
 	AlertTelegramParseMode string // optional: MarkdownV2 | HTML
 }
 
@@ -118,8 +118,8 @@ func FromEnv() Config {
 
 		AlertWebhookTimeout: getenvDuration("ALERT_WEBHOOK_TIMEOUT", 5*time.Second),
 
-		AlertTelegramBotToken: os.Getenv("ALERT_TELEGRAM_BOT_TOKEN"),
-		AlertTelegramTimeout:  getenvDuration("ALERT_TELEGRAM_TIMEOUT", 5*time.Second),
+		AlertTelegramBotToken:  os.Getenv("ALERT_TELEGRAM_BOT_TOKEN"),
+		AlertTelegramTimeout:   getenvDuration("ALERT_TELEGRAM_TIMEOUT", 5*time.Second),
 		AlertTelegramParseMode: os.Getenv("ALERT_TELEGRAM_PARSE_MODE"),
 	}
 }

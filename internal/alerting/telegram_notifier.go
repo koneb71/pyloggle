@@ -115,5 +115,3 @@ func renderTelegram(ev AlertEvent) string {
 	}
 	return b.String()
 }
-
-

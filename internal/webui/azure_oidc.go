@@ -496,5 +496,3 @@ func subtleStringEq(a, b string) bool {
 	}
 	return ok == 0
 }
-
-

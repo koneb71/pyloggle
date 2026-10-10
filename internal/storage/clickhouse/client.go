@@ -3,9 +3,11 @@ package clickhouse
 import (
 	"context"
 	"errors"
-	"sync"
-	"time"
+	"log"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	ch "github.com/ClickHouse/clickhouse-go/v2"
 
@@ -26,6 +28,50 @@ type Client struct {
 
 	wg   sync.WaitGroup
 	stop chan struct{}
+
+	droppedLogs   atomic.Uint64
+	droppedErrors atomic.Uint64
+	lastDropLog   atomic.Int64
+}
+
+// Stats reports batching health for /healthz?verbose=1.
+type Stats struct {
+	DroppedLogs   uint64 `json:"dropped_logs"`
+	DroppedErrors uint64 `json:"dropped_errors"`
+	QueuedLogs    int    `json:"queued_logs"`
+	QueuedErrors  int    `json:"queued_errors"`
+}
+
+func (c *Client) Stats() Stats {
+	return Stats{
+		DroppedLogs:   c.droppedLogs.Load(),
+		DroppedErrors: c.droppedErrors.Load(),
+		QueuedLogs:    len(c.logCh),
+		QueuedErrors:  len(c.errCh),
+	}
+}
+
+// flushWithRetry retries a batch flush with backoff; rows are only dropped (and counted) after
+// the last attempt fails. Drop messages are rate-limited to one per 10s.
+func (c *Client) flushWithRetry(kind string, n int, f func() error) {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err = f(); err == nil {
+			return
+		}
+		if attempt < 2 {
+			time.Sleep(time.Duration(500<<attempt) * time.Millisecond)
+		}
+	}
+	if kind == "logs" {
+		c.droppedLogs.Add(uint64(n))
+	} else {
+		c.droppedErrors.Add(uint64(n))
+	}
+	now := time.Now().Unix()
+	if last := c.lastDropLog.Load(); now-last >= 10 && c.lastDropLog.CompareAndSwap(last, now) {
+		log.Printf("clickhouse: dropped %d %s rows after 3 failed flush attempts: %v", n, kind, err)
+	}
 }
 
 func New(dsn string, maxQueueSize int, batchSize int, batchTimeout time.Duration) (*Client, error) {
@@ -161,7 +207,7 @@ func (c *Client) runLogs() {
 		if len(buf) == 0 {
 			return
 		}
-		_ = c.flushLogs(buf)
+		c.flushWithRetry("logs", len(buf), func() error { return c.flushLogs(buf) })
 		buf = buf[:0]
 	}
 
@@ -194,7 +240,7 @@ func (c *Client) runErrors() {
 		if len(buf) == 0 {
 			return
 		}
-		_ = c.flushErrors(buf)
+		c.flushWithRetry("errors", len(buf), func() error { return c.flushErrors(buf) })
 		buf = buf[:0]
 	}
 
@@ -607,7 +653,7 @@ func (c *Client) UpsertIssueState(ctx context.Context, projectID, service, env, 
 }
 
 type occurrenceRow struct {
-	TS              time.Time         `ch:"ts"`
+	TS               time.Time         `ch:"ts"`
 	IssueID          string            `ch:"issue_id"`
 	Service          string            `ch:"service"`
 	Env              string            `ch:"env"`
@@ -670,23 +716,23 @@ func (c *Client) ListIssueOccurrences(ctx context.Context, projectID, issueID st
 	out := make([]api.ErrorOccurrence, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, api.ErrorOccurrence{
-			TS:              r.TS,
-			IssueID:         r.IssueID,
-			Service:         r.Service,
-			Env:             r.Env,
-			ProjectID:       r.ProjectID,
-			Title:           r.Title,
-			ExceptionType:   r.ExceptionType,
-			ExceptionMessage:r.ExceptionMessage,
-			StackFingerprint:r.StackFingerprint,
-			StackFrames:     r.StackFrames,
-			TraceID:         r.TraceID,
-			RequestID:       r.RequestID,
-			HTTPMethod:      r.HTTPMethod,
-			HTTPRoute:       r.HTTPRoute,
-			HTTPStatus:      r.HTTPStatus,
-			UserIDHash:      r.UserIDHash,
-			Attrs:           r.Attrs,
+			TS:               r.TS,
+			IssueID:          r.IssueID,
+			Service:          r.Service,
+			Env:              r.Env,
+			ProjectID:        r.ProjectID,
+			Title:            r.Title,
+			ExceptionType:    r.ExceptionType,
+			ExceptionMessage: r.ExceptionMessage,
+			StackFingerprint: r.StackFingerprint,
+			StackFrames:      r.StackFrames,
+			TraceID:          r.TraceID,
+			RequestID:        r.RequestID,
+			HTTPMethod:       r.HTTPMethod,
+			HTTPRoute:        r.HTTPRoute,
+			HTTPStatus:       r.HTTPStatus,
+			UserIDHash:       r.UserIDHash,
+			Attrs:            r.Attrs,
 		})
 	}
 	return out, nil
@@ -699,5 +745,3 @@ func optionalEq(name, v string) string {
 	// parameter still passed, query references it only when non-empty
 	return " AND " + name + " = {" + name + ":String}\n"
 }
-
-

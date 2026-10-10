@@ -102,5 +102,3 @@ func (c *Client) ListLogs(ctx context.Context, projectID, service, env, level, q
 	}
 	return out, nil
 }
-
-

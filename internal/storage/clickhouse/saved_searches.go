@@ -305,5 +305,3 @@ func optionalPinnedHaving(onlyPinned bool) string {
 	}
 	return " AND is_pinned = 1\n"
 }
-
-

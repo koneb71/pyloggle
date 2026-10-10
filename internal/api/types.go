@@ -60,53 +60,53 @@ type IssueSummary struct {
 }
 
 type IssueStateUpdate struct {
-	ProjectID  string `json:"project_id"`
-	IssueID    string `json:"issue_id"`
-	Service    string `json:"service"`
-	Env        string `json:"env"`
-	Status     string `json:"status"` // open|resolved|ignored
-	UpdatedBy  string `json:"updated_by"`
-	Comment    string `json:"comment"`
+	ProjectID string `json:"project_id"`
+	IssueID   string `json:"issue_id"`
+	Service   string `json:"service"`
+	Env       string `json:"env"`
+	Status    string `json:"status"` // open|resolved|ignored
+	UpdatedBy string `json:"updated_by"`
+	Comment   string `json:"comment"`
 }
 
 type ErrorOccurrence struct {
 	TS               time.Time         `json:"ts"`
-	IssueID           string            `json:"issue_id"`
-	Service           string            `json:"service"`
-	Env               string            `json:"env"`
-	ProjectID         string            `json:"project_id"`
-	Title             string            `json:"title"`
-	ExceptionType     string            `json:"exception_type"`
-	ExceptionMessage  string            `json:"exception_message"`
-	StackFingerprint  string            `json:"stack_fingerprint"`
-	StackFrames       []map[string]any  `json:"stack_frames"`
-	TraceID           string            `json:"trace_id"`
-	RequestID         string            `json:"request_id"`
-	HTTPMethod        string            `json:"http_method"`
-	HTTPRoute         string            `json:"http_route"`
-	HTTPStatus        uint16            `json:"http_status"`
-	UserIDHash        string            `json:"user_id_hash"`
-	Attrs             map[string]string `json:"attrs"`
+	IssueID          string            `json:"issue_id"`
+	Service          string            `json:"service"`
+	Env              string            `json:"env"`
+	ProjectID        string            `json:"project_id"`
+	Title            string            `json:"title"`
+	ExceptionType    string            `json:"exception_type"`
+	ExceptionMessage string            `json:"exception_message"`
+	StackFingerprint string            `json:"stack_fingerprint"`
+	StackFrames      []map[string]any  `json:"stack_frames"`
+	TraceID          string            `json:"trace_id"`
+	RequestID        string            `json:"request_id"`
+	HTTPMethod       string            `json:"http_method"`
+	HTTPRoute        string            `json:"http_route"`
+	HTTPStatus       uint16            `json:"http_status"`
+	UserIDHash       string            `json:"user_id_hash"`
+	Attrs            map[string]string `json:"attrs"`
 }
 
 // AlertRule is the user-managed rule stored in ClickHouse (table: alert_rules).
 // Note: updates are modeled as new inserts; reads return the latest row per (project_id,id).
 type AlertRule struct {
-	ID          string    `json:"id"`
-	ProjectID   string    `json:"project_id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
+	ID          string `json:"id"`
+	ProjectID   string `json:"project_id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 
 	Service    string `json:"service"`
 	Env        string `json:"env"`
 	HTTPRoute  string `json:"http_route"`
 	HTTPMethod string `json:"http_method"`
 
-	ConditionType      string  `json:"condition_type"` // error_rate | issue_spike
-	Threshold          float64 `json:"threshold"`
-	TimeWindowSeconds  uint32  `json:"time_window_seconds"`
-	CooldownSeconds    uint32  `json:"cooldown_seconds"`
-	Enabled            bool    `json:"enabled"`
+	ConditionType     string  `json:"condition_type"` // error_rate | issue_spike
+	Threshold         float64 `json:"threshold"`
+	TimeWindowSeconds uint32  `json:"time_window_seconds"`
+	CooldownSeconds   uint32  `json:"cooldown_seconds"`
+	Enabled           bool    `json:"enabled"`
 
 	NotificationChannels []string `json:"notification_channels"` // email, webhook
 	NotificationEmails   []string `json:"notification_emails"`
@@ -163,6 +163,3 @@ type ProjectRotateKeyResponse struct {
 	Project Project `json:"project"`
 	APIKey  string  `json:"api_key"`
 }
-
-
-
