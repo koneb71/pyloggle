@@ -75,5 +75,3 @@ func (c *Client) ErrorTrend(ctx context.Context, projectID, service, env, httpRo
 	}
 	return out, nil
 }
-
-

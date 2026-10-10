@@ -138,11 +138,11 @@ func (u *UI) projectsList(w http.ResponseWriter, r *http.Request) {
 
 	_ = u.tpl["projects.html"].ExecuteTemplate(w, "projects.html", projectsData{
 		baseData: baseData{
-			Title:   "Projects",
-			Project: u.maybeResolveActiveProject(r), // for the topbar display only
-			Projects: items,
+			Title:      "Projects",
+			Project:    u.maybeResolveActiveProject(r), // for the topbar display only
+			Projects:   items,
 			CurrentURI: r.URL.RequestURI(),
-			Now:     time.Now().UTC(),
+			Now:        time.Now().UTC(),
 		},
 		Projects: items,
 		Flash:    flash,
@@ -236,5 +236,3 @@ func (u *UI) projectsRotateKey(w http.ResponseWriter, r *http.Request) {
 // Ensure this file imports auth so it isn't accidentally pruned in future when we add user context.
 // (Today, Projects UI is "any signed-in user"; project auth is separate.)
 var _ = auth.ProjectIDFromContext
-
-

@@ -25,8 +25,8 @@ pkg/mod/
 
 # Common Go build output dirs
 bin/
-dist/
-build/
+/dist/
+/build/
 
 # --- Python ---
 __pycache__/
@@ -43,8 +43,8 @@ env/
 # Packaging / build artifacts
 *.egg-info/
 *.egg
-dist/
-build/
+python-sdk/dist/
+python-sdk/build/
 .eggs/
 pip-wheel-metadata/
 
@@ -82,3 +82,12 @@ Thumbs.db
 docker-compose.override.yml
 
 
+
+# --- Web UI build output (embedded into the Go binary; keep the placeholder) ---
+web/dist/*
+!web/dist/.gitkeep
+web/node_modules/
+web/screenshots/
+
+# --- Local footprint/screenshot artifacts ---
+screenshots/

@@ -200,5 +200,3 @@ func u32(n uint32) string {
 	}
 	return string(b[i:])
 }
-
-

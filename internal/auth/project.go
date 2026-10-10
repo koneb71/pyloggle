@@ -67,5 +67,3 @@ func RequireProject(cfg config.Config, res *tenant.Resolver, next http.Handler) 
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
-
-

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"pyloggle/internal/api"
@@ -40,19 +41,19 @@ type alertRuleRow struct {
 
 func (r alertRuleRow) toAPI() api.AlertRule {
 	return api.AlertRule{
-		ID:          r.ID,
-		ProjectID:   r.ProjectID,
-		Name:        r.Name,
-		Description: r.Description,
-		Service:     r.Service,
-		Env:         r.Env,
-		HTTPRoute:   r.HTTPRoute,
-		HTTPMethod:  r.HTTPMethod,
-		ConditionType:     r.ConditionType,
-		Threshold:         r.Threshold,
-		TimeWindowSeconds: r.TimeWindowSeconds,
-		CooldownSeconds:   r.CooldownSeconds,
-		Enabled:           r.Enabled == 1,
+		ID:                   r.ID,
+		ProjectID:            r.ProjectID,
+		Name:                 r.Name,
+		Description:          r.Description,
+		Service:              r.Service,
+		Env:                  r.Env,
+		HTTPRoute:            r.HTTPRoute,
+		HTTPMethod:           r.HTTPMethod,
+		ConditionType:        r.ConditionType,
+		Threshold:            r.Threshold,
+		TimeWindowSeconds:    r.TimeWindowSeconds,
+		CooldownSeconds:      r.CooldownSeconds,
+		Enabled:              r.Enabled == 1,
 		NotificationChannels: r.NotificationChannels,
 		NotificationEmails:   r.NotificationEmails,
 		WebhookURLs:          r.WebhookURLs,
@@ -218,40 +219,40 @@ func boolToU8(b bool) uint8 {
 }
 
 type issueSpikeRow struct {
-	IssueID    string `ch:"issue_id"`
-	Title      string `ch:"title"`
-	CurCount   uint64 `ch:"cur_count"`
-	PrevCount  uint64 `ch:"prev_count"`
+	IssueID   string `ch:"issue_id"`
+	Title     string `ch:"title"`
+	CurCount  uint64 `ch:"cur_count"`
+	PrevCount uint64 `ch:"prev_count"`
+}
+
+// ruleFilter renders the optional per-rule scope filters as positional " AND col = ?" clauses.
+func ruleFilter(rule api.AlertRule) (string, []any) {
+	var sb strings.Builder
+	var args []any
+	add := func(col, v string) {
+		if v == "" {
+			return
+		}
+		sb.WriteString(" AND " + col + " = ?")
+		args = append(args, v)
+	}
+	add("service", rule.Service)
+	add("env", rule.Env)
+	add("http_route", rule.HTTPRoute)
+	add("http_method", rule.HTTPMethod)
+	return sb.String(), args
+}
+
+func countErrorOccurrencesQuery(rule api.AlertRule, from, to time.Time) (string, []any) {
+	where, fargs := ruleFilter(rule)
+	q := `SELECT count() FROM error_occurrences WHERE project_id = ? AND ts >= ? AND ts < ?` + where
+	args := append([]any{rule.ProjectID, from.UTC(), to.UTC()}, fargs...)
+	return q, args
 }
 
 func (c *Client) CountErrorOccurrences(ctx context.Context, rule api.AlertRule, from, to time.Time) (uint64, error) {
-	q := `
-		SELECT count()
-		FROM error_occurrences
-		WHERE project_id = ?
-		  AND ts >= ?
-		  AND ts < ?
-		` + optionalEq("service", rule.Service) + optionalEq("env", rule.Env) + optionalEq("http_route", rule.HTTPRoute) + optionalEq("http_method", rule.HTTPMethod)
-
+	q, args := countErrorOccurrencesQuery(rule, from, to)
 	var n uint64
-	args := []any{rule.ProjectID, from.UTC(), to.UTC()}
-	if rule.Service != "" {
-		q += " AND service = ?\n"
-		args = append(args, rule.Service)
-	}
-	if rule.Env != "" {
-		q += " AND env = ?\n"
-		args = append(args, rule.Env)
-	}
-	if rule.HTTPRoute != "" {
-		q += " AND http_route = ?\n"
-		args = append(args, rule.HTTPRoute)
-	}
-	if rule.HTTPMethod != "" {
-		q += " AND http_method = ?\n"
-		args = append(args, rule.HTTPMethod)
-	}
-
 	if err := c.conn.QueryRow(ctx, q, args...).Scan(&n); err != nil {
 		return 0, err
 	}
@@ -265,6 +266,16 @@ func (c *Client) IssueSpikeCounts(ctx context.Context, rule api.AlertRule, prevF
 	if limit > 200 {
 		limit = 200
 	}
+	q, args := issueSpikeCountsQuery(rule, prevFrom, prevTo, curFrom, curTo, limit)
+	var rows []issueSpikeRow
+	if err := c.conn.Select(ctx, &rows, q, args...); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func issueSpikeCountsQuery(rule api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, limit int) (string, []any) {
+	where, fargs := ruleFilter(rule)
 	q := `
 		SELECT
 			issue_id,
@@ -272,43 +283,20 @@ func (c *Client) IssueSpikeCounts(ctx context.Context, rule api.AlertRule, prevF
 			countIf(ts >= ? AND ts < ?) as cur_count,
 			countIf(ts >= ? AND ts < ?) as prev_count
 		FROM error_occurrences
-		WHERE project_id = ?
-		  AND ts >= ?
-		  AND ts < ?
+		WHERE project_id = ? AND ts >= ? AND ts < ?` + where + `
 		GROUP BY issue_id
 		HAVING cur_count > 0
 		ORDER BY cur_count DESC
-		LIMIT ?
-	`
-	var rows []issueSpikeRow
+		LIMIT ?`
 	args := []any{
 		curFrom.UTC(), curTo.UTC(),
 		prevFrom.UTC(), prevTo.UTC(),
 		rule.ProjectID,
 		prevFrom.UTC(), curTo.UTC(),
 	}
-	if rule.Service != "" {
-		q += " AND service = ?\n"
-		args = append(args, rule.Service)
-	}
-	if rule.Env != "" {
-		q += " AND env = ?\n"
-		args = append(args, rule.Env)
-	}
-	if rule.HTTPRoute != "" {
-		q += " AND http_route = ?\n"
-		args = append(args, rule.HTTPRoute)
-	}
-	if rule.HTTPMethod != "" {
-		q += " AND http_method = ?\n"
-		args = append(args, rule.HTTPMethod)
-	}
+	args = append(args, fargs...)
 	args = append(args, limit)
-
-	if err := c.conn.Select(ctx, &rows, q, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	return q, args
 }
 
 type alertFiringRow struct {
@@ -392,5 +380,3 @@ func newID() string {
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
 }
-
-

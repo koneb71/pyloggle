@@ -35,5 +35,3 @@ func paramStringLiteral(s string) string {
 	esc = strings.ReplaceAll(esc, `'`, `\'`)
 	return "'" + esc + "'"
 }
-
-

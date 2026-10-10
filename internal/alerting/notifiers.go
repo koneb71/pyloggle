@@ -238,5 +238,3 @@ func safe(s string) string {
 	}
 	return s
 }
-
-

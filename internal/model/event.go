@@ -51,5 +51,3 @@ type HTTPInfo struct {
 type UserInfo struct {
 	IDHash string `json:"id_hash"` // already hashed in SDK
 }
-
-

@@ -136,5 +136,3 @@ func (b *tokenBucket) take(now time.Time) bool {
 	}
 	return false
 }
-
-

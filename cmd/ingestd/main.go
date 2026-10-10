@@ -58,5 +58,3 @@ func main() {
 	defer scancel()
 	_ = httpSrv.Shutdown(sctx)
 }
-
-

@@ -9,11 +9,11 @@ import (
 )
 
 type Project struct {
-	ID                string
-	Name              string
-	MaxEventsPerSec   uint32
-	MaxStorageGB      uint32
-	APIKeyHash        string
+	ID              string
+	Name            string
+	MaxEventsPerSec uint32
+	MaxStorageGB    uint32
+	APIKeyHash      string
 }
 
 type cacheItem struct {
@@ -64,17 +64,16 @@ func (r *Resolver) ResolveByAPIKey(ctx context.Context, apiKey string) (Project,
 		return Project{}, false, nil
 	}
 
-	r.mu.Lock()
-	r.cache[h] = cacheItem{p: Project{
+	proj := Project{
 		ID:              p.ID,
 		Name:            p.Name,
 		MaxEventsPerSec: p.MaxEventsPerSec,
 		MaxStorageGB:    p.MaxStorageGB,
 		APIKeyHash:      p.APIKeyHash,
-	}, expires: now.Add(r.ttl)}
+	}
+	r.mu.Lock()
+	r.cache[h] = cacheItem{p: proj, expires: now.Add(r.ttl)}
 	r.mu.Unlock()
 
-	return r.cache[h].p, true, nil
+	return proj, true, nil
 }
-
-
