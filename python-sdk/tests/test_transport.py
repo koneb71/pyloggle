@@ -118,3 +118,22 @@ def test_level_normalization_and_scrubbing(fake_ingest, make_client):
     assert evs[0]["attrs"]["api_key"] == "[REDACTED]" and evs[0]["attrs"]["ok"] == "v"
     assert evs[0]["http"]["headers"]["Authorization"] == "[REDACTED]"
     assert evs[0]["http"]["headers"]["User-Agent"] == "ua"
+
+
+def test_base_url_gets_the_ingest_path():
+    from pyloggle.client import normalize_ingest_url
+
+    assert normalize_ingest_url("http://h:8080") == "http://h:8080/v1/ingest"
+    assert normalize_ingest_url("http://h:8080/") == "http://h:8080/v1/ingest"
+    assert normalize_ingest_url("https://logs.example.com") == "https://logs.example.com/v1/ingest"
+    assert normalize_ingest_url("http://h:8080/v1/ingest") == "http://h:8080/v1/ingest"
+    assert normalize_ingest_url("http://h/prefix/v1/ingest?x=1") == "http://h/prefix/v1/ingest?x=1"
+    assert normalize_ingest_url("") == ""
+
+
+def test_client_accepts_base_url(make_client, fake_ingest):
+    client = make_client(ingest_url=fake_ingest.url.rsplit("/v1/ingest", 1)[0])
+    assert client.config.ingest_url == fake_ingest.url
+    client.emit({"level": "info", "message": "hi"})
+    client.flush(5)
+    assert len(fake_ingest.wait_for(1)) == 1 and len(fake_ingest.requests) == 1

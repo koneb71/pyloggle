@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
@@ -106,9 +107,22 @@ class _Stop:
     """Queue sentinel: drain and exit."""
 
 
+def normalize_ingest_url(url: str) -> str:
+    """Accept the server's base URL ("http://host:8080") as well as the full endpoint
+    ("http://host:8080/v1/ingest"): a URL without a path gets the ingest path appended."""
+    url = (url or "").strip()
+    if not url:
+        return url
+    parts = urllib.parse.urlsplit(url)
+    if parts.path in ("", "/"):
+        parts = parts._replace(path="/v1/ingest")
+    return urllib.parse.urlunsplit(parts)
+
+
 class Client:
     def __init__(self, config: ClientConfig):
         self.config = config
+        config.ingest_url = normalize_ingest_url(config.ingest_url)
         self._q: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, int(config.max_queue_size)))
         self._stop = threading.Event()
         self._scrub_cfg = (config.scrub or default_scrub_config()).merged_with(config.scrub_keys or ())

@@ -24,8 +24,9 @@ That single call:
 - enriches every event with service, env, release, host, runtime, SDK version, request/trace ids,
   tags, user and the breadcrumb trail.
 
-Environment variables: `PYLOGGLE_INGEST_URL`, `PYLOGGLE_API_KEY` (or `PYLOGGLE_TOKEN`), `PYLOGGLE_PROJECT_ID`,
-`PYLOGGLE_SERVICE`, `PYLOGGLE_ENV`, `PYLOGGLE_RELEASE`, `PYLOGGLE_DEBUG`.
+Environment variables: `PYLOGGLE_INGEST_URL` (the server's base URL such as `http://logs:8080`, or
+the full `/v1/ingest` endpoint), `PYLOGGLE_API_KEY` (or `PYLOGGLE_TOKEN`), `PYLOGGLE_PROJECT_ID`,
+`PYLOGGLE_SERVICE`, `PYLOGGLE_ENV`, `PYLOGGLE_RELEASE`, `PYLOGGLE_DEBUG` (log transport problems).
 
 ## Capture API
 
