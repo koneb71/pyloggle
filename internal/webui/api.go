@@ -243,8 +243,7 @@ func csrfOK(r *http.Request) bool {
 // requireUISessionAPI gates the JSON API on the UI session (JSON 401 instead of a redirect).
 func (u *UI) requireUISessionAPI(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mode := strings.ToLower(strings.TrimSpace(u.cfg.UIAuthMode))
-		if mode == "disabled" || mode == "" {
+		if !u.loginRequired() {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -348,13 +347,9 @@ func currentUser(r *http.Request) string {
 	return "ui"
 }
 
-// isUIAdmin gates project/alert mutations when PYLOGGLE_UI_ADMINS is set (Azure mode only).
+// isUIAdmin gates project/alert mutations when PYLOGGLE_UI_ADMINS is set (behind a login only).
 func (u *UI) isUIAdmin(r *http.Request) bool {
-	if len(u.cfg.UIAdmins) == 0 {
-		return true
-	}
-	mode := strings.ToLower(strings.TrimSpace(u.cfg.UIAuthMode))
-	if mode == "disabled" || mode == "" {
+	if len(u.cfg.UIAdmins) == 0 || !u.loginRequired() {
 		return true
 	}
 	c, ok := uiUserFromContext(r.Context())

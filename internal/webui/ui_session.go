@@ -48,7 +48,7 @@ func uiUserFromContext(ctx context.Context) (uiSessionClaims, bool) {
 func (u *UI) uiSecret() ([]byte, error) {
 	raw := strings.TrimSpace(u.cfg.UISessionSecret)
 	if raw == "" {
-		return nil, errors.New("PYLOGGLE_UI_SESSION_SECRET is required when PYLOGGLE_UI_AUTH=azure")
+		return nil, errors.New("PYLOGGLE_UI_SESSION_SECRET is required when PYLOGGLE_UI_AUTH is azure or oidc")
 	}
 	// Support raw secrets and base64 secrets (common for env vars).
 	if b, err := base64.StdEncoding.DecodeString(raw); err == nil && len(b) >= 16 {

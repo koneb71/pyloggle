@@ -28,14 +28,19 @@ type meProject struct {
 }
 
 type meFeatures struct {
-	Alerting  bool   `json:"alerting"`
-	Traces    bool   `json:"traces"`
-	PublicURL string `json:"public_url,omitempty"`
+	Alerting     bool   `json:"alerting"`
+	Traces       bool   `json:"traces"`
+	PublicURL    string `json:"public_url,omitempty"`
+	AuthProvider string `json:"auth_provider,omitempty"`
 }
 
 func (u *UI) apiMe(w http.ResponseWriter, r *http.Request) {
-	resp := meResponse{AuthMode: strings.ToLower(strings.TrimSpace(u.cfg.UIAuthMode)), IsAdmin: u.isUIAdmin(r),
-		Projects: []meProject{}, Features: meFeatures{Alerting: u.cfg.AlertingEnabled, Traces: u.cfg.OTLPStoreSpans, PublicURL: u.cfg.PublicURL}}
+	oidc := u.cfg.OIDC()
+	resp := meResponse{AuthMode: oidc.Mode, IsAdmin: u.isUIAdmin(r), Projects: []meProject{},
+		Features: meFeatures{Alerting: u.cfg.AlertingEnabled, Traces: u.cfg.OTLPStoreSpans, PublicURL: u.cfg.PublicURL}}
+	if oidc.Enabled() {
+		resp.Features.AuthProvider = oidc.DisplayName
+	}
 	if c, ok := uiUserFromContext(r.Context()); ok {
 		resp.User = &meUser{Sub: c.Sub, Name: c.Name, Email: c.Email}
 		if resp.User.Email == "" {
@@ -84,7 +89,7 @@ func (u *UI) apiLogout(w http.ResponseWriter, r *http.Request) {
 	u.clearUISession(w, r)
 	http.SetCookie(w, &http.Cookie{Name: apiKeyCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
 	u.clearUIProjectID(w)
-	u.clearAzureOAuthState(w, r)
+	u.clearOAuthState(w, r)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

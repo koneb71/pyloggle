@@ -12,7 +12,8 @@ export function LoginPage({ me }: { me?: Me }) {
   const [key, setKey] = useState("");
   const next = new URLSearchParams(loc.search).get("next") || "/issues";
   const err = new URLSearchParams(loc.search).get("err");
-  const azure = me?.auth_mode === "azure";
+  const sso = me?.auth_mode === "azure" || me?.auth_mode === "oidc";
+  const provider = me?.features.auth_provider || (me?.auth_mode === "azure" ? "Microsoft" : "SSO");
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -35,11 +36,11 @@ export function LoginPage({ me }: { me?: Me }) {
             <div className="text-xs text-ink-3">logs · errors · traces</div>
           </div>
         </div>
-        {azure ? (
+        {sso ? (
           <div className="space-y-3">
             <p className="text-[13px] text-ink-2">Sign in with your organization account to continue.</p>
             <a href={`/ui/login?next=${encodeURIComponent("/ui" + next)}`} className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-accent text-[13px] font-medium text-accent-ink hover:brightness-110">
-              <LogIn size={14} /> Sign in with Microsoft
+              <LogIn size={14} /> Sign in with {provider}
             </a>
           </div>
         ) : (
