@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 
 	"pyloggle/internal/config"
 	"pyloggle/internal/ingest"
+	"pyloggle/internal/metrics"
 	"pyloggle/internal/model"
 )
 
@@ -48,31 +50,53 @@ func (h *Handler) Logs() http.Handler    { return h.handler(kindLogs) }
 func (h *Handler) Traces() http.Handler  { return h.handler(kindTraces) }
 func (h *Handler) Metrics() http.Handler { return h.handler(kindMetrics) }
 
+func (k kind) door() string {
+	switch k {
+	case kindTraces:
+		return "otlp_traces"
+	case kindMetrics:
+		return "otlp_metrics"
+	}
+	return "otlp_logs"
+}
+
 func (h *Handler) handler(k kind) http.Handler {
+	door := k.door()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		status := http.StatusOK
+		defer func() { metrics.IngestRequests.Inc(door, strconv.Itoa(status)) }()
 		t, err := h.p.Authenticate(r.Context(), r)
 		if err != nil {
 			if errors.Is(err, ingest.ErrUnauthorized) {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				status = http.StatusUnauthorized
+				http.Error(w, "unauthorized", status)
 				return
 			}
-			http.Error(w, "auth lookup failed", http.StatusInternalServerError)
+			status = http.StatusInternalServerError
+			http.Error(w, "auth lookup failed", status)
 			return
 		}
 		ct := strings.ToLower(strings.TrimSpace(strings.SplitN(r.Header.Get("Content-Type"), ";", 2)[0]))
 		isJSON := ct == "application/json"
 		if !isJSON && ct != "application/x-protobuf" && ct != "application/protobuf" && ct != "" {
-			http.Error(w, "unsupported content type", http.StatusUnsupportedMediaType)
+			status = http.StatusUnsupportedMediaType
+			http.Error(w, "unsupported content type", status)
 			return
 		}
 		body, err := readBody(r)
 		if err != nil {
-			http.Error(w, "bad body: "+err.Error(), http.StatusBadRequest)
+			status = http.StatusBadRequest
+			http.Error(w, "bad body: "+err.Error(), status)
 			return
+		}
+		bad := func(err error) {
+			status = http.StatusBadRequest
+			metrics.IngestRejected.Inc(door)
+			http.Error(w, "bad payload: "+err.Error(), status)
 		}
 		var events []model.Event
 		var spans []model.Span
@@ -81,14 +105,14 @@ func (h *Handler) handler(k kind) http.Handler {
 		case kindLogs:
 			var ld logsv1.LogsData
 			if err := decode(body, isJSON, &ld); err != nil {
-				http.Error(w, "bad payload: "+err.Error(), http.StatusBadRequest)
+				bad(err)
 				return
 			}
 			events = LogsToEvents(&ld, h.now())
 		case kindTraces:
 			var td tracev1.TracesData
 			if err := decode(body, isJSON, &td); err != nil {
-				http.Error(w, "bad payload: "+err.Error(), http.StatusBadRequest)
+				bad(err)
 				return
 			}
 			events, spans = TracesToEventsAndSpans(&td, h.cfg.OTLPStoreServerSpans, h.now())
@@ -98,7 +122,7 @@ func (h *Handler) handler(k kind) http.Handler {
 		case kindMetrics:
 			var md metricsv1.MetricsData
 			if err := decode(body, isJSON, &md); err != nil {
-				http.Error(w, "bad payload: "+err.Error(), http.StatusBadRequest)
+				bad(err)
 				return
 			}
 			if h.cfg.OTLPStoreMetrics {
@@ -123,6 +147,7 @@ func (h *Handler) handler(k kind) http.Handler {
 			n, _ := h.p.ProcessMetrics(r.Context(), t, points, len(body))
 			accepted += n
 		}
+		metrics.IngestBytes.Add(float64(len(body)), t.ProjectID, door)
 		// OTLP success: 200 with an empty Export*Response in the request's encoding.
 		if isJSON {
 			w.Header().Set("Content-Type", "application/json")

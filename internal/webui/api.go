@@ -149,6 +149,7 @@ func (u *UI) newAPIMux(prefix string) *http.ServeMux {
 	reg("DELETE", "/projects/{id}", u.apiProjectDelete)
 	reg("POST", "/projects/{id}/purge-user", u.apiProjectPurgeUser)
 	reg("GET", "/admin/audit", u.apiAudit)
+	reg("GET", "/system", u.apiSystem)
 	// alerts
 	reg("GET", "/alerts/rules", u.apiAlertRules)
 	reg("POST", "/alerts/rules", u.apiAlertRuleUpsert)
@@ -277,7 +278,7 @@ func (u *UI) withProjectAPI(next http.Handler) http.Handler {
 }
 
 func projectOptional(path string) bool {
-	for _, suffix := range []string{"/me", "/login", "/logout", "/project/select", "/projects", "/admin/audit"} {
+	for _, suffix := range []string{"/me", "/login", "/logout", "/project/select", "/projects", "/admin/audit", "/system"} {
 		if strings.HasSuffix(path, suffix) {
 			return true
 		}

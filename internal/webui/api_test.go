@@ -276,6 +276,15 @@ func (f *fakeStore) ListAudit(context.Context, string, int) ([]api.AuditEntry, e
 	defer f.mu.Unlock()
 	return append([]api.AuditEntry{}, f.audit...), nil
 }
+func (f *fakeStore) ListEnabledAlertRules(context.Context) ([]api.AlertRule, error) {
+	return []api.AlertRule{{ID: "r1", Enabled: true}}, nil
+}
+func (f *fakeStore) GlobalLogVolume(_ context.Context, from, to time.Time, bucket int) ([]api.TimeSeriesPoint, error) {
+	return []api.TimeSeriesPoint{{TS: from, Count: 12}, {TS: to, Count: uint64(bucket)}}, nil
+}
+func (f *fakeStore) Stats() clickhouse.Stats {
+	return clickhouse.Stats{Queues: []clickhouse.BatcherStats{{Kind: "logs", Depth: 3, Capacity: 100, Written: 50}}}
+}
 func (f *fakeStore) Overview(context.Context, string, string, string, time.Time, time.Time) (api.Overview, error) {
 	return api.Overview{Events: 10}, nil
 }
@@ -848,5 +857,40 @@ func TestProjectUsageDeleteAndAudit(t *testing.T) {
 	rec, _ = do(t, ua, "DELETE", "/ui/api/projects/default", nil, map[string]string{csrfHeader: "1"})
 	if rec.Code == 202 {
 		t.Fatal("non-admin delete must be refused")
+	}
+}
+
+func TestSystemAPI(t *testing.T) {
+	u, _, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/system", nil, nil)
+	if rec.Code != 200 {
+		t.Fatalf("system: %d %s", rec.Code, rec.Body.String())
+	}
+	if out["version"] == nil || out["go_version"] == nil || out["uptime_s"] == nil {
+		t.Fatalf("process section: %s", rec.Body.String())
+	}
+	ch := out["clickhouse"].(map[string]any)
+	if ch["up"] != false || ch["version"] != "" {
+		t.Fatalf("without a collector ClickHouse reads as down: %v", ch)
+	}
+	ing := out["ingest"].(map[string]any)
+	if len(ing["rate"].([]any)) != 2 || ing["queues"] == nil || ing["events"] == nil {
+		t.Fatalf("ingest section: %v", ing)
+	}
+	al := out["alerting"].(map[string]any)
+	if al["rules_enabled"].(float64) != 1 || al["enabled"] != false {
+		t.Fatalf("alerting section: %v", al)
+	}
+	ret := out["retention"].(map[string]any)
+	if ret["logs"].(float64) != float64(u.cfg.RetentionLogsDays) {
+		t.Fatalf("retention: %v", ret)
+	}
+	cfg := u.cfg
+	cfg.UIAuthMode = "azure"
+	cfg.UIAdmins = []string{"root@example.com"}
+	ua := NewForTest(cfg, &fakeStore{}, fakeKeys{}, nil)
+	rec, _ = do(t, ua, "GET", "/ui/api/system", nil, nil)
+	if rec.Code == 200 {
+		t.Fatal("the System page is for admins")
 	}
 }

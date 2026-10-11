@@ -14,6 +14,7 @@ import { AlertsPage } from "@/features/alerts/alerts-page";
 import { ProjectsPage } from "@/features/projects/projects-page";
 import { TracesPage } from "@/features/traces/traces-page";
 import { TracePage } from "@/features/traces/trace-page";
+import { SystemPage } from "@/features/system/system-page";
 
 export function App() {
   const me = useMe();
@@ -64,6 +65,7 @@ export function App() {
         <Route path="/dashboards" element={<NeedsProject me={me.data}><DashboardsPage /></NeedsProject>} />
         <Route path="/alerts" element={<NeedsProject me={me.data}><AlertsPage me={me.data} /></NeedsProject>} />
         <Route path="/projects" element={<ProjectsPage me={me.data} />} />
+        <Route path="/system" element={<SystemPage me={me.data} />} />
         <Route path="*" element={<Navigate to="/issues" replace />} />
       </Route>
     </Routes>

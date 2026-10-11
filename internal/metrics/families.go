@@ -16,6 +16,8 @@ var (
 	CHRowsDropped   = Default.NewCounter("pyloggle_ch_rows_dropped_total", "Rows dropped after failed flushes or because the queue was full.", "kind")
 	CHFlushFailures = Default.NewCounter("pyloggle_ch_flush_failures_total", "Batch flushes that failed (before retries succeed or give up).", "kind")
 	CHFlushSeconds  = Default.NewHistogram("pyloggle_ch_flush_seconds", "Duration of a batch insert.", DefaultBuckets, "kind")
+	StreamsActive   = Default.NewGauge("pyloggle_streams_active", "Per-(project, service) ingest queues currently allocated.")
+	StreamOverflow  = Default.NewCounter("pyloggle_stream_overflow_total", "Events routed to the shared overflow queue because the stream limit was reached.")
 
 	AlertEvaluations   = Default.NewCounter("pyloggle_alert_evaluations_total", "Alert rule evaluations.", "condition")
 	AlertFirings       = Default.NewCounter("pyloggle_alert_firings_total", "Alerts fired.", "condition")

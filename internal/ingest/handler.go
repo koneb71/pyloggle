@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"pyloggle/internal/config"
+	"pyloggle/internal/metrics"
 	"pyloggle/internal/model"
 	"pyloggle/internal/storage/clickhouse"
 	"pyloggle/internal/tenant"
@@ -69,6 +70,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var (
 		accepted, rejected, dropped int
+		rawBytes                    int
 		errs                        []string
 		lineNo                      int
 		outcomes                    = map[string]int{}
@@ -82,11 +84,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var ev model.Event
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			rejected++
+			metrics.IngestRejected.Inc("ingest")
 			if len(errs) < 5 {
 				errs = append(errs, "line "+strconv.Itoa(lineNo)+": "+err.Error())
 			}
 			continue
 		}
+		rawBytes += len(line)
 		switch o := h.p.Process(r.Context(), t, ev, len(line)); o {
 		case Accepted:
 			accepted++
@@ -96,9 +100,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := sc.Err(); err != nil && err != io.EOF {
+		metrics.IngestRequests.Inc("ingest", "400")
 		http.Error(w, "bad request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	metrics.IngestBytes.Add(float64(rawBytes), t.ProjectID, "ingest")
+	metrics.IngestRequests.Inc("ingest", "202")
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)

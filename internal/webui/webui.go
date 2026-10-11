@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"pyloggle/internal/config"
 	"pyloggle/internal/issue"
 	"pyloggle/internal/storage/clickhouse"
+	"pyloggle/internal/sysinfo"
 	"pyloggle/internal/tenant"
 )
 
@@ -28,6 +30,15 @@ type UI struct {
 	states *issue.StateCache // shared with ingest so UI state changes are seen at once
 	api    http.Handler
 	spa    http.Handler
+
+	sys       *sysinfo.Collector // System page: ClickHouse snapshot (nil in tests)
+	startedAt time.Time
+}
+
+// WithSystem attaches the ClickHouse collector and the process start time for the System page.
+func (u *UI) WithSystem(c *sysinfo.Collector, startedAt time.Time) *UI {
+	u.sys, u.startedAt = c, startedAt
+	return u
 }
 
 // New builds the UI handler. states may be nil (then ingest learns about UI state changes after

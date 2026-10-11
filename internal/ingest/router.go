@@ -8,6 +8,7 @@ import (
 
 	"pyloggle/internal/config"
 	"pyloggle/internal/issue"
+	"pyloggle/internal/metrics"
 	"pyloggle/internal/model"
 	"pyloggle/internal/storage/clickhouse"
 )
@@ -133,11 +134,13 @@ func (r *streamRouter) getStream(projectID, service string) (*stream, bool) {
 	// Cap the number of streams to keep goroutines bounded.
 	if r.cfg.MaxStreams > 0 && len(r.streams) >= r.cfg.MaxStreams {
 		r.overflow.start(r)
+		metrics.StreamOverflow.Inc()
 		return r.overflow, true
 	}
 
 	s := r.newStreamLocked(key)
 	s.start(r)
+	metrics.StreamsActive.Set(float64(len(r.streams)))
 	return s, false
 }
 

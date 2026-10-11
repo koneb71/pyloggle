@@ -79,6 +79,11 @@ type Store interface {
 	ListAlertRules(ctx context.Context, projectID string) ([]api.AlertRule, error)
 	UpsertAlertRule(ctx context.Context, rule api.AlertRule) (api.AlertRule, error)
 	ListAlertFirings(ctx context.Context, projectID string, limit int) ([]api.AlertFiring, error)
+	ListEnabledAlertRules(ctx context.Context) ([]api.AlertRule, error)
+
+	// system
+	GlobalLogVolume(ctx context.Context, from, to time.Time, bucketSeconds int) ([]api.TimeSeriesPoint, error)
+	Stats() clickhouse.Stats
 }
 
 var _ Store = (*clickhouse.Client)(nil)

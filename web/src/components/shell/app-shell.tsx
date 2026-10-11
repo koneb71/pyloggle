@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import clsx from "clsx";
-import { AlertOctagon, Bell, ChevronsUpDown, FolderKanban, GitBranch, LayoutDashboard, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, Sun, SunMoon, Check } from "lucide-react";
+import { Activity, AlertOctagon, Bell, ChevronsUpDown, FolderKanban, GitBranch, LayoutDashboard, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, Sun, SunMoon, Check } from "lucide-react";
 import type { Me } from "@/api/types";
 import { useLogout, useProjectMutations } from "@/api/hooks";
 import { Button, Kbd, MenuItem, Popover } from "@/components/ui";
@@ -14,6 +14,7 @@ const NAV = [
   { to: "/dashboards", label: "Dashboards", icon: LayoutDashboard, key: "d" },
   { to: "/alerts", label: "Alerts", icon: Bell, key: "a" },
   { to: "/projects", label: "Projects", icon: FolderKanban, key: "p" },
+  { to: "/system", label: "System", icon: Activity, key: "s" },
 ];
 
 export function AppShell({ me }: { me: Me }) {
@@ -65,7 +66,7 @@ export function AppShell({ me }: { me: Me }) {
         </div>
         {!collapsed && <ProjectSwitcher me={me} />}
         <nav className="flex flex-1 flex-col gap-0.5 p-1.5">
-          {NAV.filter((n) => (n.to !== "/alerts" || me.features.alerting || me.is_admin) && (n.to !== "/traces" || me.features.traces !== false)).map((n) => (
+          {NAV.filter((n) => (n.to !== "/alerts" || me.features.alerting || me.is_admin) && (n.to !== "/traces" || me.features.traces !== false) && (n.to !== "/system" || me.is_admin)).map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
