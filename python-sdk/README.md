@@ -4,7 +4,7 @@ Logging + error tracking client for a self-hosted [Pyloggle](../README.md) serve
 
 ```bash
 pip install pyloggle            # or: pip install -e ./python-sdk
-pip install "pyloggle[flask]"   # optional framework extras: flask, fastapi, django
+pip install "pyloggle[flask]"   # optional framework extras: flask, fastapi, django, celery
 ```
 
 ## 30-second start
@@ -67,6 +67,20 @@ created from `settings.PYLOGGLE` on first use (or call `pyloggle.django.init()` 
 MIDDLEWARE = ["pyloggle.django.PyloggleMiddleware", *MIDDLEWARE]   # first, so it sees every exception
 PYLOGGLE = {"service": "shop", "env": "prod", "emit_request_latency": True}
 ```
+
+Celery (`pip install "pyloggle[celery]"`): connect the signals once per process, after
+`pyloggle.init()`; the integration is broker-agnostic.
+
+```python
+import pyloggle.celery
+pyloggle.celery.init(emit_task_events=True)   # one "task" line per run with duration and state
+```
+
+Every task run gets a scope (`transaction` = task name; tags `celery.task`, `celery.task_id`,
+`celery.queue`, `celery.retries`), a failure becomes one issue with the task's args/kwargs (scrubbed)
+and the id of the request that enqueued it (`apply_async` stamps `pyloggle-request-id` and the trace
+ids on the message, and the publisher gets an `enqueued <task>` breadcrumb), retries are warnings,
+and prefork workers get a fresh sender thread after fork (so do gunicorn `--preload` apps).
 
 Each request gets its own scope: request id (honors `X-Request-ID`), W3C `traceparent` trace/span ids,
 route template, URL, query, scrubbed headers, client IP, user (Django: `request.user` hashed, raw

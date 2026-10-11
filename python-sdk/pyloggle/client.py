@@ -16,6 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+import weakref
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Optional, Sequence
 
@@ -120,19 +121,40 @@ def normalize_ingest_url(url: str) -> str:
     return urllib.parse.urlunsplit(parts)
 
 
+# Clients alive in this process, so a fork (gunicorn --preload, Celery prefork, multiprocessing)
+# can restart their sender threads in the child: threads do not survive fork, and the copied
+# queue still belongs to the parent.
+_live_clients: "weakref.WeakSet[Client]" = weakref.WeakSet()
+_fork_hook_installed = False
+
+
+def _restart_clients_after_fork() -> None:
+    for c in list(_live_clients):
+        try:
+            c._after_fork()
+        except Exception:
+            continue
+
+
+def _install_fork_hook() -> None:
+    global _fork_hook_installed
+    if _fork_hook_installed or not hasattr(os, "register_at_fork"):
+        return
+    _fork_hook_installed = True
+    os.register_at_fork(after_in_child=_restart_clients_after_fork)
+
+
 class Client:
     def __init__(self, config: ClientConfig):
         self.config = config
         config.ingest_url = normalize_ingest_url(config.ingest_url)
-        self._q: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, int(config.max_queue_size)))
-        self._stop = threading.Event()
         self._scrub_cfg = (config.scrub or default_scrub_config()).merged_with(config.scrub_keys or ())
-        self._runtime = _runtime_info()
         self._hostname = config.hostname or _hostname()
         self._warned_4xx = False
-        self._t = threading.Thread(target=self._run, name="pyloggle-sender", daemon=True)
-        self._t.start()
+        self._start_sender()
         atexit.register(self.close)
+        _live_clients.add(self)
+        _install_fork_hook()
         if getattr(config, "install_excepthooks", True):
             try:
                 from . import hooks
@@ -140,6 +162,21 @@ class Client:
                 hooks.install(self)
             except Exception:
                 pass
+
+    def _start_sender(self) -> None:
+        self._pid = os.getpid()
+        self._runtime = _runtime_info()
+        self._q: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, int(self.config.max_queue_size)))
+        self._stop = threading.Event()
+        self._t = threading.Thread(target=self._run, name="pyloggle-sender", daemon=True)
+        self._t.start()
+
+    def _after_fork(self) -> None:
+        """Called in a forked child: a fresh queue and sender thread, the parent's queued events
+        stay with the parent. Idempotent per process."""
+        if os.getpid() == self._pid:
+            return
+        self._start_sender()
 
     # --- public --------------------------------------------------------------------------
 
