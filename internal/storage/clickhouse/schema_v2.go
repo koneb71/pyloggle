@@ -276,6 +276,10 @@ func (c *Client) copyRetentionWindow(ctx context.Context, spec tableSpec, to str
 	if !ok {
 		return nil
 	}
+	var total uint64
+	if err := c.conn.QueryRow(ctx, "SELECT count() FROM "+spec.Name).Scan(&total); err == nil && total == 0 {
+		return nil // fresh install: nothing to carry over
+	}
 	now := time.Now().UTC()
 	start := now.Add(-time.Duration(days) * 24 * time.Hour).Truncate(24 * time.Hour)
 	end := now.Add(48 * time.Hour) // tolerate client clocks slightly ahead
