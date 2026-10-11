@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import clsx from "clsx";
-import { Ban, CheckCircle2, RotateCcw, Search, Users } from "lucide-react";
+import { Ban, CheckCircle2, RotateCcw, Search, UserCircle2, Users } from "lucide-react";
 import { useBulkIssueState, useIssues, type IssuesParams } from "@/api/hooks";
 import type { IssueSummary } from "@/api/types";
 import { PageHeader } from "@/components/shell/app-shell";
 import { TimeRangePicker } from "@/components/shell/time-range-picker";
 import { Sparkline } from "@/components/charts/sparkline";
 import { Badge, Button, EmptyState, ErrorState, Input, LevelBadge, Pagination, Select, Skeleton, StatusBadge, Tabs, TimeAgo } from "@/components/ui";
+import { StateQualifiers } from "./workflow";
 import { useRange } from "@/lib/use-range";
 import { useUrlState } from "@/lib/url";
 import { fmtNumber } from "@/lib/time";
@@ -21,11 +22,12 @@ export function IssuesPage() {
   const status = get("status", "open");
   const q = get("q");
   const sort = get("sort", "last_seen");
+  const assignee = get("assignee");
   const offset = Number(get("offset", "0")) || 0;
   const limit = 50;
   const params: IssuesParams = useMemo(
-    () => ({ status: status === "all" ? "" : status, q, sort, from: range.from, to: range.to, limit, offset, service: get("service"), env: get("env"), level: get("level") }),
-    [status, q, sort, range.from, range.to, offset, get],
+    () => ({ status: status === "all" ? "" : status, q, sort, assignee, from: range.from, to: range.to, limit, offset, service: get("service"), env: get("env"), level: get("level") }),
+    [status, q, sort, assignee, range.from, range.to, offset, get],
   );
   const issues = useIssues(params, status === "open" && !range.to ? 30_000 : false);
   const bulk = useBulkIssueState();
@@ -71,6 +73,11 @@ export function IssuesPage() {
           <Search size={13} className="pointer-events-none absolute left-2 top-[9px] text-ink-3" />
           <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Search title, culprit, type…" className="w-64 pl-7" />
         </form>
+        <Select value={assignee} onChange={(e) => set({ assignee: e.target.value || undefined, offset: undefined })} className="mb-2 w-40" aria-label="Assignee">
+          <option value="">Any assignee</option>
+          <option value="me">Assigned to me</option>
+          <option value="none">Unassigned</option>
+        </Select>
         <Select value={sort} onChange={(e) => set({ sort: e.target.value === "last_seen" ? undefined : e.target.value, offset: undefined })} className="mb-2 w-36" aria-label="Sort">
           <option value="last_seen">Last seen</option>
           <option value="first_seen">First seen</option>
@@ -152,6 +159,12 @@ function IssueRow({ it, selected, onSelect }: { it: IssueSummary; selected: bool
                 {it.title || it.exception_type || it.last_message || it.issue_id}
               </Link>
               <StatusBadge status={it.status} regressed={it.is_regressed} />
+              <StateQualifiers issue={it} />
+              {it.assignee && (
+                <Badge tone="accent" className="max-w-40 truncate" title={`Assigned to ${it.assignee}`}>
+                  <UserCircle2 size={10} /> {it.assignee}
+                </Badge>
+              )}
             </div>
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
               {it.culprit && <span className="truncate font-mono text-ink-2">{it.culprit}</span>}

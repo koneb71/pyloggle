@@ -63,25 +63,29 @@ type TimeSeriesPoint struct {
 
 // IssueSummary is one row of the issues list.
 type IssueSummary struct {
-	IssueID         string    `json:"issue_id"`
-	Service         string    `json:"service"`
-	Env             string    `json:"env"`
-	ProjectID       string    `json:"project_id"`
-	Title           string    `json:"title"`
-	Culprit         string    `json:"culprit"`
-	LastMessage     string    `json:"last_message"`
-	Level           string    `json:"level"`
-	Status          string    `json:"status"`
-	IsRegressed     bool      `json:"is_regressed"`
-	Assignee        string    `json:"assignee,omitempty"`
-	StatusUpdatedAt time.Time `json:"status_updated_at"`
-	FirstSeen       time.Time `json:"first_seen"`
-	LastSeen        time.Time `json:"last_seen"`
-	OccurrenceCount uint64    `json:"occurrence_count"`
-	AffectedUsers   uint64    `json:"affected_users"`
-	ExceptionType   string    `json:"exception_type"`
-	ExceptionModule string    `json:"exception_module,omitempty"`
-	LastRelease     string    `json:"last_release,omitempty"`
+	IssueID     string `json:"issue_id"`
+	Service     string `json:"service"`
+	Env         string `json:"env"`
+	ProjectID   string `json:"project_id"`
+	Title       string `json:"title"`
+	Culprit     string `json:"culprit"`
+	LastMessage string `json:"last_message"`
+	Level       string `json:"level"`
+	Status      string `json:"status"`
+	IsRegressed bool   `json:"is_regressed"`
+	Assignee    string `json:"assignee,omitempty"`
+	// Snooze / release-resolution details (ignored and resolved issues).
+	SnoozeUntil       *time.Time `json:"snooze_until,omitempty"`
+	SnoozeCount       uint64     `json:"snooze_count,omitempty"`
+	ResolvedInRelease string     `json:"resolved_in_release,omitempty"`
+	StatusUpdatedAt   time.Time  `json:"status_updated_at"`
+	FirstSeen         time.Time  `json:"first_seen"`
+	LastSeen          time.Time  `json:"last_seen"`
+	OccurrenceCount   uint64     `json:"occurrence_count"`
+	AffectedUsers     uint64     `json:"affected_users"`
+	ExceptionType     string     `json:"exception_type"`
+	ExceptionModule   string     `json:"exception_module,omitempty"`
+	LastRelease       string     `json:"last_release,omitempty"`
 	// Legacy fields kept for API compatibility (derived from the culprit where possible).
 	TopFilename      string `json:"top_filename"`
 	TopLineno        uint32 `json:"top_lineno"`
@@ -117,16 +121,25 @@ type IssueStateUpdate struct {
 
 // IssueStateChange is the storage-level state write (regression fields included).
 type IssueStateChange struct {
-	ProjectID     string
-	Service       string
-	Env           string
-	IssueID       string
+	ProjectID string
+	Service   string
+	Env       string
+	IssueID   string
+	// Status "" keeps the current status (assign-only or comment-only changes).
 	Status        string
 	Regressed     bool
 	RegressedFrom string
 	UpdatedBy     string
 	Comment       string
-	Assignee      string
+	// Kind overrides the derived activity kind (status | assign | comment | snooze | unsnooze |
+	// regression | resolve_in_release).
+	Kind    string
+	Release string // release involved (regressions, resolve-in-release)
+	// Optional fields: nil leaves the stored value untouched.
+	Assignee          *string
+	SnoozeUntil       *time.Time
+	SnoozeCount       *uint64
+	ResolvedInRelease *string
 }
 
 // ErrorOccurrence is one stored error event. The legacy flat fields stay for API compatibility;
@@ -279,6 +292,19 @@ type AlertFiring struct {
 	Count         uint64          `json:"count"`
 	URL           string          `json:"url,omitempty"`
 	Payload       json.RawMessage `json:"payload"`
+}
+
+// IssueActivity is one row of an issue's history (append-only).
+type IssueActivity struct {
+	ID      string    `json:"id"`
+	IssueID string    `json:"issue_id"`
+	TS      time.Time `json:"ts"`
+	Kind    string    `json:"kind"`
+	Actor   string    `json:"actor"`
+	From    string    `json:"from,omitempty"`
+	To      string    `json:"to,omitempty"`
+	Comment string    `json:"comment,omitempty"`
+	Release string    `json:"release,omitempty"`
 }
 
 // Project is the multi-tenant container used for API key auth + quotas.

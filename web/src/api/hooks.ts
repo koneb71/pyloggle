@@ -4,6 +4,7 @@ import type {
   AlertFiring,
   AlertRule,
   Histogram,
+  IssueActivity,
   IssueDetail,
   IssueListResponse,
   LogContext,
@@ -22,6 +23,7 @@ export const useMe = () => useQuery({ queryKey: ["me"], queryFn: () => get<Me>("
 
 export interface IssuesParams {
   status?: string;
+  assignee?: string;
   q?: string;
   service?: string;
   env?: string;
@@ -62,24 +64,60 @@ export const useOccurrences = (id: string | undefined, limit = 50) =>
     enabled: !!id,
   });
 
+export interface StateChange {
+  status: string;
+  comment?: string;
+  snooze_for_seconds?: number;
+  snooze_until?: string;
+  snooze_count?: number;
+  resolved_in_release?: string; // release name or "next"
+}
+
+function invalidateIssue(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["issues"] });
+  qc.invalidateQueries({ queryKey: ["issue"] });
+  qc.invalidateQueries({ queryKey: ["issue-activity"] });
+}
+
 export function useIssueState() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { id: string; status: string; comment?: string }) => post(`/issues/${v.id}/state`, { status: v.status, comment: v.comment }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["issues"] });
-      qc.invalidateQueries({ queryKey: ["issue"] });
+    mutationFn: (v: { id: string } & StateChange) => {
+      const { id, ...body } = v;
+      return post(`/issues/${id}/state`, body);
     },
+    onSuccess: () => invalidateIssue(qc),
   });
 }
 
 export function useBulkIssueState() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { issue_ids: string[]; status: string }) => post(`/issues/state`, v),
+    mutationFn: (v: { issue_ids: string[] } & StateChange) => post(`/issues/state`, v),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["issues"] }),
   });
 }
+
+export function useAssignIssue() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; assignee: string }) => post<{ ok: boolean; assignee: string }>(`/issues/${v.id}/assign`, { assignee: v.assignee }),
+    onSuccess: () => invalidateIssue(qc),
+  });
+}
+
+export function useAddComment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; body: string }) => post(`/issues/${v.id}/comments`, { body: v.body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["issue-activity"] }),
+  });
+}
+
+export const useIssueActivity = (id: string | undefined) =>
+  useQuery({ queryKey: ["issue-activity", id], queryFn: () => get<{ items: IssueActivity[] }>(`/issues/${id}/activity`, { limit: 200 }), enabled: !!id });
+
+export const useAssignees = () => useQuery({ queryKey: ["assignees"], queryFn: () => get<{ items: string[]; me: string }>("/issues/assignees"), staleTime: 60_000 });
 
 export interface LogsParams {
   q?: string;

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"pyloggle/internal/api"
+	"pyloggle/internal/issue"
 	"pyloggle/internal/storage/clickhouse"
 	"pyloggle/internal/tenant"
 )
@@ -22,6 +23,10 @@ type Store interface {
 	LatestOccurrence(ctx context.Context, projectID, issueID string) (api.ErrorOccurrence, bool, error)
 	QueryOccurrences(ctx context.Context, projectID, issueID string, from, to, before time.Time, limit int) ([]api.ErrorOccurrence, error)
 	SetIssueState(ctx context.Context, st api.IssueStateChange) error
+	GetIssueState(ctx context.Context, projectID, issueID string) (issue.State, bool, error)
+	AddIssueComment(ctx context.Context, projectID, issueID, actor, body string) error
+	ListIssueActivity(ctx context.Context, projectID, issueID string, limit int) ([]api.IssueActivity, error)
+	ListAssignees(ctx context.Context, projectID string) ([]string, error)
 
 	// logs
 	QueryLogs(ctx context.Context, q clickhouse.LogQuery) ([]api.LogEvent, error)

@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"pyloggle/internal/api"
@@ -24,10 +26,16 @@ type Sink interface {
 	EnqueueErrorOccurrence(ctx context.Context, occ issue.ErrorOccurrence) error
 }
 
-// IssueStateStore is the slice of storage the pipeline needs for regression detection.
+// IssueStateStore is the slice of storage the pipeline needs for regression and snooze handling.
 type IssueStateStore interface {
-	GetIssueStatus(ctx context.Context, projectID, issueID string) (status string, regressed bool, found bool, err error)
+	GetIssueState(ctx context.Context, projectID, issueID string) (issue.State, bool, error)
 	SetIssueState(ctx context.Context, st api.IssueStateChange) error
+}
+
+// ReleaseStore is optional: when the state store also knows release first-seen times, opaque
+// release names (build ids, dates) can be ordered for resolve-in-release.
+type ReleaseStore interface {
+	ReleaseFirstSeen(ctx context.Context, projectID, release string) (time.Time, bool, error)
 }
 
 // KeyResolver maps API keys to projects.
@@ -83,7 +91,10 @@ type Pipeline struct {
 	res    KeyResolver
 	lim    *limiter
 	qt     *quotaTracker
-	now    func() time.Time
+
+	relMu    sync.Mutex
+	releases map[string]releaseSeen
+	now      func() time.Time
 }
 
 func NewPipeline(cfg config.Config, sink Sink, store IssueStateStore, res KeyResolver) *Pipeline {
@@ -98,9 +109,10 @@ func NewPipeline(cfg config.Config, sink Sink, store IssueStateStore, res KeyRes
 	}
 	var loader issue.StateLoader
 	if store != nil {
-		loader = store.GetIssueStatus
+		loader = store.GetIssueState
 	}
 	p.states = issue.NewStateCache(time.Minute, loader)
+	p.releases = map[string]releaseSeen{}
 	return p
 }
 
@@ -200,7 +212,7 @@ func (p *Pipeline) process(ctx context.Context, t Tenant, ev model.Event, rawLen
 	if isErr && !ev.SkipIssue {
 		occ := issue.FromEvent(ev)
 		ev.Attrs = ev.Attrs.Set("pyloggle.issue_id", occ.IssueID)
-		p.detectRegression(ctx, occ)
+		p.applyIssueState(ctx, occ)
 		if err := p.sink.EnqueueErrorOccurrence(ctx, occ); err != nil {
 			return DroppedQueueFull
 		}
@@ -211,8 +223,11 @@ func (p *Pipeline) process(ctx context.Context, t Tenant, ev model.Event, rawLen
 	return Accepted
 }
 
-// detectRegression reopens resolved issues that occur again. Ignored issues stay ignored.
-func (p *Pipeline) detectRegression(ctx context.Context, occ issue.ErrorOccurrence) {
+// applyIssueState reopens issues whose lifecycle state says they should come back: resolved
+// issues on a new occurrence (a newer release when they were resolved in a release), and
+// snoozed issues when the snooze expires or its occurrence budget is spent. Plain ignores stay
+// ignored.
+func (p *Pipeline) applyIssueState(ctx context.Context, occ issue.ErrorOccurrence) {
 	if p.store == nil {
 		return
 	}
@@ -220,16 +235,80 @@ func (p *Pipeline) detectRegression(ctx context.Context, occ issue.ErrorOccurren
 	if err != nil || !known {
 		return
 	}
-	if st.Status != issue.StatusResolved {
+	now := p.now().UTC()
+	var change api.IssueStateChange
+	switch st.Status {
+	case issue.StatusResolved:
+		if !p.isRegression(ctx, occ, st) {
+			return
+		}
+		comment := "regressed: new occurrence after resolution"
+		if st.ResolvedInRelease != "" {
+			comment = fmt.Sprintf("regressed: resolved in %s, seen again in %s", st.ResolvedInRelease, occ.Release)
+		}
+		change = api.IssueStateChange{Status: issue.StatusOpen, Regressed: true, RegressedFrom: issue.StatusResolved, Comment: comment, Kind: "regression", Release: occ.Release}
+	case issue.StatusIgnored:
+		switch {
+		case !st.SnoozeUntil.IsZero() && now.After(st.SnoozeUntil):
+			change = api.IssueStateChange{Status: issue.StatusOpen, Regressed: true, RegressedFrom: issue.StatusIgnored, Comment: "snooze expired", Kind: "unsnooze"}
+		case st.SnoozeCount > 0 && p.states.Bump(occ.ProjectID, occ.IssueID) >= st.SnoozeCount:
+			change = api.IssueStateChange{Status: issue.StatusOpen, Regressed: true, RegressedFrom: issue.StatusIgnored, Comment: fmt.Sprintf("occurrence budget of %d reached", st.SnoozeCount), Kind: "unsnooze"}
+		default:
+			return
+		}
+	default:
 		return
 	}
-	change := api.IssueStateChange{
-		ProjectID: occ.ProjectID, Service: occ.Service, Env: occ.Env, IssueID: occ.IssueID,
-		Status: issue.StatusOpen, Regressed: true, RegressedFrom: issue.StatusResolved,
-		UpdatedBy: "system", Comment: "regressed: new occurrence after resolution",
-	}
+	change.ProjectID, change.Service, change.Env, change.IssueID, change.UpdatedBy = occ.ProjectID, occ.Service, occ.Env, occ.IssueID, "system"
 	if err := p.store.SetIssueState(ctx, change); err == nil {
-		p.states.Set(occ.ProjectID, occ.IssueID, issue.State{Status: issue.StatusOpen, Regressed: true})
+		p.states.Set(occ.ProjectID, occ.IssueID, issue.State{Status: issue.StatusOpen, Regressed: true, RegressedFrom: change.RegressedFrom, Assignee: st.Assignee})
+	}
+}
+
+// isRegression decides whether an occurrence of a resolved issue reopens it.
+func (p *Pipeline) isRegression(ctx context.Context, occ issue.ErrorOccurrence, st issue.State) bool {
+	if st.ResolvedInRelease == "" {
+		return true
+	}
+	if occ.Release == "" {
+		return false // the old deployment is probably still running
+	}
+	return issue.ReleaseNewer(occ.Release, st.ResolvedInRelease, p.releaseFirstSeen(ctx, occ.ProjectID))
+}
+
+type releaseSeen struct {
+	t       time.Time
+	ok      bool
+	expires time.Time
+}
+
+// releaseFirstSeen returns a lookup backed by the ReleaseStore with a five-minute cache.
+func (p *Pipeline) releaseFirstSeen(ctx context.Context, projectID string) func(string) (time.Time, bool) {
+	rs, ok := p.store.(ReleaseStore)
+	if !ok {
+		return nil
+	}
+	return func(release string) (time.Time, bool) {
+		key := projectID + "|" + release
+		now := p.now()
+		p.relMu.Lock()
+		if e, ok := p.releases[key]; ok && now.Before(e.expires) {
+			p.relMu.Unlock()
+			return e.t, e.ok
+		}
+		p.relMu.Unlock()
+		t, found, err := rs.ReleaseFirstSeen(ctx, projectID, release)
+		if err != nil {
+			return time.Time{}, false
+		}
+		if found {
+			// Negative results are not cached: a release is unknown only until its first rows
+			// are flushed, and a stale "unknown" would misjudge the next comparison.
+			p.relMu.Lock()
+			p.releases[key] = releaseSeen{t: t, ok: true, expires: now.Add(5 * time.Minute)}
+			p.relMu.Unlock()
+		}
+		return t, found
 	}
 }
 

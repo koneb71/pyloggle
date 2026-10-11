@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import clsx from "clsx";
-import { ArrowLeft, Ban, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, RotateCcw, Users } from "lucide-react";
-import { useIssue, useIssueState, useIssueTrend, useOccurrence, useOccurrences } from "@/api/hooks";
+import { ArrowLeft, ChevronLeft, ChevronRight, ExternalLink, Users } from "lucide-react";
+import { useIssue, useIssueTrend, useOccurrence, useOccurrences } from "@/api/hooks";
 import type { FacetCount, IssueDetail, Occurrence } from "@/api/types";
 import { PageHeader } from "@/components/shell/app-shell";
 import { TimeRangePicker } from "@/components/shell/time-range-picker";
@@ -15,10 +15,11 @@ import { levelVar } from "@/lib/levels";
 import { term } from "@/lib/query";
 import { ExceptionView } from "./exception-view";
 import { Breadcrumbs } from "./breadcrumbs";
+import { ActivityTab, StateQualifiers, WorkflowActions } from "./workflow";
 import { LogList } from "@/features/logs/log-list";
 
 const ISSUE_DEFAULT = { from: "-7d", to: "" };
-const TABS = ["exception", "breadcrumbs", "request", "context", "tags", "logs", "raw"] as const;
+const TABS = ["exception", "breadcrumbs", "request", "context", "tags", "logs", "activity", "raw"] as const;
 
 export function IssueDetailPage() {
   const { id } = useParams();
@@ -48,7 +49,7 @@ export function IssueDetailPage() {
         }
         sub={issue?.culprit && <span className="font-mono">{issue.culprit}</span>}
       >
-        {issue && <StateActions issue={issue} />}
+        {issue && <WorkflowActions issue={issue} />}
         <TimeRangePicker value={range} onChange={setRange} onRefresh={() => (detail.refetch(), trend.refetch())} refreshing={detail.isFetching} />
       </PageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -81,11 +82,14 @@ export function IssueDetailPage() {
                       { id: "context", label: "User & runtime" },
                       { id: "tags", label: "Tags & attrs" },
                       { id: "logs", label: "Logs" },
+                      { id: "activity", label: "Activity" },
                       { id: "raw", label: "Raw" },
                     ]}
                   />
                   <div className="p-3">
-                    {!occ ? (
+                    {tab === "activity" ? (
+                      <ActivityTab issueId={id!} />
+                    ) : !occ ? (
                       occQ.isError ? (
                         <ErrorState error={occQ.error} />
                       ) : (
@@ -113,30 +117,6 @@ export function IssueDetailPage() {
   );
 }
 
-function StateActions({ issue }: { issue: IssueDetail["issue"] }) {
-  const m = useIssueState();
-  const go = (status: string) => m.mutate({ id: issue.issue_id, status });
-  return (
-    <div className="flex items-center gap-1">
-      {issue.status !== "resolved" && (
-        <Button icon={<CheckCircle2 size={13} />} onClick={() => go("resolved")} loading={m.isPending} variant="primary">
-          Resolve
-        </Button>
-      )}
-      {issue.status !== "ignored" && (
-        <Button icon={<Ban size={13} />} onClick={() => go("ignored")}>
-          Ignore
-        </Button>
-      )}
-      {issue.status !== "open" && (
-        <Button icon={<RotateCcw size={13} />} onClick={() => go("open")}>
-          Reopen
-        </Button>
-      )}
-    </div>
-  );
-}
-
 function IssueSummaryBar({ d }: { d: IssueDetail }) {
   const it = d.issue;
   const handled = d.breakdowns.handled;
@@ -145,6 +125,7 @@ function IssueSummaryBar({ d }: { d: IssueDetail }) {
     <Card className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5">
       <div className="flex items-center gap-2">
         <StatusBadge status={it.status} regressed={it.is_regressed} />
+        <StateQualifiers issue={it} />
         {unhandled && <UnhandledBadge />}
         <LevelBadge level={it.level} />
       </div>

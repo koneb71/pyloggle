@@ -21,6 +21,7 @@ type fakeStore struct {
 	lastLogQuery   clickhouse.LogQuery
 	lastIssueQuery clickhouse.IssueListQuery
 	states         []api.IssueStateChange
+	comments       []string
 	projects       []clickhouse.ProjectView
 	created        []clickhouse.ProjectUpsert
 }
@@ -68,6 +69,43 @@ func (f *fakeStore) QueryOccurrences(context.Context, string, string, time.Time,
 func (f *fakeStore) SetIssueState(_ context.Context, st api.IssueStateChange) error {
 	f.states = append(f.states, st)
 	return nil
+}
+func (f *fakeStore) GetIssueState(_ context.Context, _, id string) (issue.State, bool, error) {
+	if id == "missing" {
+		return issue.State{}, false, nil
+	}
+	st := issue.State{Status: "open"}
+	for _, c := range f.states {
+		if c.IssueID != id {
+			continue
+		}
+		if c.Status != "" {
+			st.Status, st.Regressed = c.Status, c.Regressed
+		}
+		if c.Assignee != nil {
+			st.Assignee = *c.Assignee
+		}
+		if c.SnoozeUntil != nil {
+			st.SnoozeUntil = *c.SnoozeUntil
+		}
+		if c.SnoozeCount != nil {
+			st.SnoozeCount = *c.SnoozeCount
+		}
+		if c.ResolvedInRelease != nil {
+			st.ResolvedInRelease = *c.ResolvedInRelease
+		}
+	}
+	return st, true, nil
+}
+func (f *fakeStore) AddIssueComment(_ context.Context, _, id, actor, body string) error {
+	f.comments = append(f.comments, actor+": "+body)
+	return nil
+}
+func (f *fakeStore) ListIssueActivity(_ context.Context, _, id string, _ int) ([]api.IssueActivity, error) {
+	return []api.IssueActivity{{ID: "a1", IssueID: id, Kind: "status", Actor: "alice", From: "open", To: "resolved", TS: time.Unix(1700000000, 0).UTC()}}, nil
+}
+func (f *fakeStore) ListAssignees(context.Context, string) ([]string, error) {
+	return []string{"alice", "bob"}, nil
 }
 func (f *fakeStore) QueryLogs(_ context.Context, q clickhouse.LogQuery) ([]api.LogEvent, error) {
 	f.lastLogQuery = q

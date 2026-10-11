@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"pyloggle/internal/api"
 	"pyloggle/internal/config"
@@ -40,28 +41,54 @@ func (m *memSink) EnqueueErrorOccurrence(_ context.Context, occ issue.ErrorOccur
 }
 
 type memStates struct {
-	mu     sync.Mutex
-	states map[string]api.IssueStateChange
+	mu       sync.Mutex
+	states   map[string]issue.State
+	changes  []api.IssueStateChange
+	releases map[string]time.Time
 }
 
-func (s *memStates) GetIssueStatus(_ context.Context, projectID, issueID string) (string, bool, bool, error) {
+func (s *memStates) GetIssueState(_ context.Context, projectID, issueID string) (issue.State, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st, ok := s.states[projectID+"|"+issueID]
-	if !ok {
-		return "", false, false, nil
-	}
-	return st.Status, st.Regressed, true, nil
+	return st, ok, nil
 }
 
-func (s *memStates) SetIssueState(_ context.Context, st api.IssueStateChange) error {
+// SetIssueState mirrors the storage semantics: overlay the change on the current state.
+func (s *memStates) SetIssueState(_ context.Context, ch api.IssueStateChange) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.states == nil {
-		s.states = map[string]api.IssueStateChange{}
+		s.states = map[string]issue.State{}
 	}
-	s.states[st.ProjectID+"|"+st.IssueID] = st
+	key := ch.ProjectID + "|" + ch.IssueID
+	next := s.states[key]
+	if ch.Status != "" {
+		if ch.Status != next.Status {
+			next.SnoozeUntil, next.SnoozeCount, next.ResolvedInRelease = time.Time{}, 0, ""
+		}
+		next.Status, next.Regressed, next.RegressedFrom = ch.Status, ch.Regressed, ch.RegressedFrom
+	}
+	if ch.Assignee != nil {
+		next.Assignee = *ch.Assignee
+	}
+	if ch.SnoozeUntil != nil {
+		next.SnoozeUntil = *ch.SnoozeUntil
+	}
+	if ch.SnoozeCount != nil {
+		next.SnoozeCount = *ch.SnoozeCount
+	}
+	if ch.ResolvedInRelease != nil {
+		next.ResolvedInRelease = *ch.ResolvedInRelease
+	}
+	s.states[key] = next
+	s.changes = append(s.changes, ch)
 	return nil
+}
+
+func (s *memStates) ReleaseFirstSeen(_ context.Context, projectID, release string) (time.Time, bool, error) {
+	t, ok := s.releases[projectID+"|"+release]
+	return t, ok, nil
 }
 
 type memResolver struct{ keys map[string]tenant.Project }
@@ -279,5 +306,103 @@ func TestLatencyAttrIsPromotedToDuration(t *testing.T) {
 	_ = p.Process(context.Background(), tn, ev, 50)
 	if sink.logs[1].DurationMS != 7 {
 		t.Fatalf("explicit duration overwritten: %v", sink.logs[1].DurationMS)
+	}
+}
+
+func TestSnoozeAndReleaseRules(t *testing.T) {
+	sink := &memSink{}
+	states := &memStates{states: map[string]issue.State{}, releases: map[string]time.Time{"p|build-1": time.Unix(1000, 0), "p|build-2": time.Unix(2000, 0)}}
+	p := NewPipeline(testConfig(), sink, states, nil)
+	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)
+	p.now = func() time.Time { return now }
+	tn := Tenant{ProjectID: "p"}
+	ev := model.Event{Service: "api", Env: "prod", Level: "error", Logger: "app", Message: "boom",
+		Exception: &model.Exception{Type: "ValueError", Message: "boom", Frames: []model.Frame{{Filename: "/srv/app/x.py", Function: "f", Lineno: 1}}}}
+	_ = p.Process(context.Background(), tn, ev, 100)
+	issueID := sink.occs[0].IssueID
+	key := "p|" + issueID
+	set := func(st issue.State) {
+		states.mu.Lock()
+		states.states[key] = st
+		states.mu.Unlock()
+		p.states.Set("p", issueID, st)
+	}
+	get := func() issue.State {
+		states.mu.Lock()
+		defer states.mu.Unlock()
+		return states.states[key]
+	}
+
+	// Resolved in release 1.9.0: an occurrence from 1.9.0 is not a regression, 1.10.0 is.
+	set(issue.State{Status: issue.StatusResolved, ResolvedInRelease: "1.9.0", Assignee: "alice"})
+	ev.Release = "1.9.0"
+	_ = p.Process(context.Background(), tn, ev, 100)
+	if st := get(); st.Status != issue.StatusResolved {
+		t.Fatalf("same release must not regress: %+v", st)
+	}
+	ev.Release = ""
+	_ = p.Process(context.Background(), tn, ev, 100)
+	if st := get(); st.Status != issue.StatusResolved {
+		t.Fatalf("occurrence without release must not regress a release-resolved issue: %+v", st)
+	}
+	ev.Release = "1.10.0"
+	_ = p.Process(context.Background(), tn, ev, 100)
+	if st := get(); st.Status != issue.StatusOpen || !st.Regressed || st.Assignee != "alice" || st.ResolvedInRelease != "" {
+		t.Fatalf("newer release must regress and keep the assignee: %+v", st)
+	}
+	last := states.changes[len(states.changes)-1]
+	if last.Kind != "regression" || last.Release != "1.10.0" || last.UpdatedBy != "system" {
+		t.Fatalf("regression change: %+v", last)
+	}
+
+	// Opaque releases are ordered by first-seen.
+	set(issue.State{Status: issue.StatusResolved, ResolvedInRelease: "build-2"})
+	ev.Release = "build-1"
+	_ = p.Process(context.Background(), tn, ev, 100)
+	if st := get(); st.Status != issue.StatusResolved {
+		t.Fatalf("older build must not regress: %+v", st)
+	}
+	set(issue.State{Status: issue.StatusResolved, ResolvedInRelease: "build-1"})
+	ev.Release = "build-2"
+	_ = p.Process(context.Background(), tn, ev, 100)
+	if st := get(); st.Status != issue.StatusOpen {
+		t.Fatalf("newer build must regress: %+v", st)
+	}
+
+	// Snooze until a time: stays ignored before, reopens after.
+	set(issue.State{Status: issue.StatusIgnored, SnoozeUntil: now.Add(time.Hour)})
+	_ = p.Process(context.Background(), tn, ev, 100)
+	if st := get(); st.Status != issue.StatusIgnored {
+		t.Fatalf("snooze still active: %+v", st)
+	}
+	p.now = func() time.Time { return now.Add(2 * time.Hour) }
+	_ = p.Process(context.Background(), tn, ev, 100)
+	if st := get(); st.Status != issue.StatusOpen || st.RegressedFrom != issue.StatusIgnored {
+		t.Fatalf("expired snooze must reopen: %+v", st)
+	}
+	if last := states.changes[len(states.changes)-1]; last.Kind != "unsnooze" {
+		t.Fatalf("unsnooze activity: %+v", last)
+	}
+
+	// Snooze for 3 more occurrences (absolute target 13 with 10 already counted).
+	set(issue.State{Status: issue.StatusIgnored, SnoozeCount: 13, OccurrenceCount: 10})
+	for i := 0; i < 2; i++ {
+		_ = p.Process(context.Background(), tn, ev, 100)
+	}
+	if st := get(); st.Status != issue.StatusIgnored {
+		t.Fatalf("budget not yet spent: %+v", st)
+	}
+	_ = p.Process(context.Background(), tn, ev, 100)
+	if st := get(); st.Status != issue.StatusOpen {
+		t.Fatalf("budget spent must reopen: %+v", st)
+	}
+
+	// A plain ignore stays ignored forever.
+	set(issue.State{Status: issue.StatusIgnored})
+	for i := 0; i < 5; i++ {
+		_ = p.Process(context.Background(), tn, ev, 100)
+	}
+	if st := get(); st.Status != issue.StatusIgnored {
+		t.Fatalf("plain ignore must stay ignored: %+v", st)
 	}
 }
