@@ -58,11 +58,13 @@ type Config struct {
 	SampleByRequest bool // seed sampling by request_id so a kept request keeps all its lines
 
 	// Schema management and retention.
-	AutoMigrate         bool // apply embedded migrations at startup
-	MigrateRebuild      bool // v2 upgrade: rebuild event tables with daily partitions (copies the retention window)
-	RetentionLogsDays   int
-	RetentionErrorsDays int
-	RetentionStatsDays  int
+	AutoMigrate          bool // apply embedded migrations at startup
+	MigrateRebuild       bool // v2 upgrade: rebuild event tables with daily partitions (copies the retention window)
+	RetentionLogsDays    int
+	RetentionErrorsDays  int
+	RetentionStatsDays   int
+	RetentionSpansDays   int
+	RetentionMetricsDays int
 
 	// OTLP ingestion: store OK server spans as "request" log rows (off by default to limit volume).
 	OTLPStoreServerSpans bool
@@ -126,11 +128,13 @@ func FromEnv() Config {
 		SampleWarn:      getenvFloat("INGEST_SAMPLE_WARN", 1.00),
 		SampleByRequest: getenvBool("INGEST_SAMPLE_BY_REQUEST", true),
 
-		AutoMigrate:         getenvBool("PYLOGGLE_AUTO_MIGRATE", true),
-		MigrateRebuild:      getenvBool("PYLOGGLE_MIGRATE_REBUILD", true),
-		RetentionLogsDays:   getenvInt("PYLOGGLE_RETENTION_LOGS_DAYS", 30),
-		RetentionErrorsDays: getenvInt("PYLOGGLE_RETENTION_ERRORS_DAYS", 30),
-		RetentionStatsDays:  getenvInt("PYLOGGLE_RETENTION_STATS_DAYS", 365),
+		AutoMigrate:          getenvBool("PYLOGGLE_AUTO_MIGRATE", true),
+		MigrateRebuild:       getenvBool("PYLOGGLE_MIGRATE_REBUILD", true),
+		RetentionLogsDays:    getenvInt("PYLOGGLE_RETENTION_LOGS_DAYS", 30),
+		RetentionErrorsDays:  getenvInt("PYLOGGLE_RETENTION_ERRORS_DAYS", 30),
+		RetentionStatsDays:   getenvInt("PYLOGGLE_RETENTION_STATS_DAYS", 365),
+		RetentionSpansDays:   getenvInt("PYLOGGLE_RETENTION_SPANS_DAYS", 7),
+		RetentionMetricsDays: getenvInt("PYLOGGLE_RETENTION_METRICS_DAYS", 30),
 
 		OTLPStoreServerSpans: getenvBool("OTLP_STORE_SERVER_SPANS", false),
 		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_PUBLIC_URL")), "/"),

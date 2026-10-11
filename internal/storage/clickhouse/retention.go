@@ -20,6 +20,9 @@ func retentionTargets(opts MigrateOptions) []retentionTarget {
 		{Table: "logs_raw", Expr: func(d int) string { return fmt.Sprintf("toDate(ts) + INTERVAL %d DAY", d) }, Days: func(o MigrateOptions) int { return o.RetentionLogsDays }},
 		{Table: "error_occurrences", Expr: func(d int) string { return fmt.Sprintf("toDate(ts) + INTERVAL %d DAY", d) }, Days: func(o MigrateOptions) int { return o.RetentionErrorsDays }},
 		{Table: "issue_counts_hourly", Expr: func(d int) string { return fmt.Sprintf("bucket + INTERVAL %d DAY", d) }, Days: func(o MigrateOptions) int { return o.RetentionStatsDays }},
+		// Tables that arrive with 0.3; ApplyRetention skips them until they exist.
+		{Table: "spans", Expr: func(d int) string { return fmt.Sprintf("toDate(start_ts) + INTERVAL %d DAY", d) }, Days: func(o MigrateOptions) int { return o.RetentionSpansDays }},
+		{Table: "metrics_points", Expr: func(d int) string { return fmt.Sprintf("toDate(ts) + INTERVAL %d DAY", d) }, Days: func(o MigrateOptions) int { return o.RetentionMetricsDays }},
 	}
 }
 

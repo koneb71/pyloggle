@@ -18,11 +18,13 @@ var migrationsFS embed.FS
 
 // MigrateOptions carries the knobs migrations and retention need.
 type MigrateOptions struct {
-	Rebuild             bool // rebuild event tables with daily partitions (default true)
-	RetentionLogsDays   int
-	RetentionErrorsDays int
-	RetentionStatsDays  int
-	Logf                func(format string, args ...any)
+	Rebuild              bool // rebuild event tables with daily partitions (default true)
+	RetentionLogsDays    int
+	RetentionErrorsDays  int
+	RetentionStatsDays   int
+	RetentionSpansDays   int // spans (OTLP traces), default 7
+	RetentionMetricsDays int // metrics_points (OTLP metrics), default 30
+	Logf                 func(format string, args ...any)
 }
 
 func (o MigrateOptions) logf(format string, args ...any) {
@@ -42,6 +44,12 @@ func (o MigrateOptions) withDefaults() MigrateOptions {
 	}
 	if o.RetentionStatsDays <= 0 {
 		o.RetentionStatsDays = 365
+	}
+	if o.RetentionSpansDays <= 0 {
+		o.RetentionSpansDays = 7
+	}
+	if o.RetentionMetricsDays <= 0 {
+		o.RetentionMetricsDays = 30
 	}
 	return o
 }

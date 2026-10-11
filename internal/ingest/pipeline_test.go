@@ -262,3 +262,22 @@ func TestRejectedLinesAreReported(t *testing.T) {
 		t.Fatalf("errors must be listed: %s", rec.Body.String())
 	}
 }
+
+func TestLatencyAttrIsPromotedToDuration(t *testing.T) {
+	sink := &memSink{}
+	p := NewPipeline(testConfig(), sink, nil, nil)
+	tn := Tenant{ProjectID: "p"}
+	ev := model.Event{Service: "api", Env: "prod", Level: "info", Message: "request", Attrs: model.Attrs{"latency_ms": "42"}}
+	if o := p.Process(context.Background(), tn, ev, 50); o != Accepted || len(sink.logs) != 1 {
+		t.Fatalf("outcome %v logs=%d", o, len(sink.logs))
+	}
+	if sink.logs[0].DurationMS != 42 {
+		t.Fatalf("duration_ms not promoted: %v", sink.logs[0].DurationMS)
+	}
+	// An explicit duration wins over the attribute.
+	ev.DurationMS = 7
+	_ = p.Process(context.Background(), tn, ev, 50)
+	if sink.logs[1].DurationMS != 7 {
+		t.Fatalf("explicit duration overwritten: %v", sink.logs[1].DurationMS)
+	}
+}
