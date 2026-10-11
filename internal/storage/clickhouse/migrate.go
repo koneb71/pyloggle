@@ -70,6 +70,7 @@ var migrations = []migration{
 	{Name: "006_events_v2", Fn: rebuildV2},
 	{Name: "007_issues_agg", SQL: "007_issues_agg.sql"},
 	{Name: "008_drop_v1_stats", SQL: "008_drop_v1_stats.sql"},
+	{Name: "009_alerting_v2", SQL: "009_alerting_v2.sql"},
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations, in order.

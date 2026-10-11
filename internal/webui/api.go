@@ -134,6 +134,7 @@ func (u *UI) newAPIMux(prefix string) *http.ServeMux {
 	// alerts
 	reg("GET", "/alerts/rules", u.apiAlertRules)
 	reg("POST", "/alerts/rules", u.apiAlertRuleUpsert)
+	reg("GET", "/alerts/rules/preview", u.apiAlertRulePreview)
 	reg("GET", "/alerts/firings", u.apiAlertFirings)
 	return mux
 }

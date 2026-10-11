@@ -30,6 +30,8 @@ type LogQuery struct {
 	IssueID      string
 	Release      string
 	Hostname     string
+	HTTPRoute    string
+	HTTPMethod   string
 	Text         string
 	Levels       []string
 	HasException bool
@@ -84,6 +86,19 @@ func (r logRow) toAPI() api.LogEvent {
 }
 
 // where renders the WHERE clause (without the keyword) and its args.
+// CountLogs counts the rows matching the query (alert monitors, rule previews).
+func (c *Client) CountLogs(ctx context.Context, q LogQuery) (uint64, error) {
+	where, args, err := q.where()
+	if err != nil {
+		return 0, err
+	}
+	var n uint64
+	if err := c.conn.QueryRow(ctx, "SELECT count() FROM logs_raw WHERE "+where, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 func (q LogQuery) where() (string, []any, error) {
 	if strings.TrimSpace(q.ProjectID) == "" {
 		return "", nil, errors.New("missing project_id")
@@ -119,6 +134,12 @@ func (q LogQuery) where() (string, []any, error) {
 	}
 	if q.Hostname != "" {
 		add("hostname = ?", q.Hostname)
+	}
+	if q.HTTPRoute != "" {
+		add("http_route = ?", q.HTTPRoute)
+	}
+	if q.HTTPMethod != "" {
+		add("http_method = ?", q.HTTPMethod)
 	}
 	if len(q.Levels) > 0 {
 		var all []string

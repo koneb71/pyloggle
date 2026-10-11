@@ -353,3 +353,41 @@ func contains(xs []string, s string) bool {
 	}
 	return false
 }
+
+func TestIntegrationAlertRulesV2RoundTrip(t *testing.T) {
+	c, cleanup := integrationClient(t)
+	defer cleanup()
+	ctx := context.Background()
+	if _, err := c.Migrate(ctx, MigrateOptions{Rebuild: true, Logf: t.Logf}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	rule, err := c.UpsertAlertRule(ctx, api.AlertRule{ProjectID: "p1", Name: "monitor", ConditionType: "log_query", Query: `level:error service:api`, Comparison: "gte",
+		Threshold: 3, TimeWindowSeconds: 300, Enabled: true, SlackWebhookURLs: []string{"https://hooks.slack.com/services/x"}})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	rules, err := c.ListAlertRules(ctx, "p1")
+	if err != nil || len(rules) != 1 {
+		t.Fatalf("list: %v %d", err, len(rules))
+	}
+	got := rules[0]
+	if got.Query != rule.Query || got.Comparison != "gte" || len(got.SlackWebhookURLs) != 1 {
+		t.Fatalf("rule round trip lost fields: %+v", got)
+	}
+	enabled, err := c.ListEnabledAlertRules(ctx)
+	if err != nil || len(enabled) != 1 || enabled[0].Query != rule.Query {
+		t.Fatalf("enabled: %v %+v", err, enabled)
+	}
+	n, err := c.CountLogs(ctx, LogQuery{ProjectID: "p1", From: time.Now().Add(-time.Hour), To: time.Now(), Where: "level = ?", Args: []any{"error"}})
+	if err != nil || n != 0 {
+		t.Fatalf("CountLogs on an empty table: %d %v", n, err)
+	}
+	if err := c.InsertAlertFiring(ctx, AlertFiring{RuleID: rule.ID, ProjectID: "p1", ConditionType: "log_query", FiredAt: time.Now(), WindowStart: time.Now().Add(-5 * time.Minute), WindowEnd: time.Now(),
+		Count: 42, URL: "https://pl.example/ui/logs?q=level%3Aerror", Payload: map[string]any{"kind": "log_query"}}); err != nil {
+		t.Fatalf("firing: %v", err)
+	}
+	firings, err := c.ListAlertFirings(ctx, "p1", 10)
+	if err != nil || len(firings) != 1 || firings[0].Count != 42 || firings[0].URL == "" {
+		t.Fatalf("firings: %v %+v", err, firings)
+	}
+}

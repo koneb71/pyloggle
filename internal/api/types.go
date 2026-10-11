@@ -243,16 +243,19 @@ type AlertRule struct {
 	HTTPRoute  string `json:"http_route"`
 	HTTPMethod string `json:"http_method"`
 
-	ConditionType     string  `json:"condition_type"` // error_rate | issue_spike | new_issue | regression
+	ConditionType     string  `json:"condition_type"`       // error_rate | issue_spike | new_issue | regression | log_query
+	Query             string  `json:"query,omitempty"`      // log_query: explorer search syntax
+	Comparison        string  `json:"comparison,omitempty"` // log_query: gt | gte | lt | lte | eq (default gt)
 	Threshold         float64 `json:"threshold"`
 	TimeWindowSeconds uint32  `json:"time_window_seconds"`
 	CooldownSeconds   uint32  `json:"cooldown_seconds"`
 	Enabled           bool    `json:"enabled"`
 
-	NotificationChannels []string `json:"notification_channels"` // email, webhook, telegram
+	NotificationChannels []string `json:"notification_channels"` // email, webhook, telegram, slack
 	NotificationEmails   []string `json:"notification_emails"`
 	WebhookURLs          []string `json:"webhook_urls"`
 	TelegramChatIDs      []string `json:"telegram_chat_ids"`
+	SlackWebhookURLs     []string `json:"slack_webhook_urls"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -273,6 +276,8 @@ type AlertFiring struct {
 	FiredAt       time.Time       `json:"fired_at"`
 	WindowStart   time.Time       `json:"window_start"`
 	WindowEnd     time.Time       `json:"window_end"`
+	Count         uint64          `json:"count"`
+	URL           string          `json:"url,omitempty"`
 	Payload       json.RawMessage `json:"payload"`
 }
 
