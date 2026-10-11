@@ -507,8 +507,10 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 		})
 	})))
 
-	// Minimal Web UI (server-rendered)
-	s.mux.Handle("/ui/", webui.New(cfg, ch, res))
+	// Web UI + its JSON API (session cookies), mirrored under /v1/q/ for API-key clients.
+	ui := webui.New(cfg, ch, res, ing.Pipeline().States())
+	s.mux.Handle("/ui/", ui)
+	s.mux.Handle("/v1/q/", ui.APIKeyAPIHandler())
 	s.mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
