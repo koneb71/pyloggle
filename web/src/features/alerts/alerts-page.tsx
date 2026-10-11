@@ -66,7 +66,7 @@ export function AlertsPage({ me }: { me: Me }) {
             {rules.isPending ? (
               <Skeleton rows={4} className="p-3" />
             ) : (rules.data?.items.length ?? 0) === 0 ? (
-              <EmptyState icon={<BellOff size={22} />} title="No alert rules" hint="Create a rule to be notified by email, webhook or Telegram when error rates spike, a new issue appears or a resolved issue regresses." action={canEdit && <Button onClick={() => setEditing(blank())}>Create the first rule</Button>} />
+              <EmptyState icon={<BellOff size={22} />} title="No alert rules" hint="Create a rule to be notified by email, webhook, Slack or Telegram when error rates spike, a new issue appears, a resolved issue regresses or a log query matches." action={canEdit && <Button onClick={() => setEditing(blank())}>Create the first rule</Button>} />
             ) : (
               <ul className="divide-y divide-border">
                 {rules.data!.items.map((r) => (

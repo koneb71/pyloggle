@@ -1,11 +1,50 @@
 # Footprint
 
-Pyloggle is two processes: `ingestd` (one static Go binary that ingests, serves the UI/API and
-runs alerting) and ClickHouse. This page records what they cost, how it was measured and which
-knobs to turn. Re-measure with `make footprint` (compose) or the local mode described at the
-bottom of `scripts/footprint.sh`.
+Pyloggle is two processes: `ingestd` (one static Go binary that ingests, serves the UI/API,
+runs alerting and exposes `/metrics`) and ClickHouse. This page records what they cost, how it
+was measured and which knobs to turn. Re-measure with `make footprint` (compose) or the local
+mode described at the top of `scripts/footprint.sh`; the System page and `GET /metrics` show
+the same table sizes live.
 
-## Measured (ClickHouse 24.3.18, 4 vCPU sandbox, tuned config, 100k-line burst)
+## 0.3: spans and metrics on (ClickHouse 24.3.18, same sandbox, local mode)
+
+0.3 stores OTLP spans (7 days) and metric points (30 days) by default and keeps request stats
+per minute. Measured on a fresh start of both processes, then 20 000 requests through FastAPI's
+native telemetry (`examples/otel_app.py`: four spans per request, HTTP metrics every 5 s, one
+crash in 25, 80 000 spans in 25 s), then the same 100 000-line log burst as below. Local mode
+uses the dev ClickHouse config (mark cache 256 MB instead of the compose file's 128 MB).
+
+| process | fresh idle | after the OTel load | peak during the log burst | after both |
+|---|---|---|---|---|
+| clickhouse | 412 MB (109 MB anonymous) | 446 MB (136 MB anonymous) | 630 MB | 508–570 MB (258 MB anonymous) |
+| ingestd | 15 MB (3 MB anonymous) | 96 MB (85 MB anonymous) | 124 MB | 124 MB (112 MB anonymous) |
+
+ingestd's resting memory after a burst is its Go heap goal (about twice the live heap, which
+holds the four batch queues once they have been filled, the issue-state and dedupe caches and
+the collector snapshot); the compose file's `GOMEMLIMIT=200MiB` bounds it, and it is not
+released to the OS while the process stays idle. The ClickHouse figures include the new
+materialized views (usage, request stats, releases) that run on every insert.
+
+| table | rows | on disk | uncompressed | ratio | bytes/row |
+|---|---|---|---|---|---|
+| spans | 160 546 | 5.9 MiB | 25.9 MiB | 4.4 | 39 |
+| request_stats_minutely | 13 417 | 1.6 MiB | 3.2 MiB | 2.0 | 124 |
+| metrics_points | 1 042 | 14 KiB | 292 KiB | 20.9 | 14 |
+| project_usage_daily | 24 | 1.7 KiB | 1 KiB | | |
+
+A traced request from FastAPI's native telemetry costs four spans, about 160 bytes on disk,
+kept for seven days; a cumulative histogram series costs one row per export interval (14 bytes
+each with the default 15 buckets). Rule of thumb with everything on:
+
+```
+disk ≈ lines/day × ~100 B × 30 days + traced requests/day × ~160 B × 7 days + metric series × 1 440 × 14 B × 30 days
+```
+
+Log rows and error occurrences are unchanged from 0.2 (124 and 136 bytes per row in this run).
+The ingest rate during the burst (5 300 lines/s paced, every line stored, queues never
+saturating) is unchanged too.
+
+## 0.2 measurement (ClickHouse 24.3.18, 4 vCPU sandbox, tuned config, 100k-line burst)
 
 The burst is 100 000 synthetic log lines (four services, 80 % info / 10 % debug / 7 % warn /
 3 % error, half of the errors carrying a two-frame exception) sent as 5 000-line NDJSON requests
