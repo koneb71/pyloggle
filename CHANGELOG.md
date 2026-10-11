@@ -1,5 +1,120 @@
 # Changelog
 
+## 0.3.0
+
+Issue workflow, log-query monitors, traces, OpenTelemetry metrics, analytics and export,
+storage accounting with per-project retention and deletion, Prometheus metrics and a System
+page, generic OIDC login, scoped API keys, Django and Celery in the SDK. Migrations are
+additive; see `docs/upgrading-0.3.md`.
+
+### Issues
+
+- Workflow: assignee (with suggestions and "assign to me"), comments, an activity timeline
+  (status changes, assignments, comments, regressions), snooze until a time or until N more
+  occurrences, resolve in the next or a named release (a newer release reopens it; `1.10`
+  sorts after `1.9`, unknown releases fall back to first-seen order), bulk actions with the
+  same options, an "assigned to me" filter.
+- State changes are read-modify-write: a regression written by ingest no longer clears the
+  assignee (0.2 took the latest value per column and lost it).
+
+### Alerting
+
+- `log_query` monitors: any explorer query compared (`gt`, `gte`, `lt`, `lte`, `eq`) with a
+  threshold over a window; `lt 1` is an absence check. Evaluation runs `ALERTING_EVAL_DELAY`
+  (30 s) behind real time so ingest lag does not false-fire. A "Test" button previews the count.
+- Slack incoming-webhook notifier (per rule, `ALERT_SLACK_WEBHOOK_URL` as the default).
+- Every alert carries a link into the UI and the matched count. Webhook payloads and stored
+  firings carry a rule summary instead of the rule with its notifier addresses.
+
+### Explorer
+
+- Analytics view: count, avg, sum, min, max, p50, p95, p99 of `duration_ms`, `http.status`
+  or any attribute, grouped by any field, as a multi-line chart (top 8 + other) and a table;
+  saved views keep it.
+- Export as CSV or NDJSON, streamed in pages up to `PYLOGGLE_EXPORT_MAX_ROWS` (100 000),
+  with a formula-injection guard on CSV cells. Also on `/v1/q/logs/export`.
+- Request stats (`request_stats_minutely`): requests, errors and latency digests per minute,
+  method and route, feeding the Dashboards request tiles (req/s, 5xx %, p95, latency by route).
+
+### Traces
+
+- OTLP spans are stored (every kind, attributes, events; 7 days) and the Traces page lists
+  root and server spans with a latency histogram and p50/p95 by name; a trace opens as an
+  HTML waterfall with a span panel, the request's log lines and the issues it caused.
+  Links from log lines and occurrences to their trace.
+
+### Metrics
+
+- OTLP metrics are stored (gauges, sums, histograms; 30 days) and the Dashboards get a metric
+  card (avg, sum, min, max, last, rate, p50/p95/p99 for histograms, grouped by an attribute,
+  top 10 + other). Cumulative series are differenced per series with reset detection and a
+  pre-window baseline.
+- The request tiles can read the OpenTelemetry HTTP semantic-convention metrics
+  (`http.server.request.duration`, `http.server.active_requests`) instead of the logs.
+
+### Storage
+
+- Storage accounting per project, source and day (`project_usage_daily` through materialized
+  views, calibrated with the real compression ratio), shown on the Projects page.
+- `max_storage_gb` now caps the estimated bytes stored over the retention window: info and
+  debug lines are dropped above it, errors keep flowing up to twice the quota.
+- Per-project `retention_days` (shorter than the server's) trims older rows nightly with
+  partition-scoped mutations.
+- Project deletion (tombstone at once, purge in the background) and per-user purge, both
+  audited; `GET /admin/audit`.
+- Retention knobs for spans and metrics (`PYLOGGLE_RETENTION_SPANS_DAYS=7`,
+  `PYLOGGLE_RETENTION_METRICS_DAYS=30`).
+
+### Operations
+
+- `GET /metrics` in Prometheus text format: ingest counters by project, door and outcome,
+  queue depths and capacities, rows written and dropped, flush latencies, stream gauges,
+  alerting counters, ClickHouse table sizes, parts and oldest partitions, disk, pending
+  mutations, `pyloggle_build_info`. Optional `PYLOGGLE_METRICS_TOKEN`.
+- System page (admins): version, uptime, ClickHouse status and tables, ingest rate and drops,
+  queues, retention, alerting status.
+
+### Auth and keys
+
+- `PYLOGGLE_UI_AUTH=oidc`: any OpenID Connect provider (discovery, PKCE, RS256 and ES256,
+  e-mail from `email`, `preferred_username` or `upn`), with domain and e-mail allow-lists.
+  Azure is a preset of the same code and behaves as before.
+- Scoped API keys: any number per project, each with a name and a subset of `ingest`, `read`
+  and `write`; ingest doors need `ingest`, reads `read`, mutations `write`; revocation takes
+  effect on the next request; last use is recorded. 0.2 keys are migrated as `default` keys.
+
+### OpenTelemetry
+
+- Three doors (`/v1/logs`, `/v1/traces`, `/v1/metrics`), a Collector example, a guide
+  (`docs/opentelemetry.md`) and support for FastAPI 0.142+ native telemetry: spans with
+  operation spans, HTTP metrics for the dashboards, exception logs as issues.
+- One issue per crash: the first error occurrence per project, trace and exception class is
+  the occurrence, a second report through another door within two minutes is a linked log
+  line; spans stamped by the SDK produce no error of their own; failed child spans caused by
+  an exception produce nothing; `OTLP_STORE_SERVER_SPANS` defaults to `true`; `url.path` is
+  never used as a route.
+
+### Python SDK 0.3
+
+- `pyloggle.django`: middleware (sync and async), `settings.PYLOGGLE`, route template, user
+  hash, exceptions captured once (Django's own error line is a duplicate), SQL breadcrumbs.
+- `pyloggle.celery`: task scope with tags, failures captured once, retries as warnings,
+  request ids carried from the publisher in message headers, optional task events, logging
+  handler re-installed after the worker's logging setup.
+- Fork safety: the sender thread restarts itself in forked children.
+- Outgoing HTTP breadcrumbs for `requests`, `httpx` and `urllib3` (on by default).
+- OpenTelemetry interop: events take the active span's ids, captured exceptions stamp the
+  span, `pyloggle.fastapi.telemetry()` for FastAPI's native telemetry,
+  `otel_owns_exceptions`. Request and error events carry `duration_ms`.
+
+### Fixed
+
+- Regression detection on an unknown release treated the first sighting as older.
+- `SetIssueState` wrote rows that ClickHouse could order before the previous one when two
+  changes landed in the same second.
+- Cumulative OTLP series lost their first sample in every window (short-lived processes and
+  windows shorter than the export interval counted nothing).
+
 ## 0.2.0
 
 A redesign of the server, the UI and the Python SDK. Projects already sending data need no

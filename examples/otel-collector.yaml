@@ -1,0 +1,47 @@
+# OpenTelemetry Collector pipeline that forwards logs, traces and metrics to pyloggle.
+#
+#   PYLOGGLE_API_KEY=pl_... otelcol-contrib --config examples/otel-collector.yaml
+#
+# Applications export to the collector (OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318);
+# the collector batches and sends everything to pyloggle's OTLP/HTTP doors with the project
+# key. The otlphttp exporter appends /v1/logs, /v1/traces and /v1/metrics to the endpoint.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 2s
+    send_batch_size: 512
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+
+exporters:
+  otlphttp/pyloggle:
+    endpoint: http://pyloggle:8080
+    headers:
+      x-api-key: ${env:PYLOGGLE_API_KEY}
+    compression: gzip
+    retry_on_failure:
+      enabled: true
+      max_elapsed_time: 60s
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/pyloggle]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/pyloggle]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/pyloggle]
