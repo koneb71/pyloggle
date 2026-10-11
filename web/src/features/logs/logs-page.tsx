@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { ArrowUp, Columns3, LayoutList, PanelLeft, Radio, Regex, WrapText } from "lucide-react";
+import { ArrowUp, BarChart3, Columns3, LayoutList, PanelLeft, Radio, Regex, WrapText } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLogHistogram, useLogs } from "@/api/hooks";
 import { get, ApiRequestError } from "@/api/client";
@@ -20,6 +20,9 @@ import { LogDetailPanel } from "./log-detail";
 import { PatternsView } from "./patterns";
 import { SavedViewsMenu, type ViewState } from "./saved-views";
 import { BUILTIN_COLUMNS, DEFAULT_COLUMNS } from "./log-fields";
+import { AnalyticsView } from "./analytics";
+import { ExportMenu } from "./export-menu";
+import { DEFAULT_ANALYTICS, isMetric, type AnalyticsState } from "./analytics-model";
 
 const GROUPS = ["level", "service", "env", "logger", "http_status", "hostname", "release", "source"];
 const PAGE = 300;
@@ -38,11 +41,32 @@ export function LogsPage() {
   const selId = g("sel");
   const viewName = g("view_name");
   const qc = useQueryClient();
+  const analytics = useMemo<AnalyticsState>(() => {
+    const m = g("metric", DEFAULT_ANALYTICS.metric);
+    const gb = g("group_by_a", DEFAULT_ANALYTICS.groupBy);
+    return {
+      groupBy: gb === "none" ? "" : gb,
+      metric: isMetric(m) ? m : DEFAULT_ANALYTICS.metric,
+      of: g("of", DEFAULT_ANALYTICS.of),
+      limit: Number(g("top", String(DEFAULT_ANALYTICS.limit))) || DEFAULT_ANALYTICS.limit,
+    };
+  }, [g]);
+  const setAnalytics = useCallback(
+    (p: Partial<AnalyticsState>) =>
+      set({
+        ...(p.groupBy !== undefined ? { group_by_a: p.groupBy === DEFAULT_ANALYTICS.groupBy ? undefined : p.groupBy || "none" } : {}),
+        ...(p.metric !== undefined ? { metric: p.metric === DEFAULT_ANALYTICS.metric ? undefined : p.metric } : {}),
+        ...(p.of !== undefined ? { of: p.of === DEFAULT_ANALYTICS.of ? undefined : p.of } : {}),
+        ...(p.limit !== undefined ? { top: p.limit === DEFAULT_ANALYTICS.limit ? undefined : p.limit } : {}),
+        view_name: undefined,
+      }),
+    [set],
+  );
 
   const setQuery = useCallback((nq: string) => set({ q: nq || undefined, sel: undefined, view_name: undefined }), [set]);
   const addFilter = useCallback((t: string) => setQuery(addTerm(q, ...splitTerm(t))), [q, setQuery]);
 
-  const hist = useLogHistogram({ q, from: range.from, to: range.to, group_by: groupBy, buckets: 90 });
+  const hist = useLogHistogram({ q, from: range.from, to: range.to, group_by: groupBy, buckets: 90 }, view !== "analytics");
   const logs = useLogs({ q, from: range.from, to: range.to, limit: PAGE }, view === "list");
   const queryError = useMemo(() => {
     const e = hist.error ?? logs.error;
@@ -105,12 +129,43 @@ export function LogsPage() {
     }
   };
   const total = hist.data?.buckets.reduce((n, b) => n + b.total, 0) ?? 0;
-  const currentView: ViewState = { q, from: range.from, to: range.to, group_by: groupBy, cols: cols.join(","), facets: pinnedFacets.join(",") };
+  const currentView: ViewState = {
+    q,
+    from: range.from,
+    to: range.to,
+    group_by: groupBy,
+    cols: cols.join(","),
+    facets: pinnedFacets.join(","),
+    view: view === "list" ? undefined : view,
+    group_by_a: view === "analytics" ? analytics.groupBy || "none" : undefined,
+    metric: view === "analytics" ? analytics.metric : undefined,
+    of: view === "analytics" ? analytics.of : undefined,
+  };
 
   return (
     <>
-      <PageHeader title="Logs" sub={hist.data ? `${fmtNumber(total)} events in range` : undefined}>
-        <SavedViewsMenu current={currentView} activeName={viewName || undefined} onApply={(v, name) => set({ q: v.q || undefined, from: v.from, to: v.to || undefined, group_by: v.group_by, cols: v.cols, facets: v.facets, view_name: name, sel: undefined })} />
+      <PageHeader title="Logs" sub={hist.data && view !== "analytics" ? `${fmtNumber(total)} events in range` : undefined}>
+        <SavedViewsMenu
+          current={currentView}
+          activeName={viewName || undefined}
+          onApply={(v, name) =>
+            set({
+              q: v.q || undefined,
+              from: v.from,
+              to: v.to || undefined,
+              group_by: v.group_by,
+              cols: v.cols,
+              facets: v.facets,
+              view: v.view,
+              group_by_a: v.group_by_a,
+              metric: v.metric,
+              of: v.of,
+              view_name: name,
+              sel: undefined,
+            })
+          }
+        />
+        <ExportMenu q={q} range={range} />
         <Button
           icon={<Radio size={13} className={live ? "text-good" : ""} />}
           active={live}
@@ -135,15 +190,19 @@ export function LogsPage() {
           <div className="flex-none border-b border-border bg-surface px-3 pt-2">
             <div className="flex items-center gap-2">
               <Button size="xs" variant="ghost" icon={<PanelLeft size={13} />} onClick={() => set({ facets_panel: showFacets ? "0" : undefined })} title={showFacets ? "Hide facets" : "Show facets"} aria-label="Toggle facets" />
-              <span className="text-[11px] text-ink-3">Group by</span>
-              <Select value={groupBy} onChange={(e) => set({ group_by: e.target.value === "level" ? undefined : e.target.value })} className="h-6 w-32 py-0 text-xs" aria-label="Group histogram by">
-                {GROUPS.map((x) => (
-                  <option key={x} value={x}>
-                    {x}
-                  </option>
-                ))}
-              </Select>
-              {hist.isFetching && <span className="text-[11px] text-ink-3">updating…</span>}
+              {view !== "analytics" && (
+                <>
+                  <span className="text-[11px] text-ink-3">Group by</span>
+                  <Select value={groupBy} onChange={(e) => set({ group_by: e.target.value === "level" ? undefined : e.target.value })} className="h-6 w-32 py-0 text-xs" aria-label="Group histogram by">
+                    {GROUPS.map((x) => (
+                      <option key={x} value={x}>
+                        {x}
+                      </option>
+                    ))}
+                  </Select>
+                  {hist.isFetching && <span className="text-[11px] text-ink-3">updating…</span>}
+                </>
+              )}
               <div className="ml-auto flex items-center gap-1">
                 <Button size="xs" variant={view === "list" ? "subtle" : "ghost"} icon={<LayoutList size={12} />} onClick={() => set({ view: undefined })}>
                   List
@@ -151,14 +210,19 @@ export function LogsPage() {
                 <Button size="xs" variant={view === "patterns" ? "subtle" : "ghost"} icon={<Regex size={12} />} onClick={() => set({ view: "patterns", sel: undefined })}>
                   Patterns
                 </Button>
+                <Button size="xs" variant={view === "analytics" ? "subtle" : "ghost"} icon={<BarChart3 size={12} />} onClick={() => set({ view: "analytics", sel: undefined })}>
+                  Analytics
+                </Button>
                 <span className="mx-1 h-4 w-px bg-border" />
                 <Button size="xs" variant="ghost" icon={<WrapText size={12} />} active={wrap} onClick={() => set({ wrap: wrap ? undefined : "1" })} title="Wrap long messages" aria-label="Wrap messages" />
                 <ColumnPicker cols={cols} attrKeys={Object.keys(items[0]?.attrs ?? {})} onChange={(c) => set({ cols: c.join(",") || undefined })} />
               </div>
             </div>
-            <TimelineHistogram data={hist.data} loading={hist.isPending} height={150} onZoom={zoom} className="mt-1" />
+            {view !== "analytics" && <TimelineHistogram data={hist.data} loading={hist.isPending} height={150} onZoom={zoom} className="mt-1" />}
           </div>
-          {view === "patterns" ? (
+          {view === "analytics" ? (
+            <AnalyticsView q={q} range={range} state={analytics} onState={setAnalytics} onFilter={(f, v) => setQuery(addTerm(q, f, v))} onZoom={zoom} />
+          ) : view === "patterns" ? (
             <PatternsView q={q} range={range} onFilter={(phrase) => setQuery(addTerm(q, "message", phrase))} />
           ) : logs.isError && !queryError ? (
             <ErrorState error={logs.error} retry={() => logs.refetch()} />

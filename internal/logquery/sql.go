@@ -93,6 +93,17 @@ func resolve(field string) (expr, kind, key string) {
 	return "attrs[?]", "string", field
 }
 
+// ResolveField maps a user-written field to a SQL expression, the args its placeholders need
+// (the map key for attrs/tags fields) and the field kind ("string", "number", "level", "text").
+// Analytics and exports use it so the same names work in queries, group-bys and measures.
+func ResolveField(field string) (expr string, args []any, kind string) {
+	expr, kind, key := resolve(field)
+	if key != "" {
+		return expr, []any{key}, kind
+	}
+	return expr, nil, kind
+}
+
 // SQL renders the query as a WHERE fragment (without "WHERE") and its positional args.
 // An empty query renders to "" with no args.
 func (q Query) SQL() (string, []any, error) {

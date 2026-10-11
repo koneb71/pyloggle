@@ -136,6 +136,53 @@ func (u *UI) apiLogsHistogram(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, h)
 }
 
+// apiLogsAggregate is the analytics view: metric over a field, split by a group-by, bucketed.
+func (u *UI) apiLogsAggregate(w http.ResponseWriter, r *http.Request) {
+	lq, err := u.logQueryFromRequest(r, time.Hour)
+	if err != nil {
+		writeQueryErr(w, err)
+		return
+	}
+	qs := r.URL.Query()
+	spec := clickhouse.AggregateSpec{
+		GroupBy: strings.TrimSpace(qs.Get("group_by")),
+		Metric:  strings.ToLower(strings.TrimSpace(qs.Get("metric"))),
+		Of:      strings.TrimSpace(qs.Get("of")),
+		Limit:   qInt(r, "limit", 10, 50),
+		Sort:    strings.TrimSpace(qs.Get("sort")),
+	}
+	if spec.Metric == "" {
+		spec.Metric = "count"
+	}
+	known := false
+	for _, m := range clickhouse.AggregateMetrics {
+		known = known || m == spec.Metric
+	}
+	if !known {
+		writeErr(w, http.StatusBadRequest, "bad_metric", "metric must be one of "+strings.Join(clickhouse.AggregateMetrics, ", "))
+		return
+	}
+	if spec.Metric != "count" && spec.Of == "" {
+		writeErr(w, http.StatusBadRequest, "bad_metric", "metric "+spec.Metric+" needs a field (of=duration_ms, of=http.status, of=attrs.<key>)")
+		return
+	}
+	if secs := qInt(r, "bucket_seconds", 0, 7*86400); secs > 0 {
+		spec.Bucket = time.Duration(secs) * time.Second
+	} else {
+		spec.Bucket = clickhouse.NiceBucket(lq.From, lq.To, qInt(r, "buckets", 60, 500))
+	}
+	agg, err := u.store.LogAggregate(r.Context(), lq, spec)
+	if err != nil {
+		if strings.Contains(err.Error(), "not numeric") || strings.Contains(err.Error(), "needs a field") {
+			writeErr(w, http.StatusBadRequest, "bad_metric", err.Error())
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, agg)
+}
+
 func (u *UI) apiLogsFacets(w http.ResponseWriter, r *http.Request) {
 	lq, err := u.logQueryFromRequest(r, time.Hour)
 	if err != nil {

@@ -313,3 +313,52 @@ export interface ApiError {
   pos?: number;
   login_url?: string;
 }
+
+export interface AggregateGroup {
+  key: string;
+  rows: number;
+  value: number | null;
+  series?: (number | null)[];
+}
+
+export interface LogAggregate {
+  bucket_seconds: number;
+  group_by: string;
+  metric: string;
+  of?: string;
+  buckets: string[];
+  total: AggregateGroup;
+  groups: AggregateGroup[];
+  other?: AggregateGroup;
+  histogram?: Histogram;
+}
+
+export interface RequestPoint {
+  ts: string;
+  requests: number;
+  errors: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+}
+
+export interface RouteStats {
+  method?: string;
+  route?: string;
+  requests: number;
+  errors: number;
+  error_pct: number;
+  rps: number;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+}
+
+export interface RequestStats {
+  bucket_seconds: number;
+  from: string;
+  to: string;
+  totals: RouteStats;
+  points: RequestPoint[];
+  routes: RouteStats[];
+}
