@@ -220,7 +220,7 @@ func csrfOK(r *http.Request) bool {
 	return false
 }
 
-// requireUISessionAPI is requireUISession with JSON errors instead of redirects.
+// requireUISessionAPI gates the JSON API on the UI session (JSON 401 instead of a redirect).
 func (u *UI) requireUISessionAPI(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mode := strings.ToLower(strings.TrimSpace(u.cfg.UIAuthMode))

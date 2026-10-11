@@ -357,8 +357,8 @@ func (c *Client) LogFacets(ctx context.Context, q LogQuery, fields []string, att
 			if err := rows.Scan(&f.Value, &f.Count); err != nil {
 				return nil, err
 			}
-			if f.Value == "" && expr != "level" {
-				continue
+			if (f.Value == "" && expr != "level") || (f.Value == "0" && expr == "toString(http_status)") {
+				continue // empty / non-HTTP rows are not a facet value
 			}
 			fc = append(fc, f)
 		}
