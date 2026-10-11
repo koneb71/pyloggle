@@ -1,27 +1,16 @@
-import os
+"""FastAPI app instrumented with pyloggle (pure ASGI middleware, works for Starlette too)."""
+import logging
 
 from fastapi import FastAPI
 
-from pyloggle import Client, ClientConfig
+import pyloggle
 from pyloggle.fastapi import PyloggleFastAPIMiddleware
 
-import logging
-
-app = FastAPI()
-
-# Ensure INFO-level application logs are emitted (Pyloggle's handler doesn't change levels).
 logging.basicConfig(level=logging.INFO)
 
-client = Client(
-    ClientConfig(
-        ingest_url=os.getenv("PYLOGGLE_INGEST_URL", "http://localhost:8080/v1/ingest"),
-        api_key=os.getenv("PYLOGGLE_API_KEY") or os.getenv("PYLOGGLE_TOKEN"),
-        service="example-fastapi",
-        env="dev",
-        project_id=os.getenv("PYLOGGLE_PROJECT_ID", "default"),
-    )
-)
+client = pyloggle.init(service="example-fastapi", env="dev", emit_request_latency=True)
 
+app = FastAPI()
 app.add_middleware(PyloggleFastAPIMiddleware, client=client)
 
 
@@ -35,5 +24,3 @@ def hello():
 def boom():
     logging.getLogger(__name__).warning("about to raise from fastapi")
     raise RuntimeError("boom from fastapi")
-
-
