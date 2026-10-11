@@ -64,9 +64,8 @@ func NewForTest(cfg config.Config, store Store, keys KeyResolver, states *issue.
 	return u
 }
 
-func (u *UI) authMode() string {
-	return strings.ToLower(strings.TrimSpace(u.cfg.UIAuthMode))
-}
+// loginRequired reports whether the UI is behind an OIDC login (azure preset or generic).
+func (u *UI) loginRequired() bool { return u.cfg.OIDC().Enabled() }
 
 func (u *UI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/ui" {
@@ -86,16 +85,16 @@ func (u *UI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		u.login(w, r)
 		return
 	case "/ui/oauth2/callback":
-		u.azureCallback(w, r)
+		u.oidcCallback(w, r)
 		return
 	case "/ui/logout":
 		u.logout(w, r)
 		return
 	}
-	// Everything else is the single-page app. Static assets are public; in Azure mode the app
+	// Everything else is the single-page app. Static assets are public; behind a login the app
 	// shell itself is only served to a signed-in browser, so an anonymous visit bounces straight
 	// into the OIDC flow instead of showing an empty shell.
-	if u.authMode() == "azure" && !isAssetPath(r.URL.Path) {
+	if u.loginRequired() && !isAssetPath(r.URL.Path) {
 		if _, ok := u.getUISession(r); !ok {
 			http.Redirect(w, r, "/ui/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 			return
@@ -104,16 +103,16 @@ func (u *UI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	u.spa.ServeHTTP(w, r)
 }
 
-// login starts the Azure OIDC flow when that mode is on and no session exists; otherwise the
+// login starts the OIDC flow when a login is required and no session exists; otherwise the
 // SPA renders its own login screen (API-key exchange happens through POST /ui/api/login).
 func (u *UI) login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if u.authMode() == "azure" {
+	if u.loginRequired() {
 		if _, ok := u.getUISession(r); !ok {
-			u.azureStart(w, r, r.URL.Query().Get("next"))
+			u.oidcStart(w, r, r.URL.Query().Get("next"))
 			return
 		}
 		http.Redirect(w, r, safeNextUI(r.URL.Query().Get("next")), http.StatusFound)
@@ -126,8 +125,8 @@ func (u *UI) logout(w http.ResponseWriter, r *http.Request) {
 	u.clearUISession(w, r)
 	http.SetCookie(w, &http.Cookie{Name: apiKeyCookie, Value: "", Path: "/", HttpOnly: true, MaxAge: -1})
 	u.clearUIProjectID(w)
-	u.clearAzureOAuthState(w, r)
-	if u.authMode() == "disabled" || u.authMode() == "" {
+	u.clearOAuthState(w, r)
+	if !u.loginRequired() {
 		http.Redirect(w, r, "/ui/issues", http.StatusFound)
 		return
 	}

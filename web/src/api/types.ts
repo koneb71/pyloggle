@@ -4,12 +4,12 @@ export type Level = "debug" | "info" | "warn" | "error" | "fatal" | string;
 export type Status = "open" | "resolved" | "ignored";
 
 export interface Me {
-  auth_mode: "disabled" | "azure" | string;
+  auth_mode: "disabled" | "azure" | "oidc" | string;
   user?: { sub: string; name?: string; email?: string };
   is_admin: boolean;
   project?: { id: string; name: string };
   projects: { id: string; name: string }[];
-  features: { alerting: boolean; traces?: boolean; public_url?: string };
+  features: { alerting: boolean; traces?: boolean; public_url?: string; auth_provider?: string };
 }
 
 export interface IssueSummary {

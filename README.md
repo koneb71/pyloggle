@@ -112,9 +112,12 @@ All configuration is environment variables on `ingestd`.
 | `INGEST_RATE_LIMIT_RPS` / `INGEST_RATE_LIMIT_BURST` | `2000` / `4000` | per-service limiter (projects can set `max_events_per_second`) |
 | `INGEST_MAX_QUEUE_SIZE` / `INGEST_BATCH_SIZE` / `INGEST_BATCH_TIMEOUT` | `10000` / `500` / `5s` | write path |
 | `OTLP_STORE_SERVER_SPANS` | `false` | store OK server spans as `request` logs |
-| `PYLOGGLE_UI_AUTH` | `azure` | `disabled` for local use, `azure` for Entra ID single-tenant login |
-| `PYLOGGLE_AZURE_TENANT_ID`, `_CLIENT_ID`, `_CLIENT_SECRET`, `PYLOGGLE_UI_SESSION_SECRET`, `PYLOGGLE_AZURE_REDIRECT_URL` | | Azure mode; the session secret is ≥ 32 chars or base64 of ≥ 16 bytes |
-| `PYLOGGLE_UI_ADMINS` | | comma-separated emails allowed to change projects and alert rules (Azure mode) |
+| `PYLOGGLE_UI_AUTH` | `azure` | `disabled` for local use, `azure` for Entra ID single-tenant login, `oidc` for any OpenID Connect provider |
+| `PYLOGGLE_AZURE_TENANT_ID`, `_CLIENT_ID`, `_CLIENT_SECRET`, `PYLOGGLE_AZURE_REDIRECT_URL` | | `azure` preset (fixed v2.0 endpoints, tenant check, object id as subject) |
+| `PYLOGGLE_OIDC_ISSUER`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_SCOPES`, `_REDIRECT_URL`, `_DISPLAY_NAME` | `openid profile email` scopes | `oidc` mode: discovery at `<issuer>/.well-known/openid-configuration`, RS256 and ES256 id_tokens; the display name labels the login button |
+| `PYLOGGLE_OIDC_ALLOWED_DOMAINS` / `_ALLOWED_EMAILS` | | optional allow-lists for both login modes (anyone else gets a 403 after signing in) |
+| `PYLOGGLE_UI_SESSION_SECRET` | | required by both login modes; ≥ 32 chars or base64 of ≥ 16 bytes |
+| `PYLOGGLE_UI_ADMINS` | | comma-separated emails allowed to change projects and alert rules (login modes) |
 | `PYLOGGLE_ADMIN_TOKEN` | | enables the 0.1 admin endpoints |
 | `ALERTING_ENABLED` / `ALERTING_POLL_INTERVAL` | `false` / `30s` | rule evaluator |
 | `ALERT_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_FROM`, `_TLS` | | email notifier |

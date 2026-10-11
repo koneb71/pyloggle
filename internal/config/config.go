@@ -11,22 +11,33 @@ type Config struct {
 	ClickHouseDSN string
 	Port          string
 
-	// UI auth mode for the server-rendered UI under /ui/.
+	// UI auth mode for the single-page app under /ui/.
 	// Values:
-	// - "azure" (default): enforce UI auth via Azure OIDC session cookies
+	// - "azure" (default): Microsoft Entra ID single-tenant login (an OIDC preset)
+	// - "oidc": any OpenID Connect provider (PYLOGGLE_OIDC_*)
 	// - "disabled": bypass UI auth checks (intended for local dev)
 	UIAuthMode string
 
-	// Azure UI auth (single-tenant; OIDC v2 endpoints).
-	// Required when UIAuthMode == "azure".
+	// Azure preset (single-tenant; OIDC v2 endpoints). Required when UIAuthMode == "azure".
 	AzureTenantID     string
 	AzureClientID     string
 	AzureClientSecret string
 	// Optional. If empty, derived from the request (scheme+host+"/ui/oauth2/callback").
 	AzureRedirectURL string
 
-	// Required when UIAuthMode == "azure".
-	// Used to sign UI cookies (session + transient oauth state).
+	// Generic OIDC (PYLOGGLE_OIDC_*). Required when UIAuthMode == "oidc": the issuer serves
+	// /.well-known/openid-configuration; client id + secret identify this app.
+	OIDCIssuer         string
+	OIDCClientID       string
+	OIDCClientSecret   string
+	OIDCScopes         string   // default "openid profile email"
+	OIDCRedirectURL    string   // optional, derived from the request when empty
+	OIDCDisplayName    string   // login button label, e.g. "Okta"
+	OIDCAllowedDomains []string // optional e-mail domain allow-list
+	OIDCAllowedEmails  []string // optional e-mail allow-list
+
+	// Required when UI auth is on (azure or oidc). Used to sign UI cookies (session + transient
+	// oauth state).
 	UISessionSecret string
 
 	// Optional allowlist (emails, UPNs or subject ids) for project/alert mutations in Azure mode.
@@ -110,31 +121,39 @@ type Config struct {
 
 func FromEnv() Config {
 	uiAuthMode := strings.ToLower(strings.TrimSpace(getenv("PYLOGGLE_UI_AUTH", "azure")))
-	if uiAuthMode != "azure" && uiAuthMode != "disabled" {
+	if uiAuthMode != "azure" && uiAuthMode != "disabled" && uiAuthMode != "oidc" {
 		uiAuthMode = "azure"
 	}
 
 	return Config{
-		ClickHouseDSN:     getenv("CLICKHOUSE_DSN", "clickhouse://localhost:9000/pyloggle?dial_timeout=10s&read_timeout=20s"),
-		Port:              getenv("INGEST_PORT", "8080"),
-		UIAuthMode:        uiAuthMode,
-		AzureTenantID:     strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_TENANT_ID")),
-		AzureClientID:     strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_CLIENT_ID")),
-		AzureClientSecret: os.Getenv("PYLOGGLE_AZURE_CLIENT_SECRET"),
-		AzureRedirectURL:  strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_REDIRECT_URL")),
-		UISessionSecret:   os.Getenv("PYLOGGLE_UI_SESSION_SECRET"),
-		UIAdmins:          splitList(os.Getenv("PYLOGGLE_UI_ADMINS")),
-		UIPollSeconds:     getenvInt("PYLOGGLE_UI_POLL_SECONDS", 2),
-		MaxQueueSize:      getenvInt("INGEST_MAX_QUEUE_SIZE", 10000),
-		MaxStreams:        getenvInt("INGEST_MAX_STREAMS", 200),
-		MaxQueuePerStream: getenvInt("INGEST_MAX_QUEUE_PER_STREAM", 2000),
-		BatchSize:         getenvInt("INGEST_BATCH_SIZE", 500),
-		BatchTimeout:      getenvDuration("INGEST_BATCH_TIMEOUT", 5*time.Second),
-		SharedSecret:      os.Getenv("INGEST_SHARED_SECRET"),
-		AdminToken:        os.Getenv("PYLOGGLE_ADMIN_TOKEN"),
-		DefaultEnv:        getenv("PYLOGGLE_DEFAULT_ENV", "prod"),
-		DefaultSvc:        getenv("PYLOGGLE_DEFAULT_SERVICE", "unknown"),
-		DefaultProjID:     getenv("PYLOGGLE_DEFAULT_PROJECT_ID", "default"),
+		ClickHouseDSN:      getenv("CLICKHOUSE_DSN", "clickhouse://localhost:9000/pyloggle?dial_timeout=10s&read_timeout=20s"),
+		Port:               getenv("INGEST_PORT", "8080"),
+		UIAuthMode:         uiAuthMode,
+		AzureTenantID:      strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_TENANT_ID")),
+		AzureClientID:      strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_CLIENT_ID")),
+		AzureClientSecret:  os.Getenv("PYLOGGLE_AZURE_CLIENT_SECRET"),
+		AzureRedirectURL:   strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_REDIRECT_URL")),
+		OIDCIssuer:         strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_OIDC_ISSUER")), "/"),
+		OIDCClientID:       strings.TrimSpace(os.Getenv("PYLOGGLE_OIDC_CLIENT_ID")),
+		OIDCClientSecret:   os.Getenv("PYLOGGLE_OIDC_CLIENT_SECRET"),
+		OIDCScopes:         getenv("PYLOGGLE_OIDC_SCOPES", "openid profile email"),
+		OIDCRedirectURL:    strings.TrimSpace(os.Getenv("PYLOGGLE_OIDC_REDIRECT_URL")),
+		OIDCDisplayName:    strings.TrimSpace(os.Getenv("PYLOGGLE_OIDC_DISPLAY_NAME")),
+		OIDCAllowedDomains: splitList(os.Getenv("PYLOGGLE_OIDC_ALLOWED_DOMAINS")),
+		OIDCAllowedEmails:  splitList(os.Getenv("PYLOGGLE_OIDC_ALLOWED_EMAILS")),
+		UISessionSecret:    os.Getenv("PYLOGGLE_UI_SESSION_SECRET"),
+		UIAdmins:           splitList(os.Getenv("PYLOGGLE_UI_ADMINS")),
+		UIPollSeconds:      getenvInt("PYLOGGLE_UI_POLL_SECONDS", 2),
+		MaxQueueSize:       getenvInt("INGEST_MAX_QUEUE_SIZE", 10000),
+		MaxStreams:         getenvInt("INGEST_MAX_STREAMS", 200),
+		MaxQueuePerStream:  getenvInt("INGEST_MAX_QUEUE_PER_STREAM", 2000),
+		BatchSize:          getenvInt("INGEST_BATCH_SIZE", 500),
+		BatchTimeout:       getenvDuration("INGEST_BATCH_TIMEOUT", 5*time.Second),
+		SharedSecret:       os.Getenv("INGEST_SHARED_SECRET"),
+		AdminToken:         os.Getenv("PYLOGGLE_ADMIN_TOKEN"),
+		DefaultEnv:         getenv("PYLOGGLE_DEFAULT_ENV", "prod"),
+		DefaultSvc:         getenv("PYLOGGLE_DEFAULT_SERVICE", "unknown"),
+		DefaultProjID:      getenv("PYLOGGLE_DEFAULT_PROJECT_ID", "default"),
 
 		RateLimitRPS:    getenvFloat("INGEST_RATE_LIMIT_RPS", 2000),   // per service by default
 		RateLimitBurst:  getenvFloat("INGEST_RATE_LIMIT_BURST", 4000), // allow bursts
@@ -233,3 +252,48 @@ func getenvBool(k string, def bool) bool {
 	}
 	return def
 }
+
+// OIDCSettings are the effective OpenID Connect parameters for the configured UI auth mode.
+type OIDCSettings struct {
+	Mode           string // azure | oidc | disabled
+	Issuer         string
+	ClientID       string
+	ClientSecret   string
+	Scopes         string
+	RedirectURL    string
+	DisplayName    string
+	AllowedDomains []string
+	AllowedEmails  []string
+	// Azure is the preset: fixed endpoints, tenant check, object id as subject.
+	Azure       bool
+	AzureTenant string
+}
+
+// OIDC resolves the login settings: the Azure preset derives its issuer from the tenant and
+// reuses the PYLOGGLE_AZURE_* values; "oidc" reads PYLOGGLE_OIDC_*.
+func (c Config) OIDC() OIDCSettings {
+	mode := strings.ToLower(strings.TrimSpace(c.UIAuthMode))
+	switch mode {
+	case "azure":
+		tid := strings.TrimSpace(c.AzureTenantID)
+		return OIDCSettings{Mode: mode, Azure: true, AzureTenant: tid,
+			Issuer: "https://login.microsoftonline.com/" + tid + "/v2.0", ClientID: strings.TrimSpace(c.AzureClientID), ClientSecret: strings.TrimSpace(c.AzureClientSecret),
+			Scopes: "openid profile email", RedirectURL: strings.TrimSpace(c.AzureRedirectURL), DisplayName: "Microsoft",
+			AllowedDomains: c.OIDCAllowedDomains, AllowedEmails: c.OIDCAllowedEmails}
+	case "oidc":
+		name := c.OIDCDisplayName
+		if name == "" {
+			name = "SSO"
+		}
+		scopes := strings.TrimSpace(c.OIDCScopes)
+		if scopes == "" {
+			scopes = "openid profile email"
+		}
+		return OIDCSettings{Mode: mode, Issuer: c.OIDCIssuer, ClientID: c.OIDCClientID, ClientSecret: strings.TrimSpace(c.OIDCClientSecret), Scopes: scopes,
+			RedirectURL: c.OIDCRedirectURL, DisplayName: name, AllowedDomains: c.OIDCAllowedDomains, AllowedEmails: c.OIDCAllowedEmails}
+	}
+	return OIDCSettings{Mode: "disabled"}
+}
+
+// Enabled reports whether the UI requires a login session.
+func (o OIDCSettings) Enabled() bool { return o.Mode == "azure" || o.Mode == "oidc" }
