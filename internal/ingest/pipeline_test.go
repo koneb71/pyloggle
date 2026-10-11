@@ -139,7 +139,7 @@ func fixtureLines(t *testing.T, path string) [][]byte {
 
 func TestHandlerAcceptsV01Fixture(t *testing.T) {
 	sink := &memSink{}
-	p := NewPipeline(testConfig(), sink, &memStates{}, memResolver{keys: map[string]tenant.Project{"k1": {ID: "proj1"}}})
+	p := NewPipeline(testConfig(), sink, &memStates{}, memResolver{keys: map[string]tenant.Project{"k1": tenant.Trusted(tenant.Project{ID: "proj1"})}})
 	h := NewHandlerFromPipeline(p)
 
 	lines := fixtureLines(t, "../model/testdata/sdk_v0.1.ndjson")
@@ -193,7 +193,10 @@ func TestHandlerAcceptsV01Fixture(t *testing.T) {
 
 func TestAuthenticate(t *testing.T) {
 	cfg := testConfig()
-	p := NewPipeline(cfg, &memSink{}, nil, memResolver{keys: map[string]tenant.Project{"good": {ID: "p1", MaxEventsPerSec: 10}}})
+	p := NewPipeline(cfg, &memSink{}, nil, memResolver{keys: map[string]tenant.Project{
+		"good":     tenant.Trusted(tenant.Project{ID: "p1", MaxEventsPerSec: 10}),
+		"readonly": {ID: "p1", Scopes: []string{tenant.ScopeRead}},
+	}})
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	tn, err := p.Authenticate(context.Background(), req)
 	if err != nil || tn.ProjectID != "default" {
@@ -208,6 +211,19 @@ func TestAuthenticate(t *testing.T) {
 	req.Header.Set("X-API-Key", "bad")
 	if _, err := p.Authenticate(context.Background(), req); err != ErrUnauthorized {
 		t.Fatalf("unknown key must be unauthorized, got %v", err)
+	}
+	// A key without the ingest scope is refused with a distinct error (the doors answer 403).
+	req.Header.Set("X-API-Key", "readonly")
+	if _, err := p.Authenticate(context.Background(), req); err != ErrInsufficientScope {
+		t.Fatalf("read-only key on ingest: got %v", err)
+	}
+	h := NewHandlerFromPipeline(p)
+	rec := httptest.NewRecorder()
+	ireq := httptest.NewRequest(http.MethodPost, "/v1/ingest", strings.NewReader(`{"message":"x"}`))
+	ireq.Header.Set("X-API-Key", "readonly")
+	h.ServeHTTP(rec, ireq)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "insufficient_scope") {
+		t.Fatalf("ingest door with a read-only key: %d %s", rec.Code, rec.Body.String())
 	}
 	cfg.DefaultProjID = ""
 	p = NewPipeline(cfg, &memSink{}, nil, memResolver{})

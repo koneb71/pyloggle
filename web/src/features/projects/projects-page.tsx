@@ -8,10 +8,9 @@ import {
   KeyRound,
   Pencil,
   Plus,
-  RefreshCw,
 } from "lucide-react";
 import { useAudit, useProjectMutations, useProjects } from "@/api/hooks";
-import type { Me, Project } from "@/api/types";
+import type { APIKey, Me, Project } from "@/api/types";
 import { PageHeader } from "@/components/shell/app-shell";
 import {
   Badge,
@@ -28,18 +27,20 @@ import {
   TimeAgo,
 } from "@/components/ui";
 import { fmtTs } from "@/lib/time";
+import { ProjectKeysPanel } from "./project-keys";
 import { ProjectUsagePanel } from "./project-usage";
 
 export function ProjectsPage({ me }: { me: Me }) {
   const projects = useProjects();
-  const { select, rotate } = useProjectMutations();
+  const { select } = useProjectMutations();
   const [editing, setEditing] = useState<Partial<Project> | null>(null);
   const [revealed, setRevealed] = useState<{
     id: string;
     key: string;
     action: string;
+    name?: string;
+    scopes?: string[];
   } | null>(null);
-  const [confirmRotate, setConfirmRotate] = useState<Project | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const first = new URLSearchParams(useLocation().search).get("first") === "1";
   const canEdit = me.is_admin;
@@ -50,7 +51,7 @@ export function ProjectsPage({ me }: { me: Me }) {
     <>
       <PageHeader
         title="Projects"
-        sub="Each project has its own API key, quota and data"
+        sub="Each project has its own keys, quota and data"
       >
         {canEdit && (
           <Button
@@ -71,6 +72,13 @@ export function ProjectsPage({ me }: { me: Me }) {
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-ink">
                     API key {revealed.action} for {revealed.id}
+                    {revealed.name && (
+                      <span className="font-normal text-ink-2">
+                        {" "}
+                        · {revealed.name}
+                        {revealed.scopes && ` (${revealed.scopes.join(", ")})`}
+                      </span>
+                    )}
                   </div>
                   <div className="text-xs text-ink-3">
                     Copy it now: it is shown once and only its hash is stored.
@@ -81,7 +89,11 @@ export function ProjectsPage({ me }: { me: Me }) {
                     </code>
                     <CopyButton text={revealed.key} size="sm" />
                   </div>
-                  <pre className="mt-2 overflow-x-auto rounded bg-surface-2 p-2 font-mono text-[11px] text-ink-2">{`PYLOGGLE_INGEST_URL=${me.features.public_url || window.location.origin}\nPYLOGGLE_API_KEY=${revealed.key}\nPYLOGGLE_PROJECT_ID=${revealed.id}`}</pre>
+                  {(!revealed.scopes || revealed.scopes.includes("ingest")) ? (
+                    <pre className="mt-2 overflow-x-auto rounded bg-surface-2 p-2 font-mono text-[11px] text-ink-2">{`PYLOGGLE_INGEST_URL=${me.features.public_url || window.location.origin}\nPYLOGGLE_API_KEY=${revealed.key}\nPYLOGGLE_PROJECT_ID=${revealed.id}`}</pre>
+                  ) : (
+                    <pre className="mt-2 overflow-x-auto rounded bg-surface-2 p-2 font-mono text-[11px] text-ink-2">{`curl -H 'X-API-Key: ${revealed.key}' '${me.features.public_url || window.location.origin}/v1/q/issues?status=open'`}</pre>
+                  )}
                 </div>
                 <Button
                   size="xs"
@@ -107,7 +119,7 @@ export function ProjectsPage({ me }: { me: Me }) {
                 title={
                   first ? "Welcome — create your first project" : "No projects"
                 }
-                hint="A project is a tenant: one API key, one quota, one set of issues and logs."
+                hint="A project is a tenant: its own API keys, quota, issues and logs."
                 action={
                   canEdit ? (
                     <Button variant="primary" onClick={() => setEditing({})}>
@@ -134,7 +146,7 @@ export function ProjectsPage({ me }: { me: Me }) {
                         <button
                           type="button"
                           className="mt-1.5 flex h-4 w-4 flex-none items-center justify-center rounded text-ink-3 hover:bg-surface-3 hover:text-ink"
-                          aria-label={open ? "Hide usage" : "Show usage"}
+                          aria-label={open ? "Hide details" : "Show details"}
                           onClick={() => setExpanded(open ? null : p.id)}
                         >
                           {open ? (
@@ -177,7 +189,6 @@ export function ProjectsPage({ me }: { me: Me }) {
                             {p.retention_days
                               ? `keeps ${p.retention_days} days`
                               : "server retention"}{" "}
-                            · key created <TimeAgo iso={p.api_key_created_at} />{" "}
                             · created <TimeAgo iso={p.created_at} />
                           </div>
                         </div>
@@ -187,9 +198,9 @@ export function ProjectsPage({ me }: { me: Me }) {
                             variant={open ? "subtle" : "ghost"}
                             icon={<HardDrive size={12} />}
                             onClick={() => setExpanded(open ? null : p.id)}
-                            title="Storage usage"
+                            title="API keys and storage usage"
                           >
-                            Usage
+                            Details
                           </Button>
                           {!active && (
                             <Button
@@ -211,27 +222,32 @@ export function ProjectsPage({ me }: { me: Me }) {
                               onClick={() => setEditing(p)}
                             />
                           )}
-                          {canEdit && (
-                            <Button
-                              size="xs"
-                              variant="ghost"
-                              icon={<RefreshCw size={12} />}
-                              aria-label={`Rotate key for ${p.name}`}
-                              title="Rotate API key"
-                              onClick={() => setConfirmRotate(p)}
-                            />
-                          )}
                         </div>
                       </div>
                       {open && (
-                        <ProjectUsagePanel
-                          project={p}
-                          canEdit={canEdit}
-                          onDeleted={() => (
-                            setExpanded(null),
-                            projects.refetch()
-                          )}
-                        />
+                        <>
+                          <ProjectKeysPanel
+                            project={p}
+                            canEdit={canEdit}
+                            onCreated={(key: APIKey, secret: string) =>
+                              setRevealed({
+                                id: p.id,
+                                key: secret,
+                                action: "created",
+                                name: key.name,
+                                scopes: key.scopes,
+                              })
+                            }
+                          />
+                          <ProjectUsagePanel
+                            project={p}
+                            canEdit={canEdit}
+                            onDeleted={() => (
+                              setExpanded(null),
+                              projects.refetch()
+                            )}
+                          />
+                        </>
                       )}
                     </li>
                   );
@@ -302,39 +318,6 @@ export function ProjectsPage({ me }: { me: Me }) {
           onClose={() => setEditing(null)}
           onCreated={(id, key) => setRevealed({ id, key, action: "created" })}
         />
-      )}
-      {confirmRotate && (
-        <Dialog
-          open
-          onClose={() => setConfirmRotate(null)}
-          title={`Rotate API key for ${confirmRotate.name}?`}
-        >
-          <p className="text-[13px] text-ink-2">
-            The current key stops working immediately. Every SDK and exporter
-            using it must be updated with the new key.
-          </p>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button onClick={() => setConfirmRotate(null)}>Cancel</Button>
-            <Button
-              variant="danger"
-              loading={rotate.isPending}
-              onClick={() =>
-                rotate.mutate(confirmRotate.id, {
-                  onSuccess: (r) => {
-                    setRevealed({
-                      id: confirmRotate.id,
-                      key: r.api_key,
-                      action: "rotated",
-                    });
-                    setConfirmRotate(null);
-                  },
-                })
-              }
-            >
-              Rotate key
-            </Button>
-          </div>
-        </Dialog>
       )}
     </>
   );

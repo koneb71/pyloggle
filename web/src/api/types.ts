@@ -517,3 +517,17 @@ export interface AuditEntry {
   target?: string;
   details?: string;
 }
+
+/** One scoped API key of a project; the secret is only ever returned at creation. */
+export interface APIKey {
+  id: string;
+  project_id: string;
+  name: string;
+  key_prefix: string;
+  scopes: string[];
+  created_at: string;
+  created_by?: string;
+  last_used_at?: string;
+  revoked_at?: string;
+  revoked_by?: string;
+}

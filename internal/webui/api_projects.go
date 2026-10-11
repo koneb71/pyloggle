@@ -10,6 +10,7 @@ import (
 
 	"pyloggle/internal/api"
 	"pyloggle/internal/storage/clickhouse"
+	"pyloggle/internal/tenant"
 )
 
 func projectToAPI(p clickhouse.ProjectView) api.Project {
@@ -276,6 +277,90 @@ func (u *UI) apiProjectUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	u.audit(r, "project.update", id, "", fmt.Sprintf("quota_gb=%d retention_days=%d", body.MaxStorageGB, body.RetentionDays))
 	writeJSON(w, http.StatusOK, map[string]any{"project": projectToAPI(pv)})
+}
+
+// forgetKey drops one key hash from the resolver so a revocation takes effect at once.
+func (u *UI) forgetKey(hash string) {
+	if inv, ok := u.keys.(interface{ Invalidate(string) }); ok && inv != nil && hash != "" {
+		inv.Invalidate(hash)
+	}
+}
+
+// apiProjectKeys lists a project's API keys (admins only: prefixes and scopes are
+// configuration, not telemetry).
+func (u *UI) apiProjectKeys(w http.ResponseWriter, r *http.Request) {
+	if !u.requireAdmin(w, r) {
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if _, ok, err := u.store.GetProjectByID(r.Context(), id); err != nil || !ok {
+		writeErr(w, http.StatusNotFound, "not_found", "unknown project")
+		return
+	}
+	items, err := u.store.ListAPIKeys(r.Context(), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+		return
+	}
+	if items == nil {
+		items = []api.APIKey{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "scopes": tenant.AllScopes})
+}
+
+// apiProjectKeyCreate mints a scoped key; the secret is in the response once.
+func (u *UI) apiProjectKeyCreate(w http.ResponseWriter, r *http.Request) {
+	if !u.requireAdmin(w, r) {
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	var body api.APIKeyCreateRequest
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_json", err.Error())
+		return
+	}
+	body.Name = strings.TrimSpace(body.Name)
+	if body.Name == "" {
+		writeErr(w, http.StatusBadRequest, "missing_name", "name is required")
+		return
+	}
+	if len(body.Scopes) == 0 {
+		writeErr(w, http.StatusBadRequest, "missing_scopes", "at least one scope is required (ingest, read, write)")
+		return
+	}
+	for _, sc := range body.Scopes {
+		if !tenant.ValidScope(sc) {
+			writeErr(w, http.StatusBadRequest, "bad_scope", "unknown scope "+sc+" (ingest, read, write)")
+			return
+		}
+	}
+	if _, ok, err := u.store.GetProjectByID(r.Context(), id); err != nil || !ok {
+		writeErr(w, http.StatusNotFound, "not_found", "unknown project")
+		return
+	}
+	key, secret, err := u.store.CreateAPIKey(r.Context(), id, body.Name, body.Scopes, currentUser(r))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "create_failed", err.Error())
+		return
+	}
+	u.audit(r, "key.create", id, key.ID, body.Name+" ["+strings.Join(key.Scopes, ",")+"]")
+	writeJSON(w, http.StatusCreated, api.APIKeyCreateResponse{Key: key, APIKey: secret})
+}
+
+// apiProjectKeyRevoke revokes a key; requests with it fail from the next one.
+func (u *UI) apiProjectKeyRevoke(w http.ResponseWriter, r *http.Request) {
+	if !u.requireAdmin(w, r) {
+		return
+	}
+	id, keyID := strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(r.PathValue("key_id"))
+	hash, err := u.store.RevokeAPIKey(r.Context(), id, keyID, currentUser(r))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	}
+	u.forgetKey(hash)
+	u.audit(r, "key.revoke", id, keyID, "")
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": keyID})
 }
 
 func (u *UI) apiProjectRotateKey(w http.ResponseWriter, r *http.Request) {

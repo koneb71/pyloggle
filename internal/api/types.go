@@ -354,6 +354,30 @@ type ProjectRotateKeyResponse struct {
 	APIKey  string  `json:"api_key"`
 }
 
+// APIKey is one scoped key of a project. The secret is returned once, at creation.
+type APIKey struct {
+	ID         string     `json:"id"`
+	ProjectID  string     `json:"project_id"`
+	Name       string     `json:"name"`
+	KeyPrefix  string     `json:"key_prefix"`
+	Scopes     []string   `json:"scopes"`
+	CreatedAt  time.Time  `json:"created_at"`
+	CreatedBy  string     `json:"created_by,omitempty"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	RevokedBy  string     `json:"revoked_by,omitempty"`
+}
+
+type APIKeyCreateRequest struct {
+	Name   string   `json:"name"`
+	Scopes []string `json:"scopes"`
+}
+
+type APIKeyCreateResponse struct {
+	Key    APIKey `json:"key"`
+	APIKey string `json:"api_key"`
+}
+
 // AggregateGroup is one series of an analytics query: a group key with its row count, the
 // metric over the whole range and the metric per bucket (null where the bucket has no rows).
 type AggregateGroup struct {

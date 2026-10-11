@@ -64,6 +64,9 @@ type Store interface {
 	CreateProject(ctx context.Context, p clickhouse.ProjectUpsert) (clickhouse.ProjectView, string, error)
 	UpsertProject(ctx context.Context, p clickhouse.ProjectUpsert) (clickhouse.ProjectView, error)
 	RotateProjectAPIKey(ctx context.Context, projectID string) (clickhouse.ProjectView, string, error)
+	ListAPIKeys(ctx context.Context, projectID string) ([]api.APIKey, error)
+	CreateAPIKey(ctx context.Context, projectID, name string, scopes []string, createdBy string) (api.APIKey, string, error)
+	RevokeAPIKey(ctx context.Context, projectID, keyID, by string) (string, error)
 	GetProjectIncludingDeleted(ctx context.Context, projectID string) (clickhouse.ProjectView, bool, error)
 	MarkProjectDeleted(ctx context.Context, projectID string) error
 	PurgeProjectData(ctx context.Context, projectID string) error

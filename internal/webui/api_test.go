@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -37,6 +40,8 @@ type fakeStore struct {
 	comments        []string
 	projects        []clickhouse.ProjectView
 	created         []clickhouse.ProjectUpsert
+	keys            []api.APIKey
+	revoked         []string
 }
 
 func (f *fakeStore) QueryIssues(_ context.Context, q clickhouse.IssueListQuery) ([]api.IssueSummary, error) {
@@ -326,6 +331,31 @@ func (f *fakeStore) UpsertProject(_ context.Context, p clickhouse.ProjectUpsert)
 func (f *fakeStore) RotateProjectAPIKey(_ context.Context, id string) (clickhouse.ProjectView, string, error) {
 	return clickhouse.ProjectView{ID: id}, "new-key", nil
 }
+func (f *fakeStore) ListAPIKeys(_ context.Context, id string) ([]api.APIKey, error) {
+	var out []api.APIKey
+	for _, k := range f.keys {
+		if k.ProjectID == id {
+			out = append(out, k)
+		}
+	}
+	return out, nil
+}
+func (f *fakeStore) CreateAPIKey(_ context.Context, id, name string, scopes []string, by string) (api.APIKey, string, error) {
+	k := api.APIKey{ID: fmt.Sprintf("k_%d", len(f.keys)+1), ProjectID: id, Name: name, KeyPrefix: "pl_abcdefgh", Scopes: scopes, CreatedAt: time.Now(), CreatedBy: by}
+	f.keys = append(f.keys, k)
+	return k, "pl_secret", nil
+}
+func (f *fakeStore) RevokeAPIKey(_ context.Context, id, keyID, by string) (string, error) {
+	for i, k := range f.keys {
+		if k.ProjectID == id && k.ID == keyID {
+			now := time.Now()
+			f.keys[i].RevokedAt, f.keys[i].RevokedBy = &now, by
+			f.revoked = append(f.revoked, keyID)
+			return "hash-" + keyID, nil
+		}
+	}
+	return "", errors.New("key not found")
+}
 func (f *fakeStore) ListAlertRules(context.Context, string) ([]api.AlertRule, error) { return nil, nil }
 func (f *fakeStore) UpsertAlertRule(_ context.Context, r api.AlertRule) (api.AlertRule, error) {
 	r.ID = "r1"
@@ -342,8 +372,13 @@ func (f *fakeStore) CountLogs(_ context.Context, q clickhouse.LogQuery) (uint64,
 type fakeKeys struct{}
 
 func (fakeKeys) ResolveByAPIKey(_ context.Context, key string) (tenant.Project, bool, error) {
-	if key == "k-good" {
-		return tenant.Project{ID: "p2", Name: "Second"}, true, nil
+	switch key {
+	case "k-good":
+		return tenant.Trusted(tenant.Project{ID: "p2", Name: "Second", KeyID: "k_all"}), true, nil
+	case "k-read":
+		return tenant.Project{ID: "p2", Name: "Second", KeyID: "k_read", Scopes: []string{tenant.ScopeRead}}, true, nil
+	case "k-ingest":
+		return tenant.Project{ID: "p2", Name: "Second", KeyID: "k_ingest", Scopes: []string{tenant.ScopeIngest}}, true, nil
 	}
 	return tenant.Project{}, false, nil
 }
@@ -892,5 +927,129 @@ func TestSystemAPI(t *testing.T) {
 	rec, _ = do(t, ua, "GET", "/ui/api/system", nil, nil)
 	if rec.Code == 200 {
 		t.Fatal("the System page is for admins")
+	}
+}
+
+func TestAPIKeyScopes(t *testing.T) {
+	u, _, _ := newTestUI("disabled")
+	q := u.APIKeyAPIHandler()
+	viaKey := func(method, path, key string, body string) (*httptest.ResponseRecorder, map[string]any) {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if key != "" {
+			req.Header.Set("X-API-Key", key)
+		}
+		rec := httptest.NewRecorder()
+		q.ServeHTTP(rec, req)
+		var out map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &out)
+		return rec, out
+	}
+	// /v1/q: a read-only key reads but cannot mutate; an ingest-only key cannot even read.
+	rec, _ := viaKey("GET", "/v1/q/issues", "k-read", "")
+	if rec.Code != 200 {
+		t.Fatalf("read key GET: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out := viaKey("POST", "/v1/q/issues/i1/state", "k-read", `{"status":"resolved"}`)
+	if rec.Code != 403 || out["error"] != "insufficient_scope" {
+		t.Fatalf("read key POST: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = viaKey("GET", "/v1/q/issues", "k-ingest", "")
+	if rec.Code != 403 || out["error"] != "insufficient_scope" {
+		t.Fatalf("ingest key GET: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ = viaKey("POST", "/v1/q/issues/i1/state", "k-good", `{"status":"resolved"}`)
+	if rec.Code != 200 {
+		t.Fatalf("full key POST: %d %s", rec.Code, rec.Body.String())
+	}
+	// Keyless reads on the default project are unchanged.
+	rec, _ = viaKey("GET", "/v1/q/issues", "", "")
+	if rec.Code != 200 {
+		t.Fatalf("keyless GET: %d %s", rec.Code, rec.Body.String())
+	}
+	// The UI login with a key needs the read scope.
+	rec, out = do(t, u, "POST", "/ui/api/login", map[string]any{"api_key": "k-ingest"}, map[string]string{csrfHeader: "1"})
+	if rec.Code != 403 || out["error"] != "insufficient_scope" {
+		t.Fatalf("login with ingest key: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ = do(t, u, "POST", "/ui/api/login", map[string]any{"api_key": "k-read"}, map[string]string{csrfHeader: "1"})
+	if rec.Code != 200 {
+		t.Fatalf("login with read key: %d %s", rec.Code, rec.Body.String())
+	}
+	// A browser session that logged in with a read-only key cannot mutate through /ui/api.
+	cookie := ""
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == apiKeyCookie {
+			cookie = c.Value
+		}
+	}
+	if cookie == "" {
+		t.Fatal("login did not set the key cookie")
+	}
+	req := httptest.NewRequest("POST", "/ui/api/issues/i1/state", bytes.NewReader([]byte(`{"status":"resolved"}`)))
+	req.Header.Set(csrfHeader, "1")
+	req.AddCookie(&http.Cookie{Name: apiKeyCookie, Value: cookie})
+	rr := httptest.NewRecorder()
+	u.ServeHTTP(rr, req)
+	if rr.Code != 403 {
+		t.Fatalf("ui mutation with a read-only key cookie: %d %s", rr.Code, rr.Body.String())
+	}
+	req = httptest.NewRequest("GET", "/ui/api/issues", nil)
+	req.AddCookie(&http.Cookie{Name: apiKeyCookie, Value: cookie})
+	rr = httptest.NewRecorder()
+	u.ServeHTTP(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("ui read with a read-only key cookie: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestProjectKeysAPI(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/projects/p2/keys", nil, nil)
+	if rec.Code != 200 || len(out["items"].([]any)) != 0 || len(out["scopes"].([]any)) != 3 {
+		t.Fatalf("list empty: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "POST", "/ui/api/projects/p2/keys", map[string]any{"name": "ci", "scopes": []string{"read"}}, map[string]string{csrfHeader: "1"})
+	if rec.Code != 201 || out["api_key"] != "pl_secret" {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	key := out["key"].(map[string]any)
+	if key["name"] != "ci" || key["key_prefix"] != "pl_abcdefgh" || len(key["scopes"].([]any)) != 1 {
+		t.Fatalf("created key: %v", key)
+	}
+	for _, bad := range []map[string]any{{"name": "", "scopes": []string{"read"}}, {"name": "x", "scopes": []string{}}, {"name": "x", "scopes": []string{"admin"}}} {
+		rec, _ = do(t, u, "POST", "/ui/api/projects/p2/keys", bad, map[string]string{csrfHeader: "1"})
+		if rec.Code != 400 {
+			t.Fatalf("bad body %v: %d %s", bad, rec.Code, rec.Body.String())
+		}
+	}
+	rec, _ = do(t, u, "POST", "/ui/api/projects/nope/keys", map[string]any{"name": "x", "scopes": []string{"read"}}, map[string]string{csrfHeader: "1"})
+	if rec.Code != 404 {
+		t.Fatalf("unknown project: %d", rec.Code)
+	}
+	rec, out = do(t, u, "GET", "/ui/api/projects/p2/keys", nil, nil)
+	if rec.Code != 200 || len(out["items"].([]any)) != 1 {
+		t.Fatalf("list: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ = do(t, u, "POST", "/ui/api/projects/p2/keys/"+key["id"].(string)+"/revoke", nil, map[string]string{csrfHeader: "1"})
+	if rec.Code != 200 || len(store.revoked) != 1 {
+		t.Fatalf("revoke: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ = do(t, u, "POST", "/ui/api/projects/p2/keys/k_missing/revoke", nil, map[string]string{csrfHeader: "1"})
+	if rec.Code != 404 {
+		t.Fatalf("revoke unknown: %d", rec.Code)
+	}
+	var actions []string
+	for _, a := range store.audit {
+		actions = append(actions, a.Action)
+	}
+	if strings.Join(actions, ",") != "key.create,key.revoke" {
+		t.Fatalf("audit: %v", actions)
+	}
+	// Non-admins cannot manage keys.
+	u.cfg.UIAdmins = []string{"admin@example.com"}
+	u.cfg.UIAuthMode = "azure"
+	rec, _ = do(t, u, "GET", "/ui/api/projects/p2/keys", nil, nil)
+	if rec.Code != 401 {
+		t.Fatalf("anonymous in azure mode: %d", rec.Code)
 	}
 }

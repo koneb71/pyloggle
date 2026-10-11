@@ -76,6 +76,11 @@ func (h *Handler) handler(k kind) http.Handler {
 				http.Error(w, "unauthorized", status)
 				return
 			}
+			if errors.Is(err, ingest.ErrInsufficientScope) {
+				status = http.StatusForbidden
+				http.Error(w, err.Error(), status)
+				return
+			}
 			status = http.StatusInternalServerError
 			http.Error(w, "auth lookup failed", status)
 			return

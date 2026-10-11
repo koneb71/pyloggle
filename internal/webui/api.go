@@ -144,6 +144,9 @@ func (u *UI) newAPIMux(prefix string) *http.ServeMux {
 	reg("POST", "/projects", u.apiProjectCreate)
 	reg("POST", "/projects/{id}", u.apiProjectUpdate)
 	reg("POST", "/projects/{id}/rotate-key", u.apiProjectRotateKey)
+	reg("GET", "/projects/{id}/keys", u.apiProjectKeys)
+	reg("POST", "/projects/{id}/keys", u.apiProjectKeyCreate)
+	reg("POST", "/projects/{id}/keys/{key_id}/revoke", u.apiProjectKeyRevoke)
 	reg("GET", "/projects/{id}", u.apiProject)
 	reg("GET", "/projects/{id}/usage", u.apiProjectUsage)
 	reg("DELETE", "/projects/{id}", u.apiProjectDelete)
@@ -213,10 +216,24 @@ func (u *UI) APIKeyAPIHandler() http.Handler {
 				writeErr(w, http.StatusUnauthorized, "unauthorized", "default project unavailable")
 				return
 			}
-			p = tenant.Project{ID: pv.ID, Name: pv.Name}
+			p = tenant.Trusted(tenant.Project{ID: pv.ID, Name: pv.Name})
+		}
+		if !requireScope(w, r, p) {
+			return
 		}
 		mux.ServeHTTP(w, r.WithContext(auth.WithProject(r.Context(), p)))
 	})
+}
+
+// requireScope answers 403 insufficient_scope when the request's credentials cannot do what
+// the method implies (GET needs read, everything else write).
+func requireScope(w http.ResponseWriter, r *http.Request, p tenant.Project) bool {
+	scope := auth.ScopeFor(r.Method)
+	if p.Has(scope) {
+		return true
+	}
+	writeErr(w, http.StatusForbidden, "insufficient_scope", "this API key lacks the "+scope+" scope")
+	return false
 }
 
 func isMutation(method string) bool {
@@ -272,6 +289,9 @@ func (u *UI) withProjectAPI(next http.Handler) http.Handler {
 		if pid := strings.TrimSpace(r.URL.Query().Get("project_id")); pid != "" {
 			u.setUIProjectID(w, p.ID)
 		}
+		if !requireScope(w, r, p) {
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(auth.WithProject(r.Context(), p)))
 	})
 }
@@ -294,7 +314,7 @@ func (u *UI) resolveProject(r *http.Request) (tenant.Project, int, error) {
 		if err != nil || !ok || pv.ID == "" {
 			return tenant.Project{}, false, err
 		}
-		return tenant.Project{ID: pv.ID, Name: pv.Name, MaxEventsPerSec: pv.MaxEventsPerSec, MaxStorageGB: pv.MaxStorageGB}, true, nil
+		return tenant.Trusted(tenant.Project{ID: pv.ID, Name: pv.Name, MaxEventsPerSec: pv.MaxEventsPerSec, MaxStorageGB: pv.MaxStorageGB}), true, nil
 	}
 	if pid := strings.TrimSpace(r.URL.Query().Get("project_id")); pid != "" {
 		p, ok, err := lookup(pid)

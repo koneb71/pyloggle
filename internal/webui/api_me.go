@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"pyloggle/internal/auth"
+	"pyloggle/internal/tenant"
 )
 
 type meResponse struct {
@@ -78,6 +79,10 @@ func (u *UI) apiLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		writeErr(w, http.StatusUnauthorized, "invalid_api_key", "unknown API key")
+		return
+	}
+	if !p.Has(tenant.ScopeRead) {
+		writeErr(w, http.StatusForbidden, "insufficient_scope", "this API key cannot read; sign in with a key that has the read scope")
 		return
 	}
 	u.setActiveProjectCookie(w, key)

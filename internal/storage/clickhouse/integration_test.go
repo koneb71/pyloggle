@@ -127,6 +127,13 @@ func seedV1(t *testing.T, c *Client, now time.Time) {
 			t.Fatalf("seed occurrences: %v", err)
 		}
 	}
+	// A 0.2 project: one key, stored as a hash on the project row (rotated once, so two rows).
+	for i, hash := range []string{"hash-p-old", "hash-p"} {
+		if err := c.conn.Exec(ctx, `INSERT INTO projects (id, name, description, max_events_per_second, max_storage_gb, api_key_hash, api_key_created_at, created_at, updated_at)
+			VALUES ('p', 'Project P', '', 0, 0, ?, ?, ?, ?)`, hash, mid.Add(time.Duration(i)*time.Hour), mid, mid.Add(time.Duration(i)*time.Hour)); err != nil {
+			t.Fatalf("seed project: %v", err)
+		}
+	}
 }
 
 func TestIntegrationUpgradeFromV1Rebuild(t *testing.T) {
@@ -210,6 +217,15 @@ func TestIntegrationUpgradeFromV1Rebuild(t *testing.T) {
 	applied, err = c.Migrate(ctx, opts)
 	if err != nil || len(applied) != 0 {
 		t.Fatalf("second migrate: applied=%v err=%v", applied, err)
+	}
+
+	// The 0.2 key of every project was copied into project_api_keys as "default" with all scopes.
+	keys, err := c.ListAPIKeys(ctx, "p")
+	if err != nil || len(keys) != 1 || keys[0].ID != "default" || keys[0].Name != "default" || len(keys[0].Scopes) != 3 || keys[0].KeyPrefix != "" {
+		t.Fatalf("backfilled keys: %+v %v", keys, err)
+	}
+	if k, ok, _ := c.ResolveAPIKey(ctx, "hash-p"); !ok || k.Project.ID != "p" || k.KeyID != "default" {
+		t.Fatalf("0.2 key hash must resolve through project_api_keys: %+v %v", k, ok)
 	}
 
 	// Retention changes are applied through MODIFY TTL, once.
