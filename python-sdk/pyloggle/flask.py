@@ -184,10 +184,12 @@ def init_app(
                 if exception is None or captured_event_id(exception):
                     return
                 attrs: dict = {}
+                duration_ms = None
                 if bool(getattr(client.config, "emit_request_latency", False)):
                     start = float(getattr(g, "_pyloggle_request_start", 0.0) or 0.0)
                     if start > 0:
-                        attrs["latency_ms"] = str(int((time.perf_counter() - start) * 1000))
+                        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+                        attrs["latency_ms"] = str(int(duration_ms))
                 http = _request_http(client, request, status=500)
                 body, body_truncated = _pyloggle_capture_request_body(client, request)
                 if body is not None:
@@ -207,6 +209,7 @@ def init_app(
                     "mechanism": {"type": "flask", "handled": False},
                     "http": http,
                     **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
+                    **({"duration_ms": duration_ms} if duration_ms is not None else {}),
                     "attrs": attrs,
                 }
                 mark_captured(exception, event_id)
@@ -257,7 +260,8 @@ def init_app(
             if bool(getattr(g, "_pyloggle_had_exception", False)):
                 return response
             start = float(getattr(g, "_pyloggle_request_start", 0.0) or 0.0)
-            latency_ms = str(int((time.perf_counter() - start) * 1000)) if start > 0 else None
+            duration_ms = round((time.perf_counter() - start) * 1000, 2) if start > 0 else None
+            latency_ms = str(int(duration_ms)) if duration_ms is not None else None
             status = int(getattr(response, "status_code", 200) or 200)
             level = "info"
             if status >= 500:
@@ -282,6 +286,7 @@ def init_app(
                     "request_id": ensure_request_id(),
                     "http": http,
                     **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
+                    **({"duration_ms": duration_ms} if duration_ms is not None else {}),
                     "attrs": attrs,
                 }
             )

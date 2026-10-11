@@ -145,7 +145,8 @@ class PyloggleFastAPIMiddleware:
                     level = "error"
                 elif final_status >= 400:
                     level = "warn"
-                attrs: dict[str, Any] = {"latency_ms": str(int((time.perf_counter() - start) * 1000))}
+                duration_ms = round((time.perf_counter() - start) * 1000, 2)
+                attrs: dict[str, Any] = {"latency_ms": str(int(duration_ms))}
                 http = dict(http_base)
                 http["route"] = _route_path(scope)  # the router fills scope["route"] after we started
                 http["status"] = final_status
@@ -167,6 +168,7 @@ class PyloggleFastAPIMiddleware:
                         "request_id": request_id,
                         "http": http,
                         **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
+                        "duration_ms": duration_ms,
                         "attrs": attrs,
                     }
                 )
@@ -179,8 +181,10 @@ class PyloggleFastAPIMiddleware:
         if captured_event_id(exc):
             return
         attrs: dict[str, Any] = {}
+        duration_ms = None
         if bool(getattr(self.client.config, "emit_request_latency", False)):
-            attrs["latency_ms"] = str(int((time.perf_counter() - start) * 1000))
+            duration_ms = round((time.perf_counter() - start) * 1000, 2)
+            attrs["latency_ms"] = str(int(duration_ms))
         http = dict(http_base)
         http["route"] = _route_path(scope)
         http["status"] = int(status_code) if status_code is not None else 500
@@ -208,6 +212,7 @@ class PyloggleFastAPIMiddleware:
             "mechanism": {"type": "asgi", "handled": False},
             "http": http,
             **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
+            **({"duration_ms": duration_ms} if duration_ms is not None else {}),
             "attrs": attrs,
         }
         mark_captured(exc, event_id)

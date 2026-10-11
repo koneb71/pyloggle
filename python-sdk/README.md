@@ -4,7 +4,7 @@ Logging + error tracking client for a self-hosted [Pyloggle](../README.md) serve
 
 ```bash
 pip install pyloggle            # or: pip install -e ./python-sdk
-pip install "pyloggle[flask]"   # optional framework extras: flask, fastapi
+pip install "pyloggle[flask]"   # optional framework extras: flask, fastapi, django
 ```
 
 ## 30-second start
@@ -58,9 +58,23 @@ from pyloggle.fastapi import PyloggleFastAPIMiddleware        # also pyloggle.as
 app.add_middleware(PyloggleFastAPIMiddleware, client=client)
 ```
 
+Django (`pip install "pyloggle[django]"`): one middleware line and a settings dict; the client is
+created from `settings.PYLOGGLE` on first use (or call `pyloggle.django.init()` from
+`AppConfig.ready()`).
+
+```python
+# settings.py
+MIDDLEWARE = ["pyloggle.django.PyloggleMiddleware", *MIDDLEWARE]   # first, so it sees every exception
+PYLOGGLE = {"service": "shop", "env": "prod", "emit_request_latency": True}
+```
+
 Each request gets its own scope: request id (honors `X-Request-ID`), W3C `traceparent` trace/span ids,
-route, URL, query, scrubbed headers, client IP, user; one error event per unhandled exception (the
-framework's own error log line is kept but marked as a duplicate, so no second issue appears).
+route template, URL, query, scrubbed headers, client IP, user (Django: `request.user` hashed, raw
+fields only with `send_default_pii`); one error event per unhandled exception (the framework's own
+error log line is kept but marked as a duplicate, so no second issue appears). Django also leaves
+one `db.query` breadcrumb per SQL statement (statement text only, never parameters; `db_breadcrumbs=False`
+turns it off), and sync and async views are both supported. With `emit_request_latency=True` every
+request logs a `request` line carrying `duration_ms` and the status.
 
 ## What an error report contains
 

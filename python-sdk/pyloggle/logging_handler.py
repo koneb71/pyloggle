@@ -100,6 +100,10 @@ DEFAULT_FRAMEWORK_LOGGER_NAMES: tuple[str, ...] = (
     "uvicorn",
     "uvicorn.error",
     "uvicorn.access",
+    # Django (django.request carries the "Internal Server Error" lines)
+    "django",
+    "django.request",
+    "django.server",
 )
 
 
