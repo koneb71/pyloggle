@@ -22,7 +22,9 @@ type fakeStore struct {
 	firings   []clickhouse.AlertFiring
 }
 
-func (f *fakeStore) ListEnabledAlertRules(context.Context) ([]api.AlertRule, error) { return f.rules, nil }
+func (f *fakeStore) ListEnabledAlertRules(context.Context) ([]api.AlertRule, error) {
+	return f.rules, nil
+}
 func (f *fakeStore) GetLastAlertFiredAt(_ context.Context, id string) (time.Time, bool, error) {
 	t, ok := f.lastFired[id]
 	return t, ok, nil

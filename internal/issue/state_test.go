@@ -6,40 +6,30 @@ import (
 	"time"
 )
 
-func TestStateCache(t *testing.T) {
-	calls := 0
-	loader := func(ctx context.Context, projectID, issueID string) (string, bool, bool, error) {
-		calls++
-		if issueID == "known" {
-			return StatusResolved, false, true, nil
-		}
-		return "", false, false, nil
+func TestStateCacheBumpAndSet(t *testing.T) {
+	loads := 0
+	c := NewStateCache(time.Minute, func(ctx context.Context, p, i string) (State, bool, error) {
+		loads++
+		return State{Status: StatusIgnored, SnoozeCount: 12, OccurrenceCount: 10}, true, nil
+	})
+	if n := c.Bump("p", "i"); n != 0 {
+		t.Fatalf("bump before load should be 0, got %d", n)
 	}
-	c := NewStateCache(time.Minute, loader)
-	now := time.Unix(1000, 0)
-	c.now = func() time.Time { return now }
-
-	st, known, _ := c.Get(context.Background(), "p", "known")
-	if !known || st.Status != StatusResolved || calls != 1 {
-		t.Fatalf("first load: %+v %v %d", st, known, calls)
+	st, known, err := c.Get(context.Background(), "p", "i")
+	if err != nil || !known || st.SnoozeCount != 12 {
+		t.Fatalf("get: %+v %v %v", st, known, err)
 	}
-	c.Get(context.Background(), "p", "known")
-	if calls != 1 {
-		t.Fatalf("second get must hit the cache")
+	if n := c.Bump("p", "i"); n != 11 {
+		t.Fatalf("first bump = %d, want 11", n)
 	}
-	_, known, _ = c.Get(context.Background(), "p", "new")
-	c.Get(context.Background(), "p", "new")
-	if known || calls != 2 {
-		t.Fatalf("unknown issues are cached as unknown: known=%v calls=%d", known, calls)
+	if n := c.Bump("p", "i"); n != 12 {
+		t.Fatalf("second bump = %d, want 12", n)
 	}
-	c.Set("p", "new", State{Status: StatusOpen, Regressed: true})
-	st, known, _ = c.Get(context.Background(), "p", "new")
-	if !known || !st.Regressed {
-		t.Fatalf("Set must be visible: %+v", st)
+	c.Set("p", "i", State{Status: StatusOpen})
+	if n := c.Bump("p", "i"); n != 1 {
+		t.Fatalf("Set resets the seen counter: got %d", n)
 	}
-	now = now.Add(2 * time.Minute)
-	c.Get(context.Background(), "p", "known")
-	if calls != 3 {
-		t.Fatalf("expired entries reload")
+	if _, _, _ = c.Get(context.Background(), "p", "i"); loads != 1 {
+		t.Fatalf("cached entry must not reload: loads=%d", loads)
 	}
 }

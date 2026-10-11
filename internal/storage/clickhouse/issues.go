@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"pyloggle/internal/api"
-	"pyloggle/internal/issue"
 	"pyloggle/internal/model"
 )
 
@@ -25,6 +24,7 @@ type IssueListQuery struct {
 	Release   string
 	Level     string
 	IssueIDs  []string
+	Assignee  string // exact assignee, or "none" for unassigned
 	From      time.Time
 	To        time.Time
 	Limit     int
@@ -55,6 +55,9 @@ const issuesStateSelect = `
 		argMax(status, updated_at) AS st_status,
 		argMax(is_regressed, updated_at) AS is_regressed,
 		argMax(assignee, updated_at) AS assignee,
+		argMax(snooze_until, updated_at) AS snooze_until,
+		argMax(snooze_count, updated_at) AS snooze_count,
+		argMax(resolved_in_release, updated_at) AS resolved_in_release,
 		max(updated_at) AS status_updated_at
 	FROM issues_state
 	WHERE project_id = ?
@@ -80,31 +83,40 @@ type issueRow struct {
 	Status           string    `ch:"status"`
 	IsRegressed      uint8     `ch:"is_regressed"`
 	Assignee         string    `ch:"assignee"`
+	SnoozeUntil      time.Time `ch:"snooze_until"`
+	SnoozeCount      uint64    `ch:"snooze_count"`
+	ResolvedIn       string    `ch:"resolved_in_release"`
 	StatusUpdatedAt  time.Time `ch:"status_updated_at"`
 }
 
 func (r issueRow) toAPI() api.IssueSummary {
 	s := api.IssueSummary{
-		IssueID:          r.IssueID,
-		Service:          r.Service,
-		Env:              r.Env,
-		ProjectID:        r.ProjectID,
-		Title:            r.Title,
-		Culprit:          r.Culprit,
-		LastMessage:      r.LastMessage,
-		Level:            r.Level,
-		Status:           r.Status,
-		IsRegressed:      r.IsRegressed == 1,
-		Assignee:         r.Assignee,
-		StatusUpdatedAt:  r.StatusUpdatedAt,
-		FirstSeen:        r.FirstSeen,
-		LastSeen:         r.LastSeen,
-		OccurrenceCount:  r.OccurrenceCount,
-		AffectedUsers:    r.AffectedUsers,
-		ExceptionType:    r.ExceptionType,
-		ExceptionModule:  r.ExceptionModule,
-		LastRelease:      r.LastRelease,
-		StackFingerprint: r.StackFingerprint,
+		IssueID:           r.IssueID,
+		Service:           r.Service,
+		Env:               r.Env,
+		ProjectID:         r.ProjectID,
+		Title:             r.Title,
+		Culprit:           r.Culprit,
+		LastMessage:       r.LastMessage,
+		Level:             r.Level,
+		Status:            r.Status,
+		IsRegressed:       r.IsRegressed == 1,
+		Assignee:          r.Assignee,
+		SnoozeCount:       r.SnoozeCount,
+		ResolvedInRelease: r.ResolvedIn,
+		StatusUpdatedAt:   r.StatusUpdatedAt,
+		FirstSeen:         r.FirstSeen,
+		LastSeen:          r.LastSeen,
+		OccurrenceCount:   r.OccurrenceCount,
+		AffectedUsers:     r.AffectedUsers,
+		ExceptionType:     r.ExceptionType,
+		ExceptionModule:   r.ExceptionModule,
+		LastRelease:       r.LastRelease,
+		StackFingerprint:  r.StackFingerprint,
+	}
+	if r.SnoozeUntil.Unix() > 0 {
+		t := r.SnoozeUntil.UTC()
+		s.SnoozeUntil = &t
 	}
 	// Legacy top_* fields from the culprit ("app.views in checkout").
 	if i := strings.LastIndex(r.Culprit, " in "); i > 0 {
@@ -149,6 +161,9 @@ func issuesJoinedQuery(q IssueListQuery) (string, []any, error) {
 		if(st.st_status = '', 'open', st.st_status) AS status,
 		st.is_regressed AS is_regressed,
 		st.assignee AS assignee,
+		st.snooze_until AS snooze_until,
+		st.snooze_count AS snooze_count,
+		st.resolved_in_release AS resolved_in_release,
 		st.status_updated_at AS status_updated_at
 	FROM (` + inner + `) AS i
 	LEFT JOIN (` + issuesStateSelect + `) AS st
@@ -179,6 +194,14 @@ func issuesJoinedQuery(q IssueListQuery) (string, []any, error) {
 	if q.Release != "" {
 		sql += " AND last_release = ?"
 		args = append(args, q.Release)
+	}
+	switch a := strings.TrimSpace(q.Assignee); a {
+	case "":
+	case "none":
+		sql += " AND assignee = ''"
+	default:
+		sql += " AND assignee = ?"
+		args = append(args, a)
 	}
 	if q.Level != "" {
 		sql += " AND has(?, level)"
@@ -624,50 +647,6 @@ func (c *Client) QueryOccurrences(ctx context.Context, projectID, issueID string
 		out = append(out, r.toAPI())
 	}
 	return out, nil
-}
-
-// GetIssueStatus returns the latest lifecycle state of an issue.
-func (c *Client) GetIssueStatus(ctx context.Context, projectID, issueID string) (string, bool, bool, error) {
-	rows, err := c.conn.Query(ctx, `
-		SELECT argMax(status, updated_at), argMax(is_regressed, updated_at)
-		FROM issues_state WHERE project_id = ? AND issue_id = ? GROUP BY issue_id`, projectID, issueID)
-	if err != nil {
-		return "", false, false, err
-	}
-	defer rows.Close()
-	if !rows.Next() {
-		return "", false, false, rows.Err()
-	}
-	var status string
-	var regressed uint8
-	if err := rows.Scan(&status, &regressed); err != nil {
-		return "", false, false, err
-	}
-	return status, regressed == 1, true, nil
-}
-
-// SetIssueState appends a state row (newest wins).
-func (c *Client) SetIssueState(ctx context.Context, st api.IssueStateChange) error {
-	if strings.TrimSpace(st.ProjectID) == "" || strings.TrimSpace(st.IssueID) == "" {
-		return errors.New("missing project_id/issue_id")
-	}
-	if st.Status == "" {
-		st.Status = issue.StatusOpen
-	}
-	if st.Service == "" || st.Env == "" {
-		// Look the scope up so callers can act with just the issue id.
-		if s, ok, err := c.GetIssueSummary(ctx, st.ProjectID, st.IssueID); err == nil && ok {
-			st.Service, st.Env = s.Service, s.Env
-		}
-	}
-	var regressed uint8
-	if st.Regressed {
-		regressed = 1
-	}
-	return c.conn.Exec(ctx, `
-		INSERT INTO issues_state (issue_id, service, env, project_id, status, is_regressed, regressed_from, updated_at, updated_by, comment, assignee)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		st.IssueID, st.Service, st.Env, st.ProjectID, st.Status, regressed, st.RegressedFrom, time.Now().UTC(), st.UpdatedBy, st.Comment, st.Assignee)
 }
 
 // UpsertIssueState is the legacy signature used by the admin API.

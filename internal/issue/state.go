@@ -13,14 +13,28 @@ const (
 	StatusIgnored  = "ignored"
 )
 
-// State is the lifecycle state of an issue.
+// State is the lifecycle state of an issue as the pipeline and the UI see it.
 type State struct {
-	Status    string
-	Regressed bool
+	Status        string
+	Regressed     bool
+	RegressedFrom string
+	Assignee      string
+	// Snoozes: an ignored issue reopens when SnoozeUntil passes or when its occurrence count
+	// reaches SnoozeCount (an absolute target, so the comparison survives restarts).
+	SnoozeUntil time.Time
+	SnoozeCount uint64
+	// Resolved-in-release: a resolved issue regresses only on a newer release.
+	ResolvedInRelease string
+	// OccurrenceCount is the issue's total when the state was loaded (populated only for
+	// count-snoozed issues; the cache adds the occurrences seen since).
+	OccurrenceCount uint64
 }
 
+// Snoozed reports whether an ignore has an expiry.
+func (s State) Snoozed() bool { return !s.SnoozeUntil.IsZero() || s.SnoozeCount > 0 }
+
 // StateLoader fetches the current state from storage; found=false means the issue is unknown.
-type StateLoader func(ctx context.Context, projectID, issueID string) (status string, regressed bool, found bool, err error)
+type StateLoader func(ctx context.Context, projectID, issueID string) (State, bool, error)
 
 // StateCache memoizes issue states so the ingest hot path does not query ClickHouse per event.
 type StateCache struct {
@@ -36,6 +50,7 @@ type stateItem struct {
 	st      State
 	known   bool
 	expires time.Time
+	seen    uint64 // occurrences observed since the state was loaded (count snoozes)
 }
 
 func NewStateCache(ttl time.Duration, loader StateLoader) *StateCache {
@@ -60,12 +75,12 @@ func (c *StateCache) Get(ctx context.Context, projectID, issueID string) (State,
 	var st State
 	known := false
 	if c.loader != nil {
-		status, regressed, found, err := c.loader(ctx, projectID, issueID)
+		loaded, found, err := c.loader(ctx, projectID, issueID)
 		if err != nil {
 			return State{}, false, err
 		}
 		if found {
-			st = State{Status: status, Regressed: regressed}
+			st = loaded
 			known = true
 		}
 	}
@@ -88,4 +103,19 @@ func (c *StateCache) Set(projectID, issueID string, st State) {
 	c.mu.Lock()
 	c.items[projectID+"|"+issueID] = stateItem{st: st, known: true, expires: c.now().Add(c.ttl)}
 	c.mu.Unlock()
+}
+
+// Bump records one more occurrence of a cached issue and returns the estimated total
+// (loaded count + occurrences seen since). Unknown issues return 0.
+func (c *StateCache) Bump(projectID, issueID string) uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	key := projectID + "|" + issueID
+	it, ok := c.items[key]
+	if !ok {
+		return 0
+	}
+	it.seen++
+	c.items[key] = it
+	return it.st.OccurrenceCount + it.seen
 }

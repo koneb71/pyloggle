@@ -3,9 +3,10 @@ import type { ReactNode } from "react";
 import { AlertTriangle, Ban, CheckCircle2, CircleDot, RotateCcw } from "lucide-react";
 import { levelVar } from "@/lib/levels";
 
-export function Badge({ children, className, tone = "neutral" }: { children: ReactNode; className?: string; tone?: "neutral" | "accent" | "outline" }) {
+export function Badge({ children, className, tone = "neutral", title }: { children: ReactNode; className?: string; tone?: "neutral" | "accent" | "outline"; title?: string }) {
   return (
     <span
+      title={title}
       className={clsx(
         "inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] font-medium leading-4",
         tone === "neutral" && "bg-surface-3 text-ink-2",

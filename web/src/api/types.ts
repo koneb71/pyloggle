@@ -24,6 +24,9 @@ export interface IssueSummary {
   status: Status;
   is_regressed: boolean;
   assignee?: string;
+  snooze_until?: string;
+  snooze_count?: number;
+  resolved_in_release?: string;
   status_updated_at: string;
   first_seen: string;
   last_seen: string;
@@ -34,6 +37,18 @@ export interface IssueSummary {
   last_release?: string;
   stack_fingerprint: string;
   sparkline?: number[];
+}
+
+export interface IssueActivity {
+  id: string;
+  issue_id: string;
+  ts: string;
+  kind: "status" | "assign" | "comment" | "snooze" | "unsnooze" | "regression" | "resolve_in_release" | string;
+  actor: string;
+  from?: string;
+  to?: string;
+  comment?: string;
+  release?: string;
 }
 
 export interface IssueListResponse {

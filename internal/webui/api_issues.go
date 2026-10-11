@@ -1,7 +1,10 @@
 package webui
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
+	"pyloggle/internal/timeparse"
 	"strings"
 	"time"
 
@@ -22,8 +25,12 @@ func (u *UI) issueListQuery(r *http.Request) clickhouse.IssueListQuery {
 		Q:         qs.Get("q"),
 		Release:   qs.Get("release"),
 		Level:     qs.Get("level"),
+		Assignee:  qs.Get("assignee"),
 		Limit:     qInt(r, "limit", 50, 500),
 		Offset:    qInt(r, "offset", 0, 100000),
+	}
+	if q.Assignee == "me" {
+		q.Assignee = currentUser(r)
 	}
 	if qs.Get("from") != "" || qs.Get("to") != "" {
 		q.From, q.To = qRange(r, 24*time.Hour)
@@ -172,47 +179,115 @@ func (u *UI) apiOccurrence(w http.ResponseWriter, r *http.Request) {
 
 var validStatuses = map[string]bool{issue.StatusOpen: true, issue.StatusResolved: true, issue.StatusIgnored: true}
 
-func (u *UI) applyState(r *http.Request, projectID, issueID, status, comment string) error {
-	st := api.IssueStateChange{ProjectID: projectID, IssueID: issueID, Status: status, UpdatedBy: currentUser(r), Comment: comment}
-	if s, ok, err := u.store.GetIssueSummary(r.Context(), projectID, issueID); err == nil && ok {
-		st.Service, st.Env = s.Service, s.Env
+// stateBody is the JSON accepted by the state endpoints.
+type stateBody struct {
+	IssueIDs          []string `json:"issue_ids"` // bulk only
+	Status            string   `json:"status"`
+	Comment           string   `json:"comment"`
+	SnoozeUntil       string   `json:"snooze_until"`        // RFC 3339 (ignored only)
+	SnoozeForSeconds  int64    `json:"snooze_for_seconds"`  // alternative to snooze_until
+	SnoozeCount       uint64   `json:"snooze_count"`        // N more occurrences (ignored only)
+	ResolvedInRelease string   `json:"resolved_in_release"` // release or "next" (resolved only)
+}
+
+// changeFor turns a request body into a state change for one issue; it reads the issue's
+// summary for "next" releases and count snoozes (which are stored as absolute targets).
+func (u *UI) changeFor(r *http.Request, projectID, issueID string, body stateBody) (api.IssueStateChange, string, error) {
+	status := strings.ToLower(strings.TrimSpace(body.Status))
+	if !validStatuses[status] {
+		return api.IssueStateChange{}, "bad_status", errors.New("status must be open, resolved or ignored")
 	}
-	if err := u.store.SetIssueState(r.Context(), st); err != nil {
+	ch := api.IssueStateChange{ProjectID: projectID, IssueID: issueID, Status: status, UpdatedBy: currentUser(r), Comment: body.Comment}
+	summary, found, err := u.store.GetIssueSummary(r.Context(), projectID, issueID)
+	if err != nil {
+		return ch, "query_failed", err
+	}
+	if found {
+		ch.Service, ch.Env = summary.Service, summary.Env
+	}
+	switch status {
+	case issue.StatusIgnored:
+		if body.SnoozeUntil != "" {
+			t, ok := timeparse.Parse(body.SnoozeUntil)
+			if !ok || !t.After(time.Now()) {
+				return ch, "bad_snooze", errors.New("snooze_until must be a future timestamp")
+			}
+			t = t.UTC()
+			ch.SnoozeUntil = &t
+		} else if body.SnoozeForSeconds > 0 {
+			t := time.Now().UTC().Add(time.Duration(body.SnoozeForSeconds) * time.Second)
+			ch.SnoozeUntil = &t
+		}
+		if body.SnoozeCount > 0 {
+			target := summary.OccurrenceCount + body.SnoozeCount
+			ch.SnoozeCount = &target
+		}
+		if ch.SnoozeUntil != nil || ch.SnoozeCount != nil {
+			ch.Kind = "snooze"
+		}
+	case issue.StatusResolved:
+		rel := strings.TrimSpace(body.ResolvedInRelease)
+		if rel == "next" {
+			rel = summary.LastRelease
+			if rel == "" {
+				return ch, "no_release", errors.New("the issue has no release to resolve in; events must carry a release")
+			}
+		}
+		if rel != "" {
+			ch.ResolvedInRelease = &rel
+			ch.Release = rel
+			ch.Kind = "resolve_in_release"
+		}
+	}
+	return ch, "", nil
+}
+
+// applyChange writes the change and refreshes the in-process state cache so ingest sees it.
+func (u *UI) applyChange(r *http.Request, ch api.IssueStateChange) error {
+	if err := u.store.SetIssueState(r.Context(), ch); err != nil {
 		return err
 	}
 	if u.states != nil {
-		u.states.Set(projectID, issueID, issue.State{Status: status})
+		if st, ok, err := u.store.GetIssueState(r.Context(), ch.ProjectID, ch.IssueID); err == nil && ok {
+			u.states.Set(ch.ProjectID, ch.IssueID, st)
+		}
 	}
 	return nil
 }
 
-func (u *UI) apiIssueState(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Status  string `json:"status"`
-		Comment string `json:"comment"`
+// applyState is the pre-0.3 helper (status + comment); kept for the legacy admin endpoint path.
+func (u *UI) applyState(r *http.Request, projectID, issueID, status, comment string) error {
+	ch, code, err := u.changeFor(r, projectID, issueID, stateBody{Status: status, Comment: comment})
+	if err != nil {
+		return fmt.Errorf("%s: %w", code, err)
 	}
+	return u.applyChange(r, ch)
+}
+
+func (u *UI) apiIssueState(w http.ResponseWriter, r *http.Request) {
+	var body stateBody
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_json", err.Error())
 		return
 	}
-	status := strings.ToLower(strings.TrimSpace(body.Status))
-	if !validStatuses[status] {
-		writeErr(w, http.StatusBadRequest, "bad_status", "status must be open, resolved or ignored")
+	ch, code, err := u.changeFor(r, auth.ProjectIDFromContext(r.Context()), r.PathValue("id"), body)
+	if err != nil {
+		status := http.StatusBadRequest
+		if code == "query_failed" {
+			status = http.StatusInternalServerError
+		}
+		writeErr(w, status, code, err.Error())
 		return
 	}
-	if err := u.applyState(r, auth.ProjectIDFromContext(r.Context()), r.PathValue("id"), status, body.Comment); err != nil {
+	if err := u.applyChange(r, ch); err != nil {
 		writeErr(w, http.StatusInternalServerError, "save_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": ch.Status})
 }
 
 func (u *UI) apiIssuesBulkState(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		IssueIDs []string `json:"issue_ids"`
-		Status   string   `json:"status"`
-		Comment  string   `json:"comment"`
-	}
+	var body stateBody
 	if err := readJSON(r, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad_json", err.Error())
 		return
@@ -224,10 +299,88 @@ func (u *UI) apiIssuesBulkState(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := auth.ProjectIDFromContext(r.Context())
 	for _, id := range body.IssueIDs {
-		if err := u.applyState(r, projectID, id, status, body.Comment); err != nil {
+		ch, code, err := u.changeFor(r, projectID, id, body)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, code, id+": "+err.Error())
+			return
+		}
+		if err := u.applyChange(r, ch); err != nil {
 			writeErr(w, http.StatusInternalServerError, "save_failed", err.Error())
 			return
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": len(body.IssueIDs)})
+}
+
+func (u *UI) apiIssueAssign(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Assignee string `json:"assignee"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_json", err.Error())
+		return
+	}
+	who := strings.TrimSpace(body.Assignee)
+	if who == "me" {
+		who = currentUser(r)
+	}
+	if len(who) > 200 {
+		writeErr(w, http.StatusBadRequest, "bad_assignee", "assignee is too long")
+		return
+	}
+	projectID := auth.ProjectIDFromContext(r.Context())
+	ch := api.IssueStateChange{ProjectID: projectID, IssueID: r.PathValue("id"), UpdatedBy: currentUser(r), Assignee: &who, Kind: "assign"}
+	if s, ok, err := u.store.GetIssueSummary(r.Context(), projectID, ch.IssueID); err == nil && ok {
+		ch.Service, ch.Env = s.Service, s.Env
+	}
+	if err := u.applyChange(r, ch); err != nil {
+		writeErr(w, http.StatusInternalServerError, "save_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "assignee": who})
+}
+
+func (u *UI) apiIssueComment(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Body string `json:"body"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_json", err.Error())
+		return
+	}
+	text := strings.TrimSpace(body.Body)
+	if text == "" || len(text) > 20000 {
+		writeErr(w, http.StatusBadRequest, "bad_comment", "comment body must be 1..20000 characters")
+		return
+	}
+	if err := u.store.AddIssueComment(r.Context(), auth.ProjectIDFromContext(r.Context()), r.PathValue("id"), currentUser(r), text); err != nil {
+		writeErr(w, http.StatusInternalServerError, "save_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (u *UI) apiIssueActivity(w http.ResponseWriter, r *http.Request) {
+	items, err := u.store.ListIssueActivity(r.Context(), auth.ProjectIDFromContext(r.Context()), r.PathValue("id"), qInt(r, "limit", 100, 500))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+		return
+	}
+	if items == nil {
+		items = []api.IssueActivity{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (u *UI) apiIssueAssignees(w http.ResponseWriter, r *http.Request) {
+	items, err := u.store.ListAssignees(r.Context(), auth.ProjectIDFromContext(r.Context()))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+		return
+	}
+	if items == nil {
+		items = []string{}
+	}
+	me := currentUser(r)
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "me": me})
 }
