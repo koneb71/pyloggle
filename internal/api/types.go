@@ -314,10 +314,12 @@ type Project struct {
 	Description     string    `json:"description"`
 	MaxEventsPerSec uint32    `json:"max_events_per_second"`
 	MaxStorageGB    uint32    `json:"max_storage_gb"`
+	RetentionDays   uint16    `json:"retention_days"`
 	APIKeyHash      string    `json:"api_key_hash"`
 	APIKeyCreatedAt time.Time `json:"api_key_created_at"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	Deleting        bool      `json:"deleting,omitempty"`
 }
 
 type ProjectCreateRequest struct {
@@ -326,6 +328,7 @@ type ProjectCreateRequest struct {
 	Description     string `json:"description"`
 	MaxEventsPerSec uint32 `json:"max_events_per_second"`
 	MaxStorageGB    uint32 `json:"max_storage_gb"`
+	RetentionDays   uint16 `json:"retention_days"`
 }
 
 type ProjectCreateResponse struct {
@@ -339,6 +342,7 @@ type ProjectUpdateRequest struct {
 	Description     string `json:"description"`
 	MaxEventsPerSec uint32 `json:"max_events_per_second"`
 	MaxStorageGB    uint32 `json:"max_storage_gb"`
+	RetentionDays   uint16 `json:"retention_days"`
 }
 
 type ProjectRotateKeyRequest struct {
@@ -516,4 +520,51 @@ type MetricSeries struct {
 	BucketSeconds int           `json:"bucket_seconds"`
 	Series        []MetricSerie `json:"series"`
 	Other         *MetricSerie  `json:"other,omitempty"`
+}
+
+// UsageDay is one (day, source) row of project_usage_daily.
+type UsageDay struct {
+	Day      time.Time `json:"day"`
+	Source   string    `json:"source"`
+	Rows     uint64    `json:"rows"`
+	BytesEst uint64    `json:"bytes_est"`
+}
+
+type UsageSource struct {
+	Rows     uint64 `json:"rows"`
+	BytesEst uint64 `json:"bytes_est"`
+	DiskEst  uint64 `json:"disk_est"`
+}
+
+type UsageRetention struct {
+	Logs         int `json:"logs"`
+	Errors       int `json:"errors"`
+	Spans        int `json:"spans"`
+	Metrics      int `json:"metrics"`
+	OverrideDays int `json:"override_days"`
+}
+
+// ProjectUsage answers GET /projects/{id}/usage.
+type ProjectUsage struct {
+	ProjectID      string                 `json:"project_id"`
+	QuotaGB        uint32                 `json:"quota_gb"`
+	WindowDays     int                    `json:"window_days"`
+	StoredBytesEst uint64                 `json:"stored_bytes_est"`
+	StoredDiskEst  uint64                 `json:"stored_disk_est"`
+	StoredPct      float64                `json:"stored_pct"`
+	BySource       map[string]UsageSource `json:"by_source"`
+	Daily          []UsageDay             `json:"daily"`
+	Retention      UsageRetention         `json:"retention"`
+	Compression    map[string]float64     `json:"compression"`
+	Deleting       bool                   `json:"deleting"`
+}
+
+// AuditEntry is one administrative action.
+type AuditEntry struct {
+	TS        time.Time `json:"ts"`
+	Actor     string    `json:"actor"`
+	Action    string    `json:"action"`
+	ProjectID string    `json:"project_id,omitempty"`
+	Target    string    `json:"target,omitempty"`
+	Details   string    `json:"details,omitempty"`
 }

@@ -261,6 +261,8 @@ export interface Project {
   description: string;
   max_events_per_second: number;
   max_storage_gb: number;
+  retention_days: number;
+  deleting?: boolean;
   api_key_hash: string;
   api_key_created_at: string;
   created_at: string;
@@ -478,4 +480,40 @@ export interface MetricSeries {
 export interface RequestStatsResponse extends RequestStats {
   source: "logs" | "otel" | string;
   available: boolean;
+}
+
+export interface UsageDay {
+  day: string;
+  source: string;
+  rows: number;
+  bytes_est: number;
+}
+
+export interface UsageSource {
+  rows: number;
+  bytes_est: number;
+  disk_est: number;
+}
+
+export interface ProjectUsage {
+  project_id: string;
+  quota_gb: number;
+  window_days: number;
+  stored_bytes_est: number;
+  stored_disk_est: number;
+  stored_pct: number;
+  by_source: Record<string, UsageSource>;
+  daily: UsageDay[];
+  retention: { logs: number; errors: number; spans: number; metrics: number; override_days: number };
+  compression: Record<string, number>;
+  deleting: boolean;
+}
+
+export interface AuditEntry {
+  ts: string;
+  actor: string;
+  action: string;
+  project_id?: string;
+  target?: string;
+  details?: string;
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,10 @@ type fakeStore struct {
 	lastAggregate   clickhouse.AggregateSpec
 	lastSpanQuery   clickhouse.SpanQuery
 	lastMetricQuery clickhouse.MetricQuery
+	mu              sync.Mutex
+	deleted         []string
+	purged          []string
+	audit           []api.AuditEntry
 	lastTraceAt     time.Time
 	lastService     string
 	logQueries      []clickhouse.LogQuery
@@ -210,6 +215,66 @@ func (f *fakeStore) MetricSeries(_ context.Context, q clickhouse.MetricQuery) (a
 	}
 	v := 1.5
 	return api.MetricSeries{Name: q.Name, Type: "gauge", Agg: "avg", BucketSeconds: int(q.Bucket / time.Second), Series: []api.MetricSerie{{Label: "", Points: []api.MetricValue{{Value: &v}}}}}, true, nil
+}
+func (f *fakeStore) GetProjectIncludingDeleted(ctx context.Context, id string) (clickhouse.ProjectView, bool, error) {
+	for _, d := range f.deleted {
+		if d == id {
+			return clickhouse.ProjectView{ID: id, Name: "gone", IsDeleted: true}, true, nil
+		}
+	}
+	return f.GetProjectByID(ctx, id)
+}
+func (f *fakeStore) MarkProjectDeleted(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleted = append(f.deleted, id)
+	return nil
+}
+func (f *fakeStore) PurgeProjectData(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.purged = append(f.purged, "project:"+id)
+	return nil
+}
+func (f *fakeStore) PurgeUser(_ context.Context, id, hash, email string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.purged = append(f.purged, "user:"+id+":"+hash+":"+email)
+	return nil
+}
+func (f *fakeStore) ProjectUsage(_ context.Context, _ string, _ int) ([]api.UsageDay, error) {
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	return []api.UsageDay{
+		{Day: today, Source: "logs", Rows: 1000, BytesEst: 1 << 30},
+		{Day: today.AddDate(0, 0, -1), Source: "errors", Rows: 10, BytesEst: 1 << 20},
+		{Day: today.AddDate(0, 0, -200), Source: "logs", Rows: 5, BytesEst: 5 << 30}, // outside the window
+	}, nil
+}
+func (f *fakeStore) TableCompression(context.Context) (map[string]float64, error) {
+	return map[string]float64{"logs_raw": 0.5}, nil
+}
+func (f *fakeStore) RecomputeUsage(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.purged = append(f.purged, "recompute:"+id)
+	return nil
+}
+func (f *fakeStore) PendingMutations(_ context.Context, needle string) (int, error) {
+	if needle == "p2" {
+		return 2, nil
+	}
+	return 0, nil
+}
+func (f *fakeStore) AddAudit(_ context.Context, a api.AuditEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.audit = append(f.audit, a)
+	return nil
+}
+func (f *fakeStore) ListAudit(context.Context, string, int) ([]api.AuditEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]api.AuditEntry{}, f.audit...), nil
 }
 func (f *fakeStore) Overview(context.Context, string, string, string, time.Time, time.Time) (api.Overview, error) {
 	return api.Overview{Events: 10}, nil
@@ -679,5 +744,109 @@ func TestMetricsAPI(t *testing.T) {
 	rec, out = do(t, u, "GET", "/ui/api/metrics/requests", nil, nil)
 	if rec.Code != 200 || out["source"] != "logs" || out["available"] != true {
 		t.Fatalf("logs source: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func (f *fakeStore) purgedList() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.purged...)
+}
+
+func TestProjectUsageDeleteAndAudit(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/projects/default/usage", nil, nil)
+	if rec.Code != 200 {
+		t.Fatalf("usage: %d %s", rec.Code, rec.Body.String())
+	}
+	if out["window_days"].(float64) != float64(u.maxRetentionDays()) || out["stored_bytes_est"].(float64) != float64(1<<30+1<<20) {
+		t.Fatalf("usage window must exclude rows older than the retention: %s", rec.Body.String())
+	}
+	logs := out["by_source"].(map[string]any)["logs"].(map[string]any)
+	if logs["disk_est"].(float64) != float64(1<<29) || out["deleting"] != false || len(out["daily"].([]any)) != 3 {
+		t.Fatalf("usage detail: %s", rec.Body.String())
+	}
+	rec, _ = do(t, u, "GET", "/ui/api/projects/nope/usage", nil, nil)
+	if rec.Code != 404 {
+		t.Fatalf("unknown project usage: %d", rec.Code)
+	}
+
+	// Retention override is capped by the server retention.
+	rec, out = do(t, u, "POST", "/ui/api/projects/default", map[string]any{"name": "Default", "retention_days": 9999}, map[string]string{csrfHeader: "1"})
+	if rec.Code != 400 || out["error"] != "bad_retention" {
+		t.Fatalf("retention cap: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ = do(t, u, "POST", "/ui/api/projects/default", map[string]any{"name": "Default", "retention_days": 3}, map[string]string{csrfHeader: "1"})
+	if rec.Code != 200 || store.created == nil && len(store.audit) == 0 {
+		t.Fatalf("update with retention: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Purge a user (admin, CSRF).
+	rec, _ = do(t, u, "POST", "/ui/api/projects/default/purge-user", map[string]any{"user_id_hash": "h1"}, map[string]string{csrfHeader: "1"})
+	if rec.Code != 202 {
+		t.Fatalf("purge user: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "POST", "/ui/api/projects/default/purge-user", map[string]any{}, map[string]string{csrfHeader: "1"})
+	if rec.Code != 400 || out["error"] != "missing_user" {
+		t.Fatalf("purge without a user: %d", rec.Code)
+	}
+
+	// Delete: tombstone, audit, background purge.
+	rec, _ = do(t, u, "DELETE", "/ui/api/projects/p2", nil, nil)
+	if rec.Code != 403 {
+		t.Fatalf("delete needs the CSRF header: %d", rec.Code)
+	}
+	rec, out = do(t, u, "DELETE", "/ui/api/projects/p2", nil, map[string]string{csrfHeader: "1"})
+	if rec.Code != 202 || out["status"] != "deleting" || len(store.deleted) != 1 || store.deleted[0] != "p2" {
+		t.Fatalf("delete: %d %s %v", rec.Code, rec.Body.String(), store.deleted)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		p := store.purgedList()
+		if len(p) >= 3 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	has := func(want string) bool {
+		for _, x := range store.purgedList() {
+			if x == want {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("user:default:h1:") || !has("project:p2") || !has("recompute:p2") {
+		t.Fatalf("background purge: %v", store.purgedList())
+	}
+	// While mutations run the project still answers with deleting=true.
+	rec, out = do(t, u, "GET", "/ui/api/projects/p2", nil, nil)
+	if rec.Code != 200 || out["project"].(map[string]any)["deleting"] != true {
+		t.Fatalf("deleting project: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ = do(t, u, "DELETE", "/ui/api/projects/nope", nil, map[string]string{csrfHeader: "1"})
+	if rec.Code != 404 {
+		t.Fatalf("delete unknown: %d", rec.Code)
+	}
+
+	rec, out = do(t, u, "GET", "/ui/api/admin/audit", nil, nil)
+	if rec.Code != 200 {
+		t.Fatalf("audit: %d %s", rec.Code, rec.Body.String())
+	}
+	var actions []string
+	for _, it := range out["items"].([]any) {
+		actions = append(actions, it.(map[string]any)["action"].(string))
+	}
+	if strings.Join(actions, ",") != "project.update,user.purge,project.delete" {
+		t.Fatalf("audit actions: %v", actions)
+	}
+	// Non-admins cannot delete.
+	cfg := u.cfg
+	cfg.UIAuthMode = "azure"
+	cfg.UIAdmins = []string{"root@example.com"}
+	ua := NewForTest(cfg, store, fakeKeys{}, nil)
+	rec, _ = do(t, ua, "DELETE", "/ui/api/projects/default", nil, map[string]string{csrfHeader: "1"})
+	if rec.Code == 202 {
+		t.Fatal("non-admin delete must be refused")
 	}
 }
