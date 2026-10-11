@@ -1,0 +1,52 @@
+{
+  "resourceSpans": [{
+    "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "otel-worker"}}]},
+    "scopeSpans": [{
+      "scope": {"name": "opentelemetry.instrumentation.fastapi"},
+      "spans": [
+        {
+          "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+          "spanId": "00f067aa0ba902b7",
+          "name": "POST /jobs",
+          "kind": 2,
+          "startTimeUnixNano": "1735689600000000000",
+          "endTimeUnixNano": "1735689600250000000",
+          "attributes": [
+            {"key": "http.method", "value": {"stringValue": "POST"}},
+            {"key": "http.route", "value": {"stringValue": "/jobs"}},
+            {"key": "http.status_code", "value": {"intValue": "500"}}
+          ],
+          "events": [{
+            "timeUnixNano": "1735689600200000000",
+            "name": "exception",
+            "attributes": [
+              {"key": "exception.type", "value": {"stringValue": "KeyError"}},
+              {"key": "exception.message", "value": {"stringValue": "'job_id'"}},
+              {"key": "exception.stacktrace", "value": {"stringValue": "Traceback (most recent call last):\n  File \"/srv/app/jobs.py\", line 12, in create\n    jid = payload['job_id']\nKeyError: 'job_id'\n"}}
+            ]
+          }],
+          "status": {"code": 2, "message": "KeyError"}
+        },
+        {
+          "traceId": "4bf92f3577b34da6a3ce929d0e0e4737",
+          "spanId": "00f067aa0ba902b8",
+          "name": "GET /health",
+          "kind": 2,
+          "startTimeUnixNano": "1735689601000000000",
+          "endTimeUnixNano": "1735689601005000000",
+          "attributes": [{"key": "http.method", "value": {"stringValue": "GET"}}, {"key": "http.status_code", "value": {"intValue": "200"}}],
+          "status": {"code": 1}
+        },
+        {
+          "traceId": "4bf92f3577b34da6a3ce929d0e0e4738",
+          "spanId": "00f067aa0ba902b9",
+          "name": "db.query",
+          "kind": 3,
+          "startTimeUnixNano": "1735689602000000000",
+          "endTimeUnixNano": "1735689602100000000",
+          "status": {"code": 2, "message": "connection reset"}
+        }
+      ]
+    }]
+  }]
+}

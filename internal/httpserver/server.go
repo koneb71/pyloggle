@@ -14,6 +14,7 @@ import (
 	"pyloggle/internal/auth"
 	"pyloggle/internal/config"
 	"pyloggle/internal/ingest"
+	"pyloggle/internal/otlp"
 	"pyloggle/internal/storage/clickhouse"
 	"pyloggle/internal/tenant"
 	"pyloggle/internal/timeparse"
@@ -75,6 +76,15 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 	// Ingest endpoint
 	// Note: ingest handler supports both multi-tenant API keys and (optional) legacy shared secret.
 	s.mux.Handle("/v1/ingest", ing)
+
+	// OpenTelemetry door: OTLP/HTTP logs and traces through the same pipeline. The standard
+	// exporter paths (POST /v1/logs, /v1/traces, /v1/metrics) coexist with the GET query APIs.
+	otlpH := otlp.New(ing.Pipeline(), cfg)
+	for _, prefix := range []string{"/v1", "/v1/otlp/v1"} {
+		s.mux.Handle("POST "+prefix+"/logs", otlpH.Logs())
+		s.mux.Handle("POST "+prefix+"/traces", otlpH.Traces())
+		s.mux.Handle("POST "+prefix+"/metrics", otlpH.Metrics())
+	}
 
 	// Health
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
