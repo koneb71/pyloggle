@@ -101,16 +101,13 @@ func (c *Client) ListProjects(ctx context.Context, limit int) ([]ProjectView, er
 	return out, nil
 }
 
+// CreateProject stores the project and mints its "default" key (every scope). The key is
+// returned once; only its hash is kept, in project_api_keys.
 func (c *Client) CreateProject(ctx context.Context, p ProjectUpsert) (ProjectView, string, error) {
 	if p.ID == "" || p.Name == "" {
 		return ProjectView{}, "", errors.New("missing id/name")
 	}
-	apiKey, err := generateAPIKey()
-	if err != nil {
-		return ProjectView{}, "", err
-	}
 	now := time.Now().UTC()
-	apiKeyHash := apiKeyHash(apiKey)
 	batch, err := c.conn.PrepareBatch(ctx, projectInsert)
 	if err != nil {
 		return ProjectView{}, "", err
@@ -118,7 +115,7 @@ func (c *Client) CreateProject(ctx context.Context, p ProjectUpsert) (ProjectVie
 	if err := batch.Append(
 		p.ID, p.Name, p.Description,
 		p.MaxEventsPerSec, p.MaxStorageGB, p.RetentionDays, uint8(0),
-		apiKeyHash, now,
+		"", time.Time{},
 		now, now,
 	); err != nil {
 		_ = batch.Abort()
@@ -127,6 +124,10 @@ func (c *Client) CreateProject(ctx context.Context, p ProjectUpsert) (ProjectVie
 	if err := batch.Send(); err != nil {
 		return ProjectView{}, "", err
 	}
+	_, apiKey, err := c.CreateAPIKey(ctx, p.ID, "default", []string{"ingest", "read", "write"}, "")
+	if err != nil {
+		return ProjectView{}, "", fmt.Errorf("default key: %w", err)
+	}
 	return ProjectView{
 		ID:              p.ID,
 		Name:            p.Name,
@@ -134,7 +135,6 @@ func (c *Client) CreateProject(ctx context.Context, p ProjectUpsert) (ProjectVie
 		MaxEventsPerSec: p.MaxEventsPerSec,
 		MaxStorageGB:    p.MaxStorageGB,
 		RetentionDays:   p.RetentionDays,
-		APIKeyHash:      apiKeyHash,
 		APIKeyCreatedAt: now,
 		CreatedAt:       now,
 		UpdatedAt:       now,
@@ -202,6 +202,9 @@ func (c *Client) MarkProjectDeleted(ctx context.Context, projectID string) error
 	return batch.Send()
 }
 
+// RotateProjectAPIKey is the 0.2 rotation: a fresh "default" key with every scope replaces
+// the active key(s) of that name; keys with other names are untouched. The revoked hashes
+// are returned so the caller can drop them from the resolver.
 func (c *Client) RotateProjectAPIKey(ctx context.Context, projectID string) (ProjectView, string, error) {
 	if projectID == "" {
 		return ProjectView{}, "", errors.New("missing project_id")
@@ -213,32 +216,22 @@ func (c *Client) RotateProjectAPIKey(ctx context.Context, projectID string) (Pro
 	if !ok {
 		return ProjectView{}, "", errors.New("project not found")
 	}
-	apiKey, err := generateAPIKey()
+	old, err := c.ListAPIKeys(ctx, projectID)
 	if err != nil {
 		return ProjectView{}, "", err
 	}
-	now := time.Now().UTC()
-	apiKeyHash := apiKeyHash(apiKey)
-
-	batch, err := c.conn.PrepareBatch(ctx, projectInsert)
+	_, apiKey, err := c.CreateAPIKey(ctx, projectID, "default", []string{"ingest", "read", "write"}, "rotate")
 	if err != nil {
 		return ProjectView{}, "", err
 	}
-	if err := batch.Append(
-		cur.ID, cur.Name, cur.Description,
-		cur.MaxEventsPerSec, cur.MaxStorageGB, cur.RetentionDays, uint8(0),
-		apiKeyHash, now,
-		cur.CreatedAt, now,
-	); err != nil {
-		_ = batch.Abort()
-		return ProjectView{}, "", err
+	for _, k := range old {
+		if k.RevokedAt == nil && k.Name == "default" {
+			if _, err := c.RevokeAPIKey(ctx, projectID, k.ID, "rotate"); err != nil {
+				return ProjectView{}, "", err
+			}
+		}
 	}
-	if err := batch.Send(); err != nil {
-		return ProjectView{}, "", err
-	}
-	cur.APIKeyHash = apiKeyHash
-	cur.APIKeyCreatedAt = now
-	cur.UpdatedAt = now
+	cur.APIKeyCreatedAt = time.Now().UTC()
 	return cur, apiKey, nil
 }
 

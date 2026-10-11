@@ -13,7 +13,7 @@ var projectTables = []string{
 	"logs_raw", "error_occurrences", "spans", "metrics_points",
 	"issues_state", "issues_activity", "issues_agg", "issue_counts_hourly", "log_counts_minutely",
 	"request_stats_minutely", "releases", "metrics_catalog", "project_usage_daily",
-	"alert_rules", "alert_firings", "saved_searches",
+	"alert_rules", "alert_firings", "saved_searches", "project_api_keys", "project_api_key_usage",
 }
 
 // PurgeProjectData removes every row of a project: a lightweight DELETE first (rows disappear

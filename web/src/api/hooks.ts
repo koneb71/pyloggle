@@ -1,31 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { del, get, post } from "./client";
-import type {
-  AlertFiring,
-  AlertRule,
-  AuditEntry,
-  ProjectUsage,
-  Histogram,
-  IssueActivity,
-  LogAggregate,
-  MetricInfo,
-  MetricSeries,
-  RequestStatsResponse,
-  TraceDetail,
-  TracesResponse,
-  IssueDetail,
-  IssueListResponse,
-  LogContext,
-  LogFacets,
-  LogPattern,
-  LogsResponse,
-  Me,
-  Occurrence,
-  Overview,
-  Project,
-  SavedView,
-  TimeSeriesPoint,
-} from "./types";
+import type { APIKey, AlertFiring, AlertRule, AuditEntry, Histogram, IssueActivity, IssueDetail, IssueListResponse, LogAggregate, LogContext, LogFacets, LogPattern, LogsResponse, Me, MetricInfo, MetricSeries, Occurrence, Overview, Project, ProjectUsage, RequestStatsResponse, SavedView, TimeSeriesPoint, TraceDetail, TracesResponse } from "./types";
 
 export const useMe = () => useQuery({ queryKey: ["me"], queryFn: () => get<Me>("/me"), staleTime: 60_000, retry: false });
 
@@ -239,6 +214,9 @@ export const useMetricSeries = (p: MetricSeriesParams, enabled = true) =>
 export const useProjectUsage = (id: string | undefined, enabled = true) =>
   useQuery({ queryKey: ["project-usage", id], queryFn: () => get<ProjectUsage>(`/projects/${id}/usage`, { days: 30 }), enabled: enabled && !!id, staleTime: 30_000 });
 
+export const useProjectKeys = (id: string | undefined, enabled = true) =>
+  useQuery({ queryKey: ["project-keys", id], queryFn: () => get<{ items: APIKey[]; scopes: string[] }>(`/projects/${id}/keys`), enabled: enabled && !!id, staleTime: 15_000 });
+
 export const useAudit = (enabled: boolean) => useQuery({ queryKey: ["audit"], queryFn: () => get<{ items: AuditEntry[] }>("/admin/audit", { limit: 50 }), enabled });
 
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => get<{ items: Project[] }>("/projects") });
@@ -252,7 +230,14 @@ export function useProjectMutations() {
   return {
     create: useMutation({ mutationFn: (v: Partial<Project>) => post<{ project: Project; api_key: string }>("/projects", v), onSuccess: invalidate }),
     update: useMutation({ mutationFn: (v: Partial<Project> & { id: string }) => post<{ project: Project }>(`/projects/${v.id}`, v), onSuccess: invalidate }),
-    rotate: useMutation({ mutationFn: (id: string) => post<{ project: Project; api_key: string }>(`/projects/${id}/rotate-key`), onSuccess: invalidate }),
+    createKey: useMutation({
+      mutationFn: (v: { id: string; name: string; scopes: string[] }) => post<{ key: APIKey; api_key: string }>(`/projects/${v.id}/keys`, { name: v.name, scopes: v.scopes }),
+      onSuccess: (_r, v) => qc.invalidateQueries({ queryKey: ["project-keys", v.id] }),
+    }),
+    revokeKey: useMutation({
+      mutationFn: (v: { id: string; key_id: string }) => post<{ ok: boolean }>(`/projects/${v.id}/keys/${v.key_id}/revoke`),
+      onSuccess: (_r, v) => qc.invalidateQueries({ queryKey: ["project-keys", v.id] }),
+    }),
     remove: useMutation({ mutationFn: (id: string) => del<{ status: string }>(`/projects/${id}`), onSuccess: invalidate }),
     purgeUser: useMutation({ mutationFn: (v: { id: string; user_id_hash?: string; user_email?: string }) => post<{ status: string }>(`/projects/${v.id}/purge-user`, { user_id_hash: v.user_id_hash, user_email: v.user_email }) }),
     select: useMutation({ mutationFn: (project_id: string) => post("/project/select", { project_id }), onSuccess: () => qc.invalidateQueries() }),

@@ -347,39 +347,3 @@ type ProjectRow struct {
 	RetentionDays   uint16 `ch:"retention_days"`
 	APIKeyHash      string `ch:"api_key_hash"`
 }
-
-func (c *Client) GetProjectByAPIKeyHash(ctx context.Context, apiKeyHash string) (ProjectRow, bool, error) {
-	if apiKeyHash == "" {
-		return ProjectRow{}, false, nil
-	}
-	// projects is append-only; always select the latest version per id so rotated keys
-	// invalidate old keys.
-	// Note: ClickHouse can reject argMax(...) usage directly in HAVING (ILLEGAL_AGGREGATION) in some versions.
-	// Use a subquery and filter on the computed value instead.
-	q := `
-		SELECT
-			id, name, max_events_per_second, max_storage_gb, retention_days, api_key_hash
-		FROM (
-			SELECT
-				id,
-				argMax(name, updated_at) as name,
-				argMax(max_events_per_second, updated_at) as max_events_per_second,
-				argMax(max_storage_gb, updated_at) as max_storage_gb,
-				argMax(retention_days, updated_at) as retention_days,
-				argMax(is_deleted, updated_at) as is_deleted,
-				argMax(api_key_hash, updated_at) as api_key_hash
-			FROM projects
-			GROUP BY id
-		)
-		WHERE api_key_hash = ? AND is_deleted = 0
-		LIMIT 1
-	`
-	var rows []ProjectRow
-	if err := c.conn.Select(ctx, &rows, q, apiKeyHash); err != nil {
-		return ProjectRow{}, false, err
-	}
-	if len(rows) == 0 {
-		return ProjectRow{}, false, nil
-	}
-	return rows[0], true, nil
-}

@@ -83,6 +83,9 @@ func (o Outcome) String() string {
 // ErrUnauthorized is returned by Authenticate for unknown keys.
 var ErrUnauthorized = errors.New("unauthorized")
 
+// ErrInsufficientScope is returned by Authenticate for a key without the ingest scope.
+var ErrInsufficientScope = errors.New("insufficient_scope: this key cannot ingest")
+
 // Pipeline is the shared ingest path: authentication, normalization, protection
 // (quota, rate limit, sampling), issue grouping and regression detection.
 type Pipeline struct {
@@ -154,6 +157,9 @@ func (p *Pipeline) Authenticate(ctx context.Context, r *http.Request) (Tenant, e
 	}
 	if !ok {
 		return t, ErrUnauthorized
+	}
+	if !proj.Has(tenant.ScopeIngest) {
+		return t, ErrInsufficientScope
 	}
 	t.ProjectID = proj.ID
 	t.MaxStorageGB = proj.MaxStorageGB
