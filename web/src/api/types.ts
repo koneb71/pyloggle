@@ -261,7 +261,9 @@ export interface AlertRule {
   env: string;
   http_route: string;
   http_method: string;
-  condition_type: "error_rate" | "issue_spike" | "new_issue" | "regression" | string;
+  condition_type: "error_rate" | "issue_spike" | "new_issue" | "regression" | "log_query" | string;
+  query?: string;
+  comparison?: "gt" | "gte" | "lt" | "lte" | "eq" | string;
   threshold: number;
   time_window_seconds: number;
   cooldown_seconds: number;
@@ -270,6 +272,7 @@ export interface AlertRule {
   notification_emails: string[];
   webhook_urls: string[];
   telegram_chat_ids: string[];
+  slack_webhook_urls?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -284,6 +287,8 @@ export interface AlertFiring {
   fired_at: string;
   window_start: string;
   window_end: string;
+  count?: number;
+  url?: string;
   payload: unknown;
 }
 

@@ -29,6 +29,7 @@ type Store interface {
 	LogFacets(ctx context.Context, q clickhouse.LogQuery, fields []string, attrKeys int, attrKey string) (api.LogFacets, error)
 	LogContext(ctx context.Context, projectID, eventID string, before, after int) (api.LogContext, bool, error)
 	LogPatterns(ctx context.Context, q clickhouse.LogQuery, limit int) ([]api.LogPattern, error)
+	CountLogs(ctx context.Context, q clickhouse.LogQuery) (uint64, error)
 
 	// metrics
 	Overview(ctx context.Context, projectID, service, env string, from, to time.Time) (api.Overview, error)

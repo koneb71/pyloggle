@@ -22,6 +22,8 @@ type alertRuleRow struct {
 	Env        string `ch:"env"`
 	HTTPRoute  string `ch:"http_route"`
 	HTTPMethod string `ch:"http_method"`
+	Query      string `ch:"query"`
+	Comparison string `ch:"comparison"`
 
 	ConditionType     string  `ch:"condition_type"`
 	Threshold         float64 `ch:"threshold"`
@@ -34,6 +36,7 @@ type alertRuleRow struct {
 	NotificationEmails   []string `ch:"notification_emails"`
 	WebhookURLs          []string `ch:"webhook_urls"`
 	TelegramChatIDs      []string `ch:"telegram_chat_ids"`
+	SlackWebhookURLs     []string `ch:"slack_webhook_urls"`
 
 	CreatedAt time.Time `ch:"created_at"`
 	UpdatedAt time.Time `ch:"updated_at"`
@@ -49,6 +52,8 @@ func (r alertRuleRow) toAPI() api.AlertRule {
 		Env:                  r.Env,
 		HTTPRoute:            r.HTTPRoute,
 		HTTPMethod:           r.HTTPMethod,
+		Query:                r.Query,
+		Comparison:           r.Comparison,
 		ConditionType:        r.ConditionType,
 		Threshold:            r.Threshold,
 		TimeWindowSeconds:    r.TimeWindowSeconds,
@@ -58,6 +63,7 @@ func (r alertRuleRow) toAPI() api.AlertRule {
 		NotificationEmails:   r.NotificationEmails,
 		WebhookURLs:          r.WebhookURLs,
 		TelegramChatIDs:      r.TelegramChatIDs,
+		SlackWebhookURLs:     r.SlackWebhookURLs,
 		CreatedAt:            r.CreatedAt,
 		UpdatedAt:            r.UpdatedAt,
 	}
@@ -77,6 +83,8 @@ func (c *Client) ListAlertRules(ctx context.Context, projectID string) ([]api.Al
 			argMax(env, a.updated_at) as env,
 			argMax(http_route, a.updated_at) as http_route,
 			argMax(http_method, a.updated_at) as http_method,
+			argMax(query, a.updated_at) as query,
+			argMax(comparison, a.updated_at) as comparison,
 			argMax(condition_type, a.updated_at) as condition_type,
 			argMax(threshold, a.updated_at) as threshold,
 			argMax(time_window_seconds, a.updated_at) as time_window_seconds,
@@ -86,6 +94,7 @@ func (c *Client) ListAlertRules(ctx context.Context, projectID string) ([]api.Al
 			argMax(notification_emails, a.updated_at) as notification_emails,
 			argMax(webhook_urls, a.updated_at) as webhook_urls,
 			argMax(telegram_chat_ids, a.updated_at) as telegram_chat_ids,
+			argMax(slack_webhook_urls, a.updated_at) as slack_webhook_urls,
 			min(created_at) as created_at,
 			max(a.updated_at) as updated_at
 		FROM alert_rules AS a
@@ -116,6 +125,8 @@ func (c *Client) ListEnabledAlertRules(ctx context.Context) ([]api.AlertRule, er
 			argMax(env, a.updated_at) as env,
 			argMax(http_route, a.updated_at) as http_route,
 			argMax(http_method, a.updated_at) as http_method,
+			argMax(query, a.updated_at) as query,
+			argMax(comparison, a.updated_at) as comparison,
 			argMax(condition_type, a.updated_at) as condition_type,
 			argMax(threshold, a.updated_at) as threshold,
 			argMax(time_window_seconds, a.updated_at) as time_window_seconds,
@@ -125,6 +136,7 @@ func (c *Client) ListEnabledAlertRules(ctx context.Context) ([]api.AlertRule, er
 			argMax(notification_emails, a.updated_at) as notification_emails,
 			argMax(webhook_urls, a.updated_at) as webhook_urls,
 			argMax(telegram_chat_ids, a.updated_at) as telegram_chat_ids,
+			argMax(slack_webhook_urls, a.updated_at) as slack_webhook_urls,
 			min(created_at) as created_at,
 			max(a.updated_at) as updated_at
 		FROM alert_rules AS a
@@ -162,9 +174,9 @@ func (c *Client) UpsertAlertRule(ctx context.Context, rule api.AlertRule) (api.A
 	batch, err := c.conn.PrepareBatch(ctx, `
 		INSERT INTO alert_rules (
 			id, project_id, name, description,
-			service, env, http_route, http_method,
+			service, env, http_route, http_method, query, comparison,
 			condition_type, threshold, time_window_seconds, cooldown_seconds,
-			enabled, notification_channels, notification_emails, webhook_urls, telegram_chat_ids,
+			enabled, notification_channels, notification_emails, webhook_urls, telegram_chat_ids, slack_webhook_urls,
 			created_at, updated_at
 		)
 	`)
@@ -187,6 +199,8 @@ func (c *Client) UpsertAlertRule(ctx context.Context, rule api.AlertRule) (api.A
 		rule.Env,
 		rule.HTTPRoute,
 		rule.HTTPMethod,
+		rule.Query,
+		rule.Comparison,
 		rule.ConditionType,
 		rule.Threshold,
 		rule.TimeWindowSeconds,
@@ -196,6 +210,7 @@ func (c *Client) UpsertAlertRule(ctx context.Context, rule api.AlertRule) (api.A
 		rule.NotificationEmails,
 		rule.WebhookURLs,
 		rule.TelegramChatIDs,
+		nonNilStrings(rule.SlackWebhookURLs),
 		createdAt,
 		updatedAt,
 	); err != nil {
@@ -211,6 +226,13 @@ func (c *Client) UpsertAlertRule(ctx context.Context, rule api.AlertRule) (api.A
 	return rule, nil
 }
 
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
 func boolToU8(b bool) uint8 {
 	if b {
 		return 1
@@ -218,7 +240,7 @@ func boolToU8(b bool) uint8 {
 	return 0
 }
 
-type issueSpikeRow struct {
+type IssueSpikeRow struct {
 	IssueID   string `ch:"issue_id"`
 	Title     string `ch:"title"`
 	CurCount  uint64 `ch:"cur_count"`
@@ -259,7 +281,7 @@ func (c *Client) CountErrorOccurrences(ctx context.Context, rule api.AlertRule, 
 	return n, nil
 }
 
-func (c *Client) IssueSpikeCounts(ctx context.Context, rule api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, limit int) ([]issueSpikeRow, error) {
+func (c *Client) IssueSpikeCounts(ctx context.Context, rule api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, limit int) ([]IssueSpikeRow, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -267,7 +289,7 @@ func (c *Client) IssueSpikeCounts(ctx context.Context, rule api.AlertRule, prevF
 		limit = 200
 	}
 	q, args := issueSpikeCountsQuery(rule, prevFrom, prevTo, curFrom, curTo, limit)
-	var rows []issueSpikeRow
+	var rows []IssueSpikeRow
 	if err := c.conn.Select(ctx, &rows, q, args...); err != nil {
 		return nil, err
 	}
@@ -329,6 +351,8 @@ type AlertFiring struct {
 	FiredAt       time.Time
 	WindowStart   time.Time
 	WindowEnd     time.Time
+	Count         uint64
+	URL           string
 	DedupeKey     string
 	Payload       any
 }
@@ -349,7 +373,7 @@ func (c *Client) InsertAlertFiring(ctx context.Context, f AlertFiring) error {
 	batch, err := c.conn.PrepareBatch(ctx, `
 		INSERT INTO alert_firings (
 			id, rule_id, project_id, service, env, condition_type,
-			fired_at, window_start, window_end,
+			fired_at, window_start, window_end, count, url,
 			dedupe_key, payload
 		)
 	`)
@@ -366,6 +390,8 @@ func (c *Client) InsertAlertFiring(ctx context.Context, f AlertFiring) error {
 		f.FiredAt.UTC(),
 		f.WindowStart.UTC(),
 		f.WindowEnd.UTC(),
+		f.Count,
+		f.URL,
 		f.DedupeKey,
 		string(b),
 	); err != nil {
@@ -434,7 +460,7 @@ func (c *Client) ListAlertFirings(ctx context.Context, projectID string, limit i
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := c.conn.Query(ctx, `SELECT id, rule_id, project_id, service, env, condition_type, fired_at, window_start, window_end, payload
+	rows, err := c.conn.Query(ctx, `SELECT id, rule_id, project_id, service, env, condition_type, fired_at, window_start, window_end, count, url, payload
 		FROM alert_firings WHERE project_id = ? ORDER BY fired_at DESC LIMIT ?`, projectID, limit)
 	if err != nil {
 		return nil, err
@@ -444,7 +470,7 @@ func (c *Client) ListAlertFirings(ctx context.Context, projectID string, limit i
 	for rows.Next() {
 		var f api.AlertFiring
 		var payload string
-		if err := rows.Scan(&f.ID, &f.RuleID, &f.ProjectID, &f.Service, &f.Env, &f.ConditionType, &f.FiredAt, &f.WindowStart, &f.WindowEnd, &payload); err != nil {
+		if err := rows.Scan(&f.ID, &f.RuleID, &f.ProjectID, &f.Service, &f.Env, &f.ConditionType, &f.FiredAt, &f.WindowStart, &f.WindowEnd, &f.Count, &f.URL, &payload); err != nil {
 			return nil, err
 		}
 		if json.Valid([]byte(payload)) {

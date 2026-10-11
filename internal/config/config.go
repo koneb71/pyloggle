@@ -75,6 +75,11 @@ type Config struct {
 	// Alerting (optional)
 	AlertingEnabled      bool
 	AlertingPollInterval time.Duration
+	// Evaluation windows end this long before "now" so batches still in flight are not counted
+	// as missing (absence monitors) or under-counted (threshold monitors).
+	AlertingEvalDelay time.Duration
+	// Slack incoming webhook used when a rule lists the "slack" channel without its own URLs.
+	AlertSlackWebhookURL string
 
 	// Email notifier (SMTP). If SMTPHost is empty, email notifications are disabled.
 	SMTPHost     string
@@ -141,6 +146,8 @@ func FromEnv() Config {
 
 		AlertingEnabled:      getenvBool("ALERTING_ENABLED", false),
 		AlertingPollInterval: getenvDuration("ALERTING_POLL_INTERVAL", 30*time.Second),
+		AlertingEvalDelay:    getenvDuration("ALERTING_EVAL_DELAY", 30*time.Second),
+		AlertSlackWebhookURL: strings.TrimSpace(os.Getenv("ALERT_SLACK_WEBHOOK_URL")),
 
 		SMTPHost:     os.Getenv("ALERT_SMTP_HOST"),
 		SMTPPort:     getenvInt("ALERT_SMTP_PORT", 587),

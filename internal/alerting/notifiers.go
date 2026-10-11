@@ -227,6 +227,12 @@ func renderPlain(ev AlertEvent) string {
 		for _, is := range ev.Issues {
 			b.WriteString(fmt.Sprintf("- %s (%s) x%d %s\n", is.Title, is.Culprit, is.Count, is.URL))
 		}
+	case "log_query":
+		b.WriteString(fmt.Sprintf("Query: %s\n", ev.Rule.Query))
+		b.WriteString(fmt.Sprintf("Matched: %d lines (%s %.0f)\n", ev.Count, comparisonSymbol(ev.Rule.Comparison), ev.Rule.Threshold))
+	}
+	if ev.URL != "" {
+		b.WriteString("\nOpen: " + ev.URL + "\n")
 	}
 	return b.String()
 }

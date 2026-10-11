@@ -144,6 +144,10 @@ func (f *fakeStore) UpsertAlertRule(_ context.Context, r api.AlertRule) (api.Ale
 func (f *fakeStore) ListAlertFirings(context.Context, string, int) ([]api.AlertFiring, error) {
 	return nil, nil
 }
+func (f *fakeStore) CountLogs(_ context.Context, q clickhouse.LogQuery) (uint64, error) {
+	f.lastLogQuery = q
+	return 7, nil
+}
 
 type fakeKeys struct{}
 

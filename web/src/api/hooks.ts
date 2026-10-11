@@ -159,6 +159,9 @@ export function useProjectMutations() {
 
 export const useAlertRules = () => useQuery({ queryKey: ["alert-rules"], queryFn: () => get<{ items: AlertRule[]; conditions: string[] }>("/alerts/rules") });
 export const useAlertFirings = () => useQuery({ queryKey: ["alert-firings"], queryFn: () => get<{ items: AlertFiring[] }>("/alerts/firings", { limit: 50 }) });
+export const previewAlertRule = (p: { query: string; window_seconds: number; service?: string; env?: string; http_route?: string; http_method?: string }) =>
+  get<{ count: number; window_start: string; window_end: string }>("/alerts/rules/preview", p);
+
 export function useSaveAlertRule() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (rule: Partial<AlertRule>) => post<{ rule: AlertRule }>("/alerts/rules", { rule }), onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-rules"] }) });
