@@ -380,3 +380,94 @@ func newID() string {
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
 }
+
+// NewIssues lists issues first seen inside the window (for new_issue rules).
+func (c *Client) NewIssues(ctx context.Context, rule api.AlertRule, from, to time.Time, limit int) ([]api.IssueSummary, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	q := `SELECT issue_id FROM (` + issuesAggSelect
+	args := []any{rule.ProjectID}
+	if rule.Service != "" {
+		q += " AND service = ?"
+		args = append(args, rule.Service)
+	}
+	if rule.Env != "" {
+		q += " AND env = ?"
+		args = append(args, rule.Env)
+	}
+	q += ` GROUP BY project_id, service, env, issue_id) WHERE first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC LIMIT ?`
+	args = append(args, from.UTC(), to.UTC(), limit)
+	ids, err := c.selectIDs(ctx, q, args...)
+	if err != nil || len(ids) == 0 {
+		return nil, err
+	}
+	return c.QueryIssues(ctx, IssueListQuery{ProjectID: rule.ProjectID, IssueIDs: ids, Limit: len(ids)})
+}
+
+// RegressedIssues lists issues that regressed inside the window (for regression rules).
+func (c *Client) RegressedIssues(ctx context.Context, rule api.AlertRule, from, to time.Time, limit int) ([]api.IssueSummary, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	q := `SELECT issue_id FROM issues_state WHERE project_id = ? AND is_regressed = 1 AND updated_at >= ? AND updated_at < ?`
+	args := []any{rule.ProjectID, from.UTC(), to.UTC()}
+	if rule.Service != "" {
+		q += " AND service = ?"
+		args = append(args, rule.Service)
+	}
+	if rule.Env != "" {
+		q += " AND env = ?"
+		args = append(args, rule.Env)
+	}
+	q += " GROUP BY issue_id ORDER BY max(updated_at) DESC LIMIT ?"
+	args = append(args, limit)
+	ids, err := c.selectIDs(ctx, q, args...)
+	if err != nil || len(ids) == 0 {
+		return nil, err
+	}
+	return c.QueryIssues(ctx, IssueListQuery{ProjectID: rule.ProjectID, IssueIDs: ids, Limit: len(ids)})
+}
+
+// ListAlertFirings returns recent firings for a project.
+func (c *Client) ListAlertFirings(ctx context.Context, projectID string, limit int) ([]api.AlertFiring, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := c.conn.Query(ctx, `SELECT id, rule_id, project_id, service, env, condition_type, fired_at, window_start, window_end, payload
+		FROM alert_firings WHERE project_id = ? ORDER BY fired_at DESC LIMIT ?`, projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []api.AlertFiring
+	for rows.Next() {
+		var f api.AlertFiring
+		var payload string
+		if err := rows.Scan(&f.ID, &f.RuleID, &f.ProjectID, &f.Service, &f.Env, &f.ConditionType, &f.FiredAt, &f.WindowStart, &f.WindowEnd, &payload); err != nil {
+			return nil, err
+		}
+		if json.Valid([]byte(payload)) {
+			f.Payload = json.RawMessage(payload)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+func (c *Client) selectIDs(ctx context.Context, q string, args ...any) ([]string, error) {
+	rows, err := c.conn.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

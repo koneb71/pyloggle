@@ -19,18 +19,28 @@ type IssueSpike struct {
 	Delta     int64  `json:"delta"`
 }
 
+// IssueRef points at an issue from an alert (new_issue / regression).
+type IssueRef struct {
+	IssueID string `json:"issue_id"`
+	Title   string `json:"title"`
+	Culprit string `json:"culprit,omitempty"`
+	Count   uint64 `json:"count,omitempty"`
+	URL     string `json:"url,omitempty"`
+}
+
 type AlertEvent struct {
 	Rule        api.AlertRule `json:"rule"`
 	FiredAt     time.Time     `json:"fired_at"`
 	WindowStart time.Time     `json:"window_start"`
 	WindowEnd   time.Time     `json:"window_end"`
 
-	Kind string `json:"kind"` // error_rate | issue_spike
+	Kind string `json:"kind"` // error_rate | issue_spike | new_issue | regression
 
 	ErrorCount uint64  `json:"error_count,omitempty"`
 	ErrorRate  float64 `json:"error_rate,omitempty"` // errors/sec
 
 	Spikes []IssueSpike `json:"spikes,omitempty"`
+	Issues []IssueRef   `json:"issues,omitempty"`
 }
 
 type Runner struct {
@@ -116,6 +126,10 @@ func (r *Runner) runOnce(ctx context.Context) {
 			r.evalErrorRate(ctx, rule, now)
 		case "issue_spike", "issue_spikes":
 			r.evalIssueSpike(ctx, rule, now)
+		case "new_issue", "new_issues":
+			r.evalNewIssues(ctx, rule, now)
+		case "regression", "regressions":
+			r.evalRegressions(ctx, rule, now)
 		default:
 			// ignore unknown rule types
 		}
@@ -204,6 +218,65 @@ func (r *Runner) evalIssueSpike(ctx context.Context, rule api.AlertRule, now tim
 		Spikes:      spikes,
 	}
 	r.fire(ctx, ev)
+}
+
+func (r *Runner) issueURL(id string) string {
+	if r.cfg.PublicURL == "" {
+		return ""
+	}
+	return r.cfg.PublicURL + "/ui/issues/" + id
+}
+
+func (r *Runner) refs(rows []api.IssueSummary) []IssueRef {
+	out := make([]IssueRef, 0, len(rows))
+	for _, s := range rows {
+		out = append(out, IssueRef{IssueID: s.IssueID, Title: s.Title, Culprit: s.Culprit, Count: s.OccurrenceCount, URL: r.issueURL(s.IssueID)})
+	}
+	return out
+}
+
+// evalNewIssues fires when at least `threshold` (default 1) issues were first seen in the window.
+func (r *Runner) evalNewIssues(ctx context.Context, rule api.AlertRule, now time.Time) {
+	w := time.Duration(rule.TimeWindowSeconds) * time.Second
+	if w <= 0 {
+		w = 60 * time.Second
+	}
+	from, to := now.Add(-w), now
+	rows, err := r.ch.NewIssues(ctx, rule, from, to, 20)
+	if err != nil {
+		log.Printf("alerting: rule=%s new_issue query: %v", rule.ID, err)
+		return
+	}
+	min := int(rule.Threshold)
+	if min < 1 {
+		min = 1
+	}
+	if len(rows) < min {
+		return
+	}
+	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: from, WindowEnd: to, Kind: "new_issue", Issues: r.refs(rows)})
+}
+
+// evalRegressions fires when resolved issues came back in the window.
+func (r *Runner) evalRegressions(ctx context.Context, rule api.AlertRule, now time.Time) {
+	w := time.Duration(rule.TimeWindowSeconds) * time.Second
+	if w <= 0 {
+		w = 60 * time.Second
+	}
+	from, to := now.Add(-w), now
+	rows, err := r.ch.RegressedIssues(ctx, rule, from, to, 20)
+	if err != nil {
+		log.Printf("alerting: rule=%s regression query: %v", rule.ID, err)
+		return
+	}
+	min := int(rule.Threshold)
+	if min < 1 {
+		min = 1
+	}
+	if len(rows) < min {
+		return
+	}
+	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: from, WindowEnd: to, Kind: "regression", Issues: r.refs(rows)})
 }
 
 func (r *Runner) fire(ctx context.Context, ev AlertEvent) {
