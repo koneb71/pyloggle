@@ -24,10 +24,12 @@ func main() {
 	}()
 
 	migrateOpts := clickhouse.MigrateOptions{
-		Rebuild:             cfg.MigrateRebuild,
-		RetentionLogsDays:   cfg.RetentionLogsDays,
-		RetentionErrorsDays: cfg.RetentionErrorsDays,
-		RetentionStatsDays:  cfg.RetentionStatsDays,
+		Rebuild:              cfg.MigrateRebuild,
+		RetentionLogsDays:    cfg.RetentionLogsDays,
+		RetentionErrorsDays:  cfg.RetentionErrorsDays,
+		RetentionStatsDays:   cfg.RetentionStatsDays,
+		RetentionSpansDays:   cfg.RetentionSpansDays,
+		RetentionMetricsDays: cfg.RetentionMetricsDays,
 	}
 	if cfg.AutoMigrate {
 		mctx, mcancel := context.WithTimeout(context.Background(), 30*time.Minute)

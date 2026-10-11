@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"pyloggle/internal/api"
 	"pyloggle/internal/config"
 	"pyloggle/internal/issue"
+	"pyloggle/internal/metrics"
 	"pyloggle/internal/model"
 	"pyloggle/internal/tenant"
 )
@@ -147,6 +149,12 @@ func (p *Pipeline) Authenticate(ctx context.Context, r *http.Request) (Tenant, e
 
 // Process normalizes, protects and stores one event. rawLen is the encoded size for quotas.
 func (p *Pipeline) Process(ctx context.Context, t Tenant, ev model.Event, rawLen int) Outcome {
+	o := p.process(ctx, t, ev, rawLen)
+	metrics.IngestEvents.Inc(t.ProjectID, o.String())
+	return o
+}
+
+func (p *Pipeline) process(ctx context.Context, t Tenant, ev model.Event, rawLen int) Outcome {
 	now := p.now().UTC()
 	ev.Normalize()
 	if ev.Source == "" {
@@ -171,6 +179,13 @@ func (p *Pipeline) Process(ctx context.Context, t Tenant, ev model.Event, rawLen
 		}
 		if ev.HTTP.ServerAddr != "" {
 			ev.Attrs = ev.Attrs.Set("http.server_addr", ev.HTTP.ServerAddr)
+		}
+	}
+	// The 0.2 SDKs carry request latency in attrs.latency_ms; analytics and request stats read the
+	// duration_ms column, so promote it when the column is unset.
+	if ev.DurationMS == 0 {
+		if f, err := strconv.ParseFloat(ev.Attrs.Get("latency_ms"), 64); err == nil && f > 0 {
+			ev.DurationMS = f
 		}
 	}
 	isErr := ev.IsError()

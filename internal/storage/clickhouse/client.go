@@ -3,10 +3,6 @@ package clickhouse
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"log"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	ch "github.com/ClickHouse/clickhouse-go/v2"
@@ -19,37 +15,32 @@ import (
 type Client struct {
 	conn ch.Conn
 
-	logCh chan model.Event
-	errCh chan issue.ErrorOccurrence
+	logs *batcher[model.Event]
+	errs *batcher[issue.ErrorOccurrence]
 
 	batchSize    int
 	batchTimeout time.Duration
-
-	wg   sync.WaitGroup
-	stop chan struct{}
-
-	flushLogsReq chan chan struct{}
-	flushErrsReq chan chan struct{}
-
-	droppedLogs   atomic.Uint64
-	droppedErrors atomic.Uint64
-	lastDropLog   atomic.Int64
+	queueSize    int
 }
 
-// Stats reports batching health for /healthz?verbose=1.
+// Stats reports batching health for /healthz?verbose=1 and the System page. The four legacy
+// counters stay for compatibility; Queues carries every write queue.
 type Stats struct {
-	DroppedLogs   uint64 `json:"dropped_logs"`
-	DroppedErrors uint64 `json:"dropped_errors"`
-	QueuedLogs    int    `json:"queued_logs"`
-	QueuedErrors  int    `json:"queued_errors"`
+	DroppedLogs   uint64         `json:"dropped_logs"`
+	DroppedErrors uint64         `json:"dropped_errors"`
+	QueuedLogs    int            `json:"queued_logs"`
+	QueuedErrors  int            `json:"queued_errors"`
+	Queues        []BatcherStats `json:"queues"`
 }
 
 func (c *Client) Stats() Stats {
+	ls, es := c.logs.stats(), c.errs.stats()
 	return Stats{
-		DroppedLogs:   c.droppedLogs.Load(),
-		DroppedErrors: c.droppedErrors.Load(),
-		QueuedLogs:    len(c.logCh),
-		QueuedErrors:  len(c.errCh),
+		DroppedLogs:   ls.Dropped,
+		DroppedErrors: es.Dropped,
+		QueuedLogs:    ls.Depth,
+		QueuedErrors:  es.Depth,
+		Queues:        []BatcherStats{ls, es},
 	}
 }
 
@@ -92,74 +83,39 @@ func New(dsn string, maxQueueSize int, batchSize int, batchTimeout time.Duration
 		batchTimeout = 5 * time.Second
 	}
 
-	c := &Client{
-		conn:         conn,
-		logCh:        make(chan model.Event, maxQueueSize),
-		errCh:        make(chan issue.ErrorOccurrence, maxQueueSize),
-		batchSize:    batchSize,
-		batchTimeout: batchTimeout,
-		stop:         make(chan struct{}),
-		flushLogsReq: make(chan chan struct{}),
-		flushErrsReq: make(chan chan struct{}),
-	}
-
-	c.wg.Add(2)
-	go c.runLogs()
-	go c.runErrors()
-
+	c := &Client{conn: conn, batchSize: batchSize, batchTimeout: batchTimeout, queueSize: maxQueueSize}
+	c.logs = newBatcher("logs", maxQueueSize, batchSize, batchTimeout, c.flushLogs)
+	c.errs = newBatcher("errors", maxQueueSize, batchSize, batchTimeout, c.flushErrors)
 	return c, nil
 }
 
+func (c *Client) batchers() []interface{ close() } {
+	return []interface{ close() }{c.logs, c.errs}
+}
+
 func (c *Client) Close() error {
-	select {
-	case <-c.stop:
-		// already closed
-	default:
-		close(c.stop)
+	for _, b := range c.batchers() {
+		b.close()
 	}
-	c.wg.Wait()
 	return c.conn.Close()
 }
 
 // InsertLog enqueues a log row. Non-error rows never block; errors wait briefly.
 func (c *Client) InsertLog(ctx context.Context, ev model.Event) error {
-	select {
-	case c.logCh <- ev:
-		return nil
-	default:
-		if ev.IsError() {
-			t := time.NewTimer(250 * time.Millisecond)
-			defer t.Stop()
-			select {
-			case c.logCh <- ev:
-				return nil
-			case <-t.C:
-				return errors.New("log queue full")
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		return nil
+	wait := time.Duration(0)
+	if ev.IsError() {
+		wait = 250 * time.Millisecond
 	}
+	err := c.logs.enqueue(ctx, ev, wait)
+	if err == errQueueFull && !ev.IsError() {
+		return nil // low-signal rows are dropped silently (counted in stats)
+	}
+	return err
 }
 
 // InsertErrorOccurrence enqueues an occurrence; errors are high-signal so we allow brief blocking.
 func (c *Client) InsertErrorOccurrence(ctx context.Context, occ issue.ErrorOccurrence) error {
-	select {
-	case c.errCh <- occ:
-		return nil
-	default:
-		t := time.NewTimer(750 * time.Millisecond)
-		defer t.Stop()
-		select {
-		case c.errCh <- occ:
-			return nil
-		case <-t.C:
-			return errors.New("error queue full")
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+	return c.errs.enqueue(ctx, occ, 750*time.Millisecond)
 }
 
 // EnqueueLog / EnqueueErrorOccurrence make *Client usable directly as an ingest sink.
@@ -173,153 +129,13 @@ func (c *Client) EnqueueErrorOccurrence(ctx context.Context, occ issue.ErrorOccu
 
 // Flush writes everything queued so far and waits for it (tests, graceful shutdown).
 func (c *Client) Flush(ctx context.Context) error {
-	for _, req := range []chan chan struct{}{c.flushLogsReq, c.flushErrsReq} {
-		done := make(chan struct{})
-		select {
-		case req <- done:
-		case <-c.stop:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		select {
-		case <-done:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+	if err := c.logs.flushNow(ctx); err != nil {
+		return err
 	}
-	return nil
+	return c.errs.flushNow(ctx)
 }
 
-// flushWithRetry retries a batch flush with backoff; rows are only dropped (and counted) after
-// the last attempt fails. Drop messages are rate-limited to one per 10s.
-func (c *Client) flushWithRetry(kind string, n int, f func() error) {
-	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		if err = f(); err == nil {
-			return
-		}
-		if attempt < 2 {
-			time.Sleep(time.Duration(500<<attempt) * time.Millisecond)
-		}
-	}
-	if kind == "logs" {
-		c.droppedLogs.Add(uint64(n))
-	} else {
-		c.droppedErrors.Add(uint64(n))
-	}
-	now := time.Now().Unix()
-	if last := c.lastDropLog.Load(); now-last >= 10 && c.lastDropLog.CompareAndSwap(last, now) {
-		log.Printf("clickhouse: dropped %d %s rows after 3 failed flush attempts: %v", n, kind, err)
-	}
-}
-
-func (c *Client) runLogs() {
-	defer c.wg.Done()
-
-	t := time.NewTimer(c.batchTimeout)
-	defer t.Stop()
-
-	buf := make([]model.Event, 0, c.batchSize)
-	flush := func() {
-		if len(buf) == 0 {
-			return
-		}
-		c.flushWithRetry("logs", len(buf), func() error { return c.flushLogs(buf) })
-		buf = buf[:0]
-	}
-	drain := func() {
-		for {
-			select {
-			case ev := <-c.logCh:
-				buf = append(buf, ev)
-				if len(buf) >= c.batchSize {
-					flush()
-				}
-			default:
-				flush()
-				return
-			}
-		}
-	}
-
-	for {
-		select {
-		case <-c.stop:
-			drain()
-			return
-		case ev := <-c.logCh:
-			buf = append(buf, ev)
-			if len(buf) >= c.batchSize {
-				flush()
-				resetTimer(t, c.batchTimeout)
-			}
-		case done := <-c.flushLogsReq:
-			drain()
-			close(done)
-			resetTimer(t, c.batchTimeout)
-		case <-t.C:
-			flush()
-			resetTimer(t, c.batchTimeout)
-		}
-	}
-}
-
-func (c *Client) runErrors() {
-	defer c.wg.Done()
-
-	t := time.NewTimer(c.batchTimeout)
-	defer t.Stop()
-
-	buf := make([]issue.ErrorOccurrence, 0, c.batchSize)
-	flush := func() {
-		if len(buf) == 0 {
-			return
-		}
-		c.flushWithRetry("errors", len(buf), func() error { return c.flushErrors(buf) })
-		buf = buf[:0]
-	}
-	drain := func() {
-		for {
-			select {
-			case occ := <-c.errCh:
-				buf = append(buf, occ)
-				if len(buf) >= c.batchSize {
-					flush()
-				}
-			default:
-				flush()
-				return
-			}
-		}
-	}
-
-	for {
-		select {
-		case <-c.stop:
-			drain()
-			return
-		case occ := <-c.errCh:
-			buf = append(buf, occ)
-			if len(buf) >= c.batchSize {
-				flush()
-				resetTimer(t, c.batchTimeout)
-			}
-		case done := <-c.flushErrsReq:
-			drain()
-			close(done)
-			resetTimer(t, c.batchTimeout)
-		case <-t.C:
-			flush()
-			resetTimer(t, c.batchTimeout)
-		}
-	}
-}
-
-func (c *Client) flushLogs(events []model.Event) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func (c *Client) flushLogs(ctx context.Context, events []model.Event) error {
 	batch, err := c.conn.PrepareBatch(ctx, `
 		INSERT INTO logs_raw (
 			ts, event_id, project_id, service, env, level, logger, message,
@@ -379,10 +195,7 @@ func (c *Client) flushLogs(events []model.Event) error {
 	return batch.Send()
 }
 
-func (c *Client) flushErrors(occs []issue.ErrorOccurrence) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func (c *Client) flushErrors(ctx context.Context, occs []issue.ErrorOccurrence) error {
 	batch, err := c.conn.PrepareBatch(ctx, `
 		INSERT INTO error_occurrences (
 			ts, event_id, project_id, service, env, issue_id,
@@ -514,16 +327,6 @@ func jsonOrEmpty(v any) string {
 		return ""
 	}
 	return string(b)
-}
-
-func resetTimer(t *time.Timer, d time.Duration) {
-	if !t.Stop() {
-		select {
-		case <-t.C:
-		default:
-		}
-	}
-	t.Reset(d)
 }
 
 type ProjectRow struct {
