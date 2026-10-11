@@ -189,6 +189,29 @@ func (c *Counter) Get(labelValues ...string) float64 {
 	return c.vals[key(labelValues)]
 }
 
+// ByLabel sums the series by the value of one label (the System page's "events by outcome").
+func (c *Counter) ByLabel(label string) map[string]float64 {
+	idx := -1
+	for i, l := range c.labels {
+		if l == label {
+			idx = i
+		}
+	}
+	out := map[string]float64{}
+	if idx < 0 {
+		return out
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k, v := range c.vals {
+		parts := splitKey(k)
+		if idx < len(parts) {
+			out[parts[idx]] += v
+		}
+	}
+	return out
+}
+
 func (c *Counter) name() string { return c.fqName }
 
 func (c *Counter) writeText(w io.Writer) {

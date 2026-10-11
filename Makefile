@@ -12,8 +12,12 @@ help: ## Show this help
 
 build: web go-build ## Build the web UI and the ingestd binary (UI embedded)
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
+LDFLAGS := -X pyloggle/internal/version.Version=$(VERSION) -X pyloggle/internal/version.Commit=$(COMMIT)
+
 go-build: ## Build the ingestd binary only (uses whatever is in web/dist)
-	$(GO) build -o bin/ingestd ./cmd/ingestd
+	$(GO) build -ldflags "$(LDFLAGS)" -o bin/ingestd ./cmd/ingestd
 
 web: ## Build the React UI into web/dist (embedded by go-build)
 	cd web && $(NPM) ci && $(NPM) run build

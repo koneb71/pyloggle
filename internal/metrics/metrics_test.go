@@ -55,3 +55,15 @@ func TestLabelArityIsEnforced(t *testing.T) {
 	}()
 	NewRegistry().NewCounter("x_total", "x", "a").Inc("a", "b")
 }
+
+func TestCounterByLabel(t *testing.T) {
+	r := NewRegistry()
+	c := r.NewCounter("t_total", "T.", "project", "outcome")
+	c.Add(3, "p1", "accepted")
+	c.Add(2, "p2", "accepted")
+	c.Inc("p2", "quota")
+	by := c.ByLabel("outcome")
+	if by["accepted"] != 5 || by["quota"] != 1 || len(c.ByLabel("nope")) != 0 {
+		t.Fatalf("ByLabel: %v", by)
+	}
+}

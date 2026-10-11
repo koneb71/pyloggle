@@ -23,6 +23,7 @@ const pages = [
   ["dashboards", "/ui/dashboards?from=-24h"],
   ["alerts", "/ui/alerts"],
   ["projects", "/ui/projects"],
+  ["system", "/ui/system"],
   ["login", "/ui/login"],
 ];
 

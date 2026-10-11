@@ -79,6 +79,9 @@ type Config struct {
 	// ExportMaxRows caps one CSV/NDJSON export (PYLOGGLE_EXPORT_MAX_ROWS, default 100000).
 	ExportMaxRows int
 
+	// MetricsToken, when set, is the bearer token GET /metrics requires (PYLOGGLE_METRICS_TOKEN).
+	MetricsToken string
+
 	// Alerting (optional)
 	AlertingEnabled      bool
 	AlertingPollInterval time.Duration
@@ -153,6 +156,7 @@ func FromEnv() Config {
 		OTLPStoreMetrics:     getenvBool("OTLP_STORE_METRICS", true),
 		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_PUBLIC_URL")), "/"),
 		ExportMaxRows:        getenvInt("PYLOGGLE_EXPORT_MAX_ROWS", 100000),
+		MetricsToken:         strings.TrimSpace(os.Getenv("PYLOGGLE_METRICS_TOKEN")),
 
 		AlertingEnabled:      getenvBool("ALERTING_ENABLED", false),
 		AlertingPollInterval: getenvDuration("ALERTING_POLL_INTERVAL", 30*time.Second),

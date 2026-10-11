@@ -14,12 +14,32 @@ import (
 	"pyloggle/internal/auth"
 	"pyloggle/internal/config"
 	"pyloggle/internal/ingest"
+	"pyloggle/internal/metrics"
 	"pyloggle/internal/otlp"
 	"pyloggle/internal/storage/clickhouse"
+	"pyloggle/internal/sysinfo"
 	"pyloggle/internal/tenant"
 	"pyloggle/internal/timeparse"
 	"pyloggle/internal/webui"
 )
+
+// MetricsHandler serves the Prometheus text exposition; with a token it requires
+// "Authorization: Bearer <token>".
+func MetricsHandler(token string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token != "" {
+			auth := r.Header.Get("Authorization")
+			if len(auth) < 8 || !strings.EqualFold(auth[:7], "Bearer ") || subtle.ConstantTimeCompare([]byte(strings.TrimSpace(auth[7:])), []byte(token)) != 1 {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="pyloggle metrics"`)
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		metrics.Default.WriteText(w)
+	})
+}
 
 type Server struct {
 	cfg config.Config
@@ -36,6 +56,12 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 
 	res := tenant.NewResolver(ch, 60*time.Second)
 	ing := ingest.NewHandler(cfg, ch, res)
+	startedAt := time.Now().UTC()
+	collector := sysinfo.New(ch, time.Minute)
+	go collector.Run(context.Background())
+
+	// Prometheus exposition for the process and the ClickHouse gauges the collector refreshes.
+	s.mux.Handle("GET /metrics", MetricsHandler(cfg.MetricsToken))
 
 	// Best-effort: auto-create the default project (unlimited limits) so single-tenant/UI fallback works
 	// even on a fresh database.
@@ -518,7 +544,7 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 	})))
 
 	// Web UI + its JSON API (session cookies), mirrored under /v1/q/ for API-key clients.
-	ui := webui.New(cfg, ch, res, ing.Pipeline().States())
+	ui := webui.New(cfg, ch, res, ing.Pipeline().States()).WithSystem(collector, startedAt)
 	s.mux.Handle("/ui/", ui)
 	s.mux.Handle("/v1/q/", ui.APIKeyAPIHandler())
 	s.mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
