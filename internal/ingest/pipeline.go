@@ -24,6 +24,7 @@ import (
 type Sink interface {
 	EnqueueLog(ctx context.Context, ev model.Event) error
 	EnqueueErrorOccurrence(ctx context.Context, occ issue.ErrorOccurrence) error
+	EnqueueSpans(ctx context.Context, spans []model.Span) error
 }
 
 // IssueStateStore is the slice of storage the pipeline needs for regression and snooze handling.
@@ -157,6 +158,46 @@ func (p *Pipeline) Authenticate(ctx context.Context, r *http.Request) (Tenant, e
 		}
 	}
 	return t, nil
+}
+
+// ProcessSpans stores a batch of spans from one OTLP request: project defaults, the storage
+// quota and one rate-limit token per batch (spans are never sampled: a partial trace is
+// worse than none). Returns how many were accepted and, when none were, why.
+func (p *Pipeline) ProcessSpans(ctx context.Context, t Tenant, spans []model.Span, rawLen int) (int, Outcome) {
+	if len(spans) == 0 {
+		return 0, Accepted
+	}
+	now := p.now().UTC()
+	if !p.qt.allow(t.ProjectID, false, rawLen, t.MaxStorageGB, now) {
+		return 0, DroppedQuota
+	}
+	for i := range spans {
+		sp := &spans[i]
+		sp.ProjectID = t.ProjectID
+		if sp.Service == "" {
+			sp.Service = p.cfg.DefaultSvc
+		}
+		if sp.Env == "" {
+			sp.Env = p.cfg.DefaultEnv
+		}
+		if sp.StartTS.IsZero() {
+			sp.StartTS = now
+		}
+		if sp.Kind == "" {
+			sp.Kind = "unspecified"
+		}
+		if sp.Status == "" {
+			sp.Status = "unset"
+		}
+	}
+	if t.RPS > 0 && !p.lim.take(t.ProjectID+"|"+spans[0].Service, t.RPS, t.Burst) {
+		return 0, DroppedRateLimit
+	}
+	if err := p.sink.EnqueueSpans(ctx, spans); err != nil {
+		return 0, DroppedQueueFull
+	}
+	metrics.SpansAccepted.Add(float64(len(spans)), t.ProjectID)
+	return len(spans), Accepted
 }
 
 // Process normalizes, protects and stores one event. rawLen is the encoded size for quotas.

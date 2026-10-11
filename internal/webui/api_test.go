@@ -21,6 +21,8 @@ import (
 type fakeStore struct {
 	lastLogQuery   clickhouse.LogQuery
 	lastAggregate  clickhouse.AggregateSpec
+	lastSpanQuery  clickhouse.SpanQuery
+	lastTraceAt    time.Time
 	lastService    string
 	logQueries     []clickhouse.LogQuery
 	exportRows     int // rows the fake export source holds
@@ -159,6 +161,33 @@ func (f *fakeStore) LogAggregate(_ context.Context, q clickhouse.LogQuery, spec 
 func (f *fakeStore) RequestStats(_ context.Context, _, service, _ string, _, _ time.Time, bucket, limit int) (api.RequestStats, error) {
 	f.lastService = service
 	return api.RequestStats{BucketSeconds: bucket, Totals: api.RouteStats{Requests: 10, Errors: 1, ErrorPct: 10}, Routes: make([]api.RouteStats, limit)}, nil
+}
+func (f *fakeStore) TraceList(_ context.Context, q clickhouse.SpanQuery) ([]api.TraceSummary, error) {
+	f.lastSpanQuery = q
+	out := make([]api.TraceSummary, 0, q.Limit)
+	for i := 0; i < q.Limit && i < 2; i++ {
+		out = append(out, api.TraceSummary{TraceID: "t" + strconv.Itoa(i), RootSpanID: "s0", Service: "api", Name: "GET /x", Kind: "server", Status: "ok",
+			StartTS: time.Unix(1700000000-int64(i), 123456000).UTC(), DurationUS: 1500, SpanCount: 3, Services: []string{"api", "db"}})
+	}
+	return out, nil
+}
+func (f *fakeStore) TraceStats(_ context.Context, q clickhouse.SpanQuery) (api.TraceStats, error) {
+	f.lastSpanQuery = q
+	return api.TraceStats{ByName: []api.SpanNameStats{{Name: "GET /x", Count: 2, P50US: 1000, P95US: 1500}}, Latency: []api.LatencyBucket{{FromUS: 1024, ToUS: 2048, Count: 2}}}, nil
+}
+func (f *fakeStore) TraceSpans(_ context.Context, _, id string, at time.Time) ([]api.Span, error) {
+	f.lastTraceAt = at
+	if id == "missing" {
+		return nil, nil
+	}
+	t0 := time.Unix(1700000000, 0).UTC()
+	return []api.Span{
+		{TraceID: id, SpanID: "s0", Service: "api", Name: "GET /x", Kind: "server", Status: "ok", StartTS: t0, DurationUS: 2000, Attrs: map[string]string{}},
+		{TraceID: id, SpanID: "s1", ParentSpanID: "s0", Service: "db", Name: "SELECT", Kind: "client", Status: "error", StartTS: t0.Add(500 * time.Microsecond), DurationUS: 1000, Attrs: map[string]string{"db.system": "postgres"}},
+	}, nil
+}
+func (f *fakeStore) TraceErrors(_ context.Context, _, id string, _ time.Time) ([]api.ErrorOccurrence, error) {
+	return []api.ErrorOccurrence{{EventID: "e-" + id, TraceID: id, IssueID: "i1"}}, nil
 }
 func (f *fakeStore) Overview(context.Context, string, string, string, time.Time, time.Time) (api.Overview, error) {
 	return api.Overview{Events: 10}, nil
@@ -532,5 +561,54 @@ func TestCSVSafe(t *testing.T) {
 	}
 	if n := exportFilename("My Project!", time.Date(2026, 10, 11, 7, 0, 0, 0, time.UTC), "csv"); n != "pyloggle-logs-My-Project--20261011-070000.csv" {
 		t.Fatalf("filename: %s", n)
+	}
+}
+
+func TestTracesAPI(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/traces?q=status:error+db.system:postgres&from=-6h&limit=2&include=stats", nil, nil)
+	if rec.Code != 200 {
+		t.Fatalf("traces: %d %s", rec.Code, rec.Body.String())
+	}
+	sq := store.lastSpanQuery
+	if !strings.Contains(sq.Where, "status = ?") || !strings.Contains(sq.Where, "attrs[?] = ?") || sq.Limit != 2 || sq.ProjectID != "default" {
+		t.Fatalf("span query: %+v", sq)
+	}
+	if len(out["items"].([]any)) != 2 || out["next_cursor"] == nil || out["stats"] == nil {
+		t.Fatalf("list: %s", rec.Body.String())
+	}
+	cur := out["next_cursor"].(string)
+	rec, _ = do(t, u, "GET", "/ui/api/traces?cursor="+cur, nil, nil)
+	if rec.Code != 200 || store.lastSpanQuery.BeforeID != "t1" || store.lastSpanQuery.BeforeTS.UnixMicro() != 1699999999123456 {
+		t.Fatalf("cursor: %d %+v", rec.Code, store.lastSpanQuery)
+	}
+	rec, out = do(t, u, "GET", "/ui/api/traces?q=%22unterminated", nil, nil)
+	if rec.Code != 400 || out["error"] != "bad_query" {
+		t.Fatalf("bad query: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/traces/abc?at=2023-11-14T22:13:20Z", nil, nil)
+	if rec.Code != 200 || store.lastTraceAt.IsZero() {
+		t.Fatalf("trace: %d %s", rec.Code, rec.Body.String())
+	}
+	if out["trace_id"] != "abc" || out["duration_us"].(float64) != 2000 || len(out["spans"].([]any)) != 2 || len(out["errors"].([]any)) != 1 || out["logs"] == nil {
+		t.Fatalf("trace detail: %s", rec.Body.String())
+	}
+	if svcs := out["services"].([]any); len(svcs) != 2 || svcs[0] != "api" || svcs[1] != "db" {
+		t.Fatalf("services: %v", svcs)
+	}
+	if !strings.Contains(store.lastLogQuery.TraceID, "abc") || !store.lastLogQuery.Ascending {
+		t.Fatalf("trace logs query: %+v", store.lastLogQuery)
+	}
+	rec, _ = do(t, u, "GET", "/ui/api/traces/missing", nil, nil)
+	if rec.Code != 404 {
+		t.Fatalf("missing trace: %d", rec.Code)
+	}
+	rec, out = do(t, u, "GET", "/ui/api/traces/fields", nil, nil)
+	if rec.Code != 200 || len(out["fields"].([]any)) < 10 {
+		t.Fatalf("fields: %s", rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/me", nil, nil)
+	if rec.Code != 200 || out["features"].(map[string]any)["traces"] != true {
+		t.Fatalf("me.features.traces: %s", rec.Body.String())
 	}
 }

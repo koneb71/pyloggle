@@ -12,12 +12,16 @@ export interface SearchBarProps {
   error?: { message: string; pos?: number } | null;
   range: { from: string; to: string };
   autoFocus?: boolean;
+  /** Field names to suggest instead of the log fields (traces page); value suggestions are skipped. */
+  fields?: string[];
+  placeholder?: string;
+  ariaLabel?: string;
 }
 
 const FIELD_TO_FACET: Record<string, string> = Object.fromEntries(Object.entries(FACET_TO_FIELD).map(([k, v]) => [v, k]));
 
 /** Query input with parsed-term chips, inline error, syntax help and autocomplete. */
-export function SearchBar({ value, onChange, error, range }: SearchBarProps) {
+export function SearchBar({ value, onChange, error, range, fields: fieldsOverride, placeholder, ariaLabel }: SearchBarProps) {
   const [draft, setDraft] = useState(value);
   const [focused, setFocused] = useState(false);
   const [cursor, setCursor] = useState(0);
@@ -45,7 +49,7 @@ export function SearchBar({ value, onChange, error, range }: SearchBarProps) {
   const colon = token.text.indexOf(":");
   const fieldPart = colon >= 0 ? token.text.slice(0, colon).replace(/^-/, "") : token.text.replace(/^-/, "");
   const valuePart = colon >= 0 ? token.text.slice(colon + 1) : "";
-  const wantValues = colon >= 0 && focused;
+  const wantValues = colon >= 0 && focused && !fieldsOverride;
   const facetKey = wantValues ? (fieldPart.startsWith("attrs.") || fieldPart.startsWith("tags.") ? fieldPart : fieldPart.startsWith("@") ? `attrs.${fieldPart.slice(1)}` : FIELD_TO_FACET[fieldPart] || "") : "";
   const facets = useLogFacets(
     { q: value, from: range.from, to: range.to, fields: facetKey && !facetKey.includes(".") ? [facetKey] : [], key: facetKey.includes(".") ? facetKey : undefined, attr_keys: 100 },
@@ -55,7 +59,7 @@ export function SearchBar({ value, onChange, error, range }: SearchBarProps) {
   const suggestions = useMemo<string[]>(() => {
     if (!focused || !token.text || token.text.startsWith('"')) return [];
     if (colon < 0) {
-      const names = [...(fields.data?.fields ?? []).filter((f) => !f.includes("<")), ...(facets.data?.attr_keys ?? []).map((k) => `attrs.${k.value}`)];
+      const names = [...(fieldsOverride ?? fields.data?.fields ?? []).filter((f) => !f.includes("<")), ...(fieldsOverride ? [] : (facets.data?.attr_keys ?? []).map((k) => `attrs.${k.value}`))];
       const p = fieldPart.toLowerCase();
       return Array.from(new Set(names))
         .filter((n) => n.toLowerCase().startsWith(p) && n !== p)
@@ -68,7 +72,7 @@ export function SearchBar({ value, onChange, error, range }: SearchBarProps) {
       .filter((v) => v.value.toLowerCase().includes(vp))
       .slice(0, 10)
       .map((v) => `${token.text.slice(0, colon + 1)}${quote(v.value)}`);
-  }, [focused, token.text, colon, fields.data, facets.data, fieldPart, valuePart, facetKey]);
+  }, [focused, token.text, colon, fields.data, facets.data, fieldPart, valuePart, facetKey, fieldsOverride]);
 
   useEffect(() => setHi(0), [suggestions.length, token.text]);
 
@@ -125,10 +129,10 @@ export function SearchBar({ value, onChange, error, range }: SearchBarProps) {
           onFocus={() => setFocused(true)}
           onBlur={() => setTimeout(() => setFocused(false), 120)}
           onSelect={(e) => setCursor((e.target as HTMLInputElement).selectionStart ?? 0)}
-          placeholder='Search logs… e.g. service:api level:error "timed out" -attrs.path:/health'
+          placeholder={placeholder ?? 'Search logs… e.g. service:api level:error "timed out" -attrs.path:/health'}
           spellCheck={false}
           autoComplete="off"
-          aria-label="Log query"
+          aria-label={ariaLabel ?? "Log query"}
           className={clsx(
             "h-9 w-full rounded-md border bg-surface pl-8 pr-24 font-mono text-[13px] text-ink placeholder:font-sans placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-accent/30",
             error ? "border-critical" : "border-border focus:border-accent",

@@ -12,6 +12,8 @@ import { LogsPage } from "@/features/logs/logs-page";
 import { DashboardsPage } from "@/features/dashboards/dashboards-page";
 import { AlertsPage } from "@/features/alerts/alerts-page";
 import { ProjectsPage } from "@/features/projects/projects-page";
+import { TracesPage } from "@/features/traces/traces-page";
+import { TracePage } from "@/features/traces/trace-page";
 
 export function App() {
   const me = useMe();
@@ -57,6 +59,8 @@ export function App() {
         <Route path="/issues" element={<NeedsProject me={me.data}><IssuesPage /></NeedsProject>} />
         <Route path="/issues/:id" element={<NeedsProject me={me.data}><IssueDetailPage /></NeedsProject>} />
         <Route path="/logs" element={<NeedsProject me={me.data}><LogsPage /></NeedsProject>} />
+        <Route path="/traces" element={<NeedsProject me={me.data}><TracesPage /></NeedsProject>} />
+        <Route path="/traces/:id" element={<NeedsProject me={me.data}><TracePage /></NeedsProject>} />
         <Route path="/dashboards" element={<NeedsProject me={me.data}><DashboardsPage /></NeedsProject>} />
         <Route path="/alerts" element={<NeedsProject me={me.data}><AlertsPage me={me.data} /></NeedsProject>} />
         <Route path="/projects" element={<ProjectsPage me={me.data} />} />

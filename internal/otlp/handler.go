@@ -74,6 +74,7 @@ func (h *Handler) handler(k kind) http.Handler {
 			return
 		}
 		var events []model.Event
+		var spans []model.Span
 		switch k {
 		case kindLogs:
 			var ld logsv1.LogsData
@@ -88,7 +89,10 @@ func (h *Handler) handler(k kind) http.Handler {
 				http.Error(w, "bad payload: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			events = TracesToEvents(&td, h.cfg.OTLPStoreServerSpans, h.now())
+			events, spans = TracesToEventsAndSpans(&td, h.cfg.OTLPStoreServerSpans, h.now())
+			if !h.cfg.OTLPStoreSpans {
+				spans = nil
+			}
 		case kindMetrics:
 			// Accepted so exporters do not error; metrics are not stored.
 		}
@@ -97,6 +101,14 @@ func (h *Handler) handler(k kind) http.Handler {
 			if o := h.p.Process(r.Context(), t, ev, len(body)/max(len(events), 1)); o == ingest.Accepted {
 				accepted++
 			}
+		}
+		if len(spans) > 0 {
+			rawLen := len(body)
+			if len(events) > 0 {
+				rawLen = 0 // the events already paid for the request bytes
+			}
+			n, _ := h.p.ProcessSpans(r.Context(), t, spans, rawLen)
+			accepted += n
 		}
 		// OTLP success: 200 with an empty Export*Response in the request's encoding.
 		if isJSON {

@@ -66,7 +66,10 @@ type Config struct {
 	RetentionSpansDays   int
 	RetentionMetricsDays int
 
-	// OTLP ingestion: store OK server spans as "request" log rows (off by default to limit volume).
+	// OTLP ingestion. OTLPStoreSpans keeps every span in the spans table (7-day TTL by default);
+	// OTLPStoreServerSpans also stores OK server spans as "request" log rows so the explorer,
+	// analytics and request stats see OTLP traffic like SDK traffic.
+	OTLPStoreSpans       bool
 	OTLPStoreServerSpans bool
 
 	// PublicURL is the externally reachable base URL (for links in alerts), e.g. https://logs.example.com
@@ -144,7 +147,8 @@ func FromEnv() Config {
 		RetentionSpansDays:   getenvInt("PYLOGGLE_RETENTION_SPANS_DAYS", 7),
 		RetentionMetricsDays: getenvInt("PYLOGGLE_RETENTION_METRICS_DAYS", 30),
 
-		OTLPStoreServerSpans: getenvBool("OTLP_STORE_SERVER_SPANS", false),
+		OTLPStoreSpans:       getenvBool("OTLP_STORE_SPANS", true),
+		OTLPStoreServerSpans: getenvBool("OTLP_STORE_SERVER_SPANS", true),
 		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_PUBLIC_URL")), "/"),
 		ExportMaxRows:        getenvInt("PYLOGGLE_EXPORT_MAX_ROWS", 100000),
 

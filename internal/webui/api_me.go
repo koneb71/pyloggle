@@ -29,12 +29,13 @@ type meProject struct {
 
 type meFeatures struct {
 	Alerting  bool   `json:"alerting"`
+	Traces    bool   `json:"traces"`
 	PublicURL string `json:"public_url,omitempty"`
 }
 
 func (u *UI) apiMe(w http.ResponseWriter, r *http.Request) {
 	resp := meResponse{AuthMode: strings.ToLower(strings.TrimSpace(u.cfg.UIAuthMode)), IsAdmin: u.isUIAdmin(r),
-		Projects: []meProject{}, Features: meFeatures{Alerting: u.cfg.AlertingEnabled, PublicURL: u.cfg.PublicURL}}
+		Projects: []meProject{}, Features: meFeatures{Alerting: u.cfg.AlertingEnabled, Traces: u.cfg.OTLPStoreSpans, PublicURL: u.cfg.PublicURL}}
 	if c, ok := uiUserFromContext(r.Context()); ok {
 		resp.User = &meUser{Sub: c.Sub, Name: c.Name, Email: c.Email}
 		if resp.User.Email == "" {

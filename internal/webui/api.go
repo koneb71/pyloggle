@@ -127,6 +127,10 @@ func (u *UI) newAPIMux(prefix string) *http.ServeMux {
 	reg("GET", "/saved-views", u.apiSavedViews)
 	reg("POST", "/saved-views", u.apiSavedViewUpsert)
 	reg("DELETE", "/saved-views/{id}", u.apiSavedViewDelete)
+	// traces
+	reg("GET", "/traces", u.apiTraces)
+	reg("GET", "/traces/fields", u.apiTraceFields)
+	reg("GET", "/traces/{trace_id}", u.apiTrace)
 	// metrics
 	reg("GET", "/metrics/overview", u.apiOverview)
 	reg("GET", "/metrics/errors", u.apiErrorTrend)

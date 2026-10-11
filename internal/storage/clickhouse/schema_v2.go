@@ -147,6 +147,48 @@ var errorOccurrencesSpec = tableSpec{
 
 var v2Specs = []tableSpec{logsRawSpec, errorOccurrencesSpec}
 
+// spansSpec is the OTLP spans table (0.3). It is created by the 012_spans migration step and
+// managed by ApplyRetention, but it is not part of v2Specs: rebuildV2 only concerns the two
+// event tables that existed in v1.
+var spansSpec = tableSpec{
+	Name: "spans",
+	Columns: []column{
+		{"start_ts", "DateTime64(6, 'UTC') CODEC(DoubleDelta, ZSTD(1))"},
+		{"duration_us", "UInt64 CODEC(T64, ZSTD(1))"},
+		{"project_id", "String"},
+		{"service", "LowCardinality(String)"},
+		{"env", "LowCardinality(String)"},
+		{"release", "LowCardinality(String)"},
+		{"hostname", "LowCardinality(String)"},
+		{"scope", "LowCardinality(String)"},
+		{"trace_id", "String"},
+		{"span_id", "String"},
+		{"parent_span_id", "String"},
+		{"name", "LowCardinality(String)"},
+		{"kind", "Enum8('unspecified' = 0, 'internal' = 1, 'server' = 2, 'client' = 3, 'producer' = 4, 'consumer' = 5)"},
+		{"status", "Enum8('unset' = 0, 'ok' = 1, 'error' = 2)"},
+		{"status_message", "String CODEC(ZSTD(3))"},
+		{"http_method", "LowCardinality(String)"},
+		{"http_route", "String"},
+		{"http_status", "UInt16"},
+		{"attrs", "Map(String, String) CODEC(ZSTD(3))"},
+		{"events_json", "String CODEC(ZSTD(3))"},
+	},
+	Indexes: []string{
+		"INDEX idx_trace trace_id TYPE bloom_filter(0.01) GRANULARITY 1",
+		"INDEX idx_name name TYPE bloom_filter(0.01) GRANULARITY 4",
+	},
+	OrderBy:   "(project_id, service, env, start_ts)",
+	TTLColumn: "start_ts",
+	Retention: func(o MigrateOptions) int { return o.RetentionSpansDays },
+}
+
+// createSpans is the 012_spans migration step.
+func createSpans(ctx context.Context, c *Client, opts MigrateOptions) error {
+	opts = opts.withDefaults()
+	return c.Exec(ctx, spansSpec.createSQL(spansSpec.Name, spansSpec.Retention(opts)))
+}
+
 func (s tableSpec) ttlExpr(days int) string {
 	if days <= 0 {
 		days = 30

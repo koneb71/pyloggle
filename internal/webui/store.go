@@ -37,6 +37,12 @@ type Store interface {
 	CountLogs(ctx context.Context, q clickhouse.LogQuery) (uint64, error)
 	LogAggregate(ctx context.Context, q clickhouse.LogQuery, spec clickhouse.AggregateSpec) (api.LogAggregate, error)
 
+	// traces
+	TraceList(ctx context.Context, q clickhouse.SpanQuery) ([]api.TraceSummary, error)
+	TraceStats(ctx context.Context, q clickhouse.SpanQuery) (api.TraceStats, error)
+	TraceSpans(ctx context.Context, projectID, traceID string, at time.Time) ([]api.Span, error)
+	TraceErrors(ctx context.Context, projectID, traceID string, at time.Time) ([]api.ErrorOccurrence, error)
+
 	// metrics
 	Overview(ctx context.Context, projectID, service, env string, from, to time.Time) (api.Overview, error)
 	ErrorTrend(ctx context.Context, projectID, service, env, httpRoute, httpMethod string, from, to time.Time, bucketSeconds int) ([]api.TimeSeriesPoint, error)

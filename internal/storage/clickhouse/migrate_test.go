@@ -108,6 +108,12 @@ func TestSchemaV2DDL(t *testing.T) {
 			seen[c.Name] = true
 		}
 	}
+	spans := spansSpec.createSQL("spans", spansSpec.Retention(MigrateOptions{}.withDefaults()))
+	for _, want := range []string{"PARTITION BY toDate(start_ts)", "INTERVAL 7 DAY", "Enum8('unset' = 0, 'ok' = 1, 'error' = 2)", "idx_trace", "ORDER BY (project_id, service, env, start_ts)"} {
+		if !strings.Contains(spans, want) {
+			t.Fatalf("spans DDL missing %q:\n%s", want, spans)
+		}
+	}
 	logs := logsRawSpec.createSQL("logs_raw_v2", opts.RetentionLogsDays)
 	if !strings.Contains(logs, "INTERVAL 14 DAY") {
 		t.Fatalf("logs TTL not applied: %s", logs)
