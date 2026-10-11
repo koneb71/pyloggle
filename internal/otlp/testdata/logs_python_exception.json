@@ -1,0 +1,55 @@
+{
+  "resourceLogs": [{
+    "resource": {"attributes": [
+      {"key": "service.name", "value": {"stringValue": "otel-fastapi"}},
+      {"key": "deployment.environment", "value": {"stringValue": "staging"}},
+      {"key": "service.version", "value": {"stringValue": "2.1.0"}},
+      {"key": "host.name", "value": {"stringValue": "web-7"}},
+      {"key": "telemetry.sdk.name", "value": {"stringValue": "opentelemetry"}},
+      {"key": "telemetry.sdk.version", "value": {"stringValue": "1.27.0"}},
+      {"key": "process.runtime.name", "value": {"stringValue": "cpython"}},
+      {"key": "process.runtime.version", "value": {"stringValue": "3.12.4"}},
+      {"key": "process.pid", "value": {"intValue": "4242"}}
+    ]},
+    "scopeLogs": [{
+      "scope": {"name": "app.orders"},
+      "logRecords": [
+        {
+          "timeUnixNano": "1735689600000000000",
+          "severityNumber": 9,
+          "severityText": "INFO",
+          "body": {"stringValue": "order received"},
+          "attributes": [{"key": "order_id", "value": {"intValue": "17"}}, {"key": "code.function", "value": {"stringValue": "receive"}}],
+          "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+          "spanId": "00f067aa0ba902b7"
+        },
+        {
+          "timeUnixNano": "1735689601000000000",
+          "severityNumber": 17,
+          "severityText": "ERROR",
+          "body": {"stringValue": "charge failed"},
+          "attributes": [
+            {"key": "exception.type", "value": {"stringValue": "app.errors.PaymentError"}},
+            {"key": "exception.message", "value": {"stringValue": "card declined"}},
+            {"key": "exception.escaped", "value": {"boolValue": true}},
+            {"key": "exception.stacktrace", "value": {"stringValue": "Traceback (most recent call last):\n  File \"/srv/app/gateway.py\", line 40, in call\n    resp = client.post(url)\n  File \"/usr/lib/python3.12/site-packages/httpx/_client.py\", line 1100, in post\n    return self.request(\"POST\", url)\nhttpx.ConnectError: [Errno 111] Connection refused\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/srv/app/orders.py\", line 88, in charge\n    gateway.call(order)\n    ^^^^^^^^^^^^^^^^^^^\n  File \"/srv/app/gateway.py\", line 44, in call\n    raise PaymentError(\"card declined\") from exc\napp.errors.PaymentError: card declined\n"}},
+            {"key": "http.request.method", "value": {"stringValue": "POST"}},
+            {"key": "http.route", "value": {"stringValue": "/orders/{id}/charge"}},
+            {"key": "http.response.status_code", "value": {"intValue": "502"}},
+            {"key": "url.full", "value": {"stringValue": "https://shop.example/orders/17/charge"}},
+            {"key": "client.address", "value": {"stringValue": "10.0.0.9"}},
+            {"key": "enduser.id", "value": {"stringValue": "u-17"}},
+            {"key": "request_id", "value": {"stringValue": "req-abc"}}
+          ],
+          "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+          "spanId": "00f067aa0ba902b7"
+        },
+        {
+          "observedTimeUnixNano": "1735689602000000000",
+          "severityNumber": 13,
+          "body": {"kvlistValue": {"values": [{"key": "k", "value": {"stringValue": "v"}}]}}
+        }
+      ]
+    }]
+  }]
+}

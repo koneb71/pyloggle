@@ -49,7 +49,7 @@ func RequireProject(cfg config.Config, res *tenant.Resolver, next http.Handler) 
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-			ctx := WithProject(r.Context(), tenant.Project{ID: cfg.DefaultProjID})
+			ctx := WithProject(r.Context(), tenant.Trusted(tenant.Project{ID: cfg.DefaultProjID}))
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -63,9 +63,21 @@ func RequireProject(cfg config.Config, res *tenant.Resolver, next http.Handler) 
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if scope := ScopeFor(r.Method); !p.Has(scope) {
+			http.Error(w, "insufficient_scope: this key lacks the "+scope+" scope", http.StatusForbidden)
+			return
+		}
 		ctx := WithProject(r.Context(), p)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-
+// ScopeFor maps an HTTP method to the scope a query-API request needs: reads need "read",
+// anything else "write".
+func ScopeFor(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return tenant.ScopeRead
+	}
+	return tenant.ScopeWrite
+}

@@ -3,74 +3,61 @@ package ingest
 import (
 	"bufio"
 	"compress/gzip"
+	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"pyloggle/internal/config"
-	"pyloggle/internal/issue"
+	"pyloggle/internal/metrics"
 	"pyloggle/internal/model"
 	"pyloggle/internal/storage/clickhouse"
 	"pyloggle/internal/tenant"
 )
 
+// Handler is the NDJSON door (POST /v1/ingest): one JSON event per line.
 type Handler struct {
-	cfg config.Config
-	ch  *clickhouse.Client
-	lim *limiter
-	res *tenant.Resolver
-	rt  *streamRouter
-	qt  *quotaTracker
+	p *Pipeline
 }
 
-func NewHandler(cfg config.Config, ch *clickhouse.Client) *Handler {
-	return &Handler{
-		cfg: cfg,
-		ch:  ch,
-		lim: newLimiter(cfg),
-		res: tenant.NewResolver(ch, 60*time.Second),
-		rt:  newStreamRouter(cfg, ch),
-		qt:  newQuotaTracker(),
+// NewHandler wires the production pipeline: per-stream queues in front of the ClickHouse client.
+func NewHandler(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver) *Handler {
+	if res == nil {
+		res = tenant.NewResolver(ch, 60*time.Second)
 	}
+	return &Handler{p: NewPipeline(cfg, newStreamRouter(cfg, ch), ch, res)}
 }
+
+// NewHandlerFromPipeline is used by tests and the OTLP door.
+func NewHandlerFromPipeline(p *Pipeline) *Handler { return &Handler{p: p} }
+
+// Pipeline returns the shared pipeline (the OTLP door and the UI reuse it).
+func (h *Handler) Pipeline() *Pipeline { return h.p }
+
+// maxLineBytes bounds one NDJSON line (stack traces with locals can be large).
+const maxLineBytes = 4 * 1024 * 1024
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	// Multi-tenant: require a valid API key if provided; otherwise fall back to default project.
-	// If you want to require keys always, set PYLOGGLE_DEFAULT_PROJECT_ID empty and do not send events without a key.
-	projectID := h.cfg.DefaultProjID
-	rps := h.cfg.RateLimitRPS
-	burst := h.cfg.RateLimitBurst
-	var maxStorageGB uint32
-
-	if apiKey := r.Header.Get("X-API-Key"); apiKey != "" && apiKey != h.cfg.SharedSecret {
-		p, ok, err := h.res.ResolveByAPIKey(r.Context(), apiKey)
-		if err != nil {
-			http.Error(w, "auth lookup failed", http.StatusInternalServerError)
-			return
-		}
-		if !ok {
+	t, err := h.p.Authenticate(r.Context(), r)
+	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		projectID = p.ID
-		maxStorageGB = p.MaxStorageGB
-		if p.MaxEventsPerSec > 0 {
-			rps = float64(p.MaxEventsPerSec)
-			// simple burst heuristic if not configured
-			if burst <= 0 {
-				burst = rps * 2
-			}
-			if burst < rps {
-				burst = rps
-			}
+		if errors.Is(err, ErrInsufficientScope) {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
 		}
+		http.Error(w, "auth lookup failed", http.StatusInternalServerError)
+		return
 	}
 
 	body, closer, err := maybeGzipBody(r)
@@ -83,81 +70,57 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sc := bufio.NewScanner(body)
-	// allow larger lines (stack traces can be big)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
 
 	var (
-		now = time.Now().UTC()
-		n   int
+		accepted, rejected, dropped int
+		rawBytes                    int
+		errs                        []string
+		lineNo                      int
+		outcomes                    = map[string]int{}
 	)
-
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
 			continue
 		}
-
+		lineNo++
 		var ev model.Event
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			// skip invalid line, but continue
+			rejected++
+			metrics.IngestRejected.Inc("ingest")
+			if len(errs) < 5 {
+				errs = append(errs, "line "+strconv.Itoa(lineNo)+": "+err.Error())
+			}
 			continue
 		}
-		// Normalize commonly used structured fields into attrs so downstream consumers (UI)
-		// can display them without needing new API fields.
-		if ev.HTTP != nil {
-			if ev.Attrs == nil {
-				ev.Attrs = make(map[string]string, 4)
-			}
-			if ev.HTTP.RemoteAddr != "" {
-				ev.Attrs["http.remote_addr"] = ev.HTTP.RemoteAddr
-			}
-			if ev.HTTP.ServerAddr != "" {
-				ev.Attrs["http.server_addr"] = ev.HTTP.ServerAddr
-			}
+		rawBytes += len(line)
+		switch o := h.p.Process(r.Context(), t, ev, len(line)); o {
+		case Accepted:
+			accepted++
+		default:
+			dropped++
+			outcomes[o.String()]++
 		}
-		if ev.Timestamp.IsZero() {
-			ev.Timestamp = now
-		}
-		if ev.Service == "" {
-			ev.Service = h.cfg.DefaultSvc
-		}
-		if ev.Env == "" {
-			ev.Env = h.cfg.DefaultEnv
-		}
-		// Enforce project_id from resolved tenant (or default).
-		ev.ProjectID = projectID
-
-		// Quota protection (coarse daily budget): drop non-errors when over budget.
-		if !h.qt.allow(projectID, isErrorEvent(ev), len(line), maxStorageGB, now) {
-			continue
-		}
-
-		// Resource protection: apply rate limiting + sampling for non-errors.
-		// Errors (level=error or exception present) are always kept.
-		if h.lim.shouldDrop(ev, rps, burst) {
-			continue
-		}
-
-		// Always store raw log row.
-		_ = h.rt.EnqueueLog(r.Context(), ev)
-
-		// Store error occurrence if exception present (or level=error).
-		if ev.Exception != nil || strings.EqualFold(ev.Level, "error") {
-			occ := issue.FromEvent(ev)
-			_ = h.rt.EnqueueErrorOccurrence(r.Context(), occ)
-			// regression detection / lifecycle will be added next (issues_state).
-		}
-
-		n++
 	}
-
 	if err := sc.Err(); err != nil && err != io.EOF {
-		http.Error(w, "bad request body", http.StatusBadRequest)
+		metrics.IngestRequests.Inc("ingest", "400")
+		http.Error(w, "bad request body: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	metrics.IngestBytes.Add(float64(rawBytes), t.ProjectID, "ingest")
+	metrics.IngestRequests.Inc("ingest", "202")
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_, _ = w.Write([]byte(`{"accepted":` + itoa(n) + `}`))
+	resp := map[string]any{"accepted": accepted, "rejected": rejected}
+	if dropped > 0 {
+		resp["dropped"] = outcomes
+	}
+	if len(errs) > 0 {
+		resp["errors"] = errs
+	}
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func maybeGzipBody(r *http.Request) (io.Reader, io.Closer, error) {
@@ -171,17 +134,10 @@ func maybeGzipBody(r *http.Request) (io.Reader, io.Closer, error) {
 	return r.Body, nil, nil
 }
 
-func itoa(n int) string {
-	// tiny local helper to avoid pulling in strconv everywhere; ok for this one spot.
-	if n == 0 {
-		return "0"
+// secretEqual compares secrets in constant time; an empty configured secret never matches.
+func secretEqual(provided, configured string) bool {
+	if configured == "" || provided == "" {
+		return false
 	}
-	var b [32]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(configured)) == 1
 }

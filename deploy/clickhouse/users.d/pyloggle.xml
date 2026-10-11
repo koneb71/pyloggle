@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!--
+  Pyloggle query limits, applied to the default profile (the pyloggle user created by the
+  image's CLICKHOUSE_USER/CLICKHOUSE_PASSWORD env vars inherits it).
+  Mounted by deploy/docker-compose.yml at /etc/clickhouse-server/users.d/pyloggle.xml.
+-->
+<clickhouse>
+    <profiles>
+        <default>
+            <!-- Two threads per query keeps the UI responsive on a 2-vCPU box. -->
+            <max_threads>2</max_threads>
+            <!-- A single query may use at most 800 MB; large GROUP BYs spill to disk after 300 MB. -->
+            <max_memory_usage>800000000</max_memory_usage>
+            <max_bytes_before_external_group_by>300000000</max_bytes_before_external_group_by>
+            <max_bytes_before_external_sort>300000000</max_bytes_before_external_sort>
+            <!-- No UI query should run longer than 30 s; ingest batches are small inserts. -->
+            <max_execution_time>30</max_execution_time>
+            <!-- Each insert of a batch creates one part per partition; async_insert is not needed
+                 because ingestd already batches. -->
+            <async_insert>0</async_insert>
+            <!-- Cheaper reads for the log explorer's keyset pagination. -->
+            <optimize_read_in_order>1</optimize_read_in_order>
+            <log_queries>1</log_queries>
+            <log_query_threads>0</log_query_threads>
+        </default>
+    </profiles>
+</clickhouse>

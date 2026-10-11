@@ -145,5 +145,3 @@ func (c *Client) DashboardsChangedAt(ctx context.Context, projectID, service, en
 	}
 	return maxTS, nil
 }
-
-

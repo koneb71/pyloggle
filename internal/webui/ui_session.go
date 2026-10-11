@@ -14,12 +14,12 @@ import (
 )
 
 const (
-	uiSessionCookieName   = "pyloggle_ui_session"
-	uiOAuthStateCookie    = "pyloggle_ui_oauth"
-	uiSessionMaxAge       = 60 * 60 * 8 // 8h
-	uiOAuthStateMaxAge    = 60 * 10     // 10m
-	uiCookieTokenVersion  = "v1"
-	uiCookieTokenParts    = 3
+	uiSessionCookieName  = "pyloggle_ui_session"
+	uiOAuthStateCookie   = "pyloggle_ui_oauth"
+	uiSessionMaxAge      = 60 * 60 * 8 // 8h
+	uiOAuthStateMaxAge   = 60 * 10     // 10m
+	uiCookieTokenVersion = "v1"
+	uiCookieTokenParts   = 3
 )
 
 type uiSessionClaims struct {
@@ -48,7 +48,7 @@ func uiUserFromContext(ctx context.Context) (uiSessionClaims, bool) {
 func (u *UI) uiSecret() ([]byte, error) {
 	raw := strings.TrimSpace(u.cfg.UISessionSecret)
 	if raw == "" {
-		return nil, errors.New("PYLOGGLE_UI_SESSION_SECRET is required when PYLOGGLE_UI_AUTH=azure")
+		return nil, errors.New("PYLOGGLE_UI_SESSION_SECRET is required when PYLOGGLE_UI_AUTH is azure or oidc")
 	}
 	// Support raw secrets and base64 secrets (common for env vars).
 	if b, err := base64.StdEncoding.DecodeString(raw); err == nil && len(b) >= 16 {
@@ -174,5 +174,3 @@ func (u *UI) getUISession(r *http.Request) (uiSessionClaims, bool) {
 	}
 	return claims, true
 }
-
-

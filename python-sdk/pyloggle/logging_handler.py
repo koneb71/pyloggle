@@ -2,38 +2,88 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from typing import Any, Dict, Optional, Sequence
 
-from .client import Client
-from .context import get_request_id, get_trace_id, ensure_request_id, get_user_id_hash
-from .stack import exception_to_payload
+from . import scope as _scope
+from .client import Client, normalize_level
+from .context import ensure_request_id, get_request_id, get_trace_id, get_user_id_hash
+from .stack import captured_event_id, exception_to_payload, mark_captured
+
+# LogRecord attributes that are not user-supplied `extra=` fields.
+_STD_RECORD_ATTRS = frozenset(
+    {
+        "name", "msg", "args", "levelname", "levelno", "pathname", "filename", "module", "exc_info", "exc_text",
+        "stack_info", "lineno", "funcName", "created", "msecs", "relativeCreated", "thread", "threadName",
+        "processName", "process", "message", "asctime", "taskName",
+    }
+)
+
+
+def _iso(created: float) -> str:
+    return _scope._iso(created)
 
 
 class PyloggleHandler(logging.Handler):
+    """stdlib logging handler: every record becomes a log event; records with exc_info become
+    error events with the structured traceback, unless the exception was already reported by an
+    integration (then the line is kept but flagged as a duplicate so no second issue is created).
+    Records below ERROR are also kept as breadcrumbs for later error events."""
+
     def __init__(self, client: Client):
         super().__init__()
         self.client = client
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            cfg = getattr(self.client, "config", None)
             ensure_request_id()
+            level = normalize_level(record.levelname)
+            attrs: Dict[str, Any] = {}
+            for k, v in record.__dict__.items():
+                if k in _STD_RECORD_ATTRS or k.startswith("_"):
+                    continue
+                attrs[k] = v
+            if record.pathname:
+                attrs["code.filepath"] = record.pathname
+            if record.funcName:
+                attrs["code.function"] = record.funcName
+            if record.lineno:
+                attrs["code.lineno"] = record.lineno
+            if record.stack_info:
+                attrs["stack_info"] = record.stack_info
+
             ev: Dict[str, Any] = {
-                "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(record.created)),
-                "level": record.levelname.lower(),
+                "ts": _iso(record.created),
+                "level": level,
                 "logger": record.name,
                 "message": record.getMessage(),
                 "request_id": get_request_id() or "",
                 "trace_id": get_trace_id() or "",
-                "attrs": {},
+                "attrs": attrs,
             }
 
             user_id_hash = get_user_id_hash() or ""
             if user_id_hash:
                 ev["user"] = {"id_hash": user_id_hash}
 
-            if record.exc_info and record.exc_info[1]:
-                ev["exception"] = exception_to_payload(record.exc_info[1])
-                ev["level"] = "error"
+            exc = record.exc_info[1] if record.exc_info and len(record.exc_info) > 1 else None
+            if exc is not None:
+                prior = captured_event_id(exc)
+                if prior:
+                    ev["skip_issue"] = True
+                    attrs["pyloggle.duplicate_of"] = prior
+                else:
+                    ev["event_id"] = uuid.uuid4().hex
+                    ev["exception"] = exception_to_payload(exc, config=cfg)
+                    ev["mechanism"] = {"type": "logging", "handled": True}
+                    if level not in ("error", "fatal"):
+                        ev["level"] = "error"
+                    mark_captured(exc, ev["event_id"])
+            elif record.levelno < logging.ERROR and int(getattr(cfg, "max_breadcrumbs", 50) or 0) > 0:
+                _scope.add_breadcrumb(
+                    record.getMessage(), category=record.name, level=level, type="log", ts=record.created
+                )
 
             self.client.emit(ev)
         except Exception:
@@ -50,6 +100,10 @@ DEFAULT_FRAMEWORK_LOGGER_NAMES: tuple[str, ...] = (
     "uvicorn",
     "uvicorn.error",
     "uvicorn.access",
+    # Django (django.request carries the "Internal Server Error" lines)
+    "django",
+    "django.request",
+    "django.server",
 )
 
 
@@ -115,4 +169,3 @@ def install_pyloggle_logging(
             _ensure_pyloggle_handler(lg, handler)
         except Exception:
             continue
-

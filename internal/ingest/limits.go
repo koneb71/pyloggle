@@ -27,34 +27,49 @@ func newLimiter(cfg config.Config) *limiter {
 	}
 }
 
-// shouldDrop returns true if the event should be dropped to protect ingest resources.
+// outcome applies the rate limit and sampling to a non-error event. Errors are always kept.
 // rateLimitRPS/burst are per (project, service) and typically come from the projects table.
-func (l *limiter) shouldDrop(ev model.Event, rateLimitRPS float64, rateLimitBurst float64) bool {
+func (l *limiter) outcome(ev model.Event, rateLimitRPS float64, rateLimitBurst float64) Outcome {
 	if isErrorEvent(ev) {
-		return false
+		return Accepted
 	}
 
 	// Rate limit first (cheap, deterministic)
 	if rateLimitRPS > 0 {
 		key := ev.ProjectID + "|" + ev.Service
 		if !l.take(key, rateLimitRPS, rateLimitBurst) {
-			return true
+			return DroppedRateLimit
 		}
 	}
 
 	// Then sample by level.
 	p := sampleProb(l.cfg, ev.Level)
 	if p >= 1 {
-		return false
+		return Accepted
 	}
 	if p <= 0 {
-		return true
+		return DroppedSampled
 	}
 
-	// Deterministic-ish sampling per (message, logger) to reduce flapping
-	seed := stableHash64(ev.Logger + "\n" + ev.Message + "\n" + ev.Level)
+	// Deterministic sampling. Seeding by request id keeps every line of a kept request
+	// together; without one, the (logger, message, level) triple decides so a given line
+	// does not flap in and out.
+	var seed uint64
+	if l.cfg.SampleByRequest && ev.RequestID != "" {
+		seed = stableHash64("req\n" + ev.RequestID)
+	} else {
+		seed = stableHash64(ev.Logger + "\n" + ev.Message + "\n" + ev.Level)
+	}
 	r := rand.New(rand.NewSource(int64(seed))).Float64()
-	return r > p
+	if r > p {
+		return DroppedSampled
+	}
+	return Accepted
+}
+
+// shouldDrop is kept for callers that only need a boolean.
+func (l *limiter) shouldDrop(ev model.Event, rateLimitRPS float64, rateLimitBurst float64) bool {
+	return l.outcome(ev, rateLimitRPS, rateLimitBurst) != Accepted
 }
 
 func (l *limiter) take(key string, rateLimitRPS float64, rateLimitBurst float64) bool {
@@ -90,7 +105,7 @@ func sampleProb(cfg config.Config, level string) float64 {
 		return cfg.SampleInfo
 	case "warn", "warning":
 		return cfg.SampleWarn
-	case "error":
+	case "error", "fatal", "critical":
 		return 1
 	default:
 		// unknown -> treat as info
@@ -99,10 +114,7 @@ func sampleProb(cfg config.Config, level string) float64 {
 }
 
 func isErrorEvent(ev model.Event) bool {
-	if ev.Exception != nil {
-		return true
-	}
-	return strings.EqualFold(ev.Level, "error")
+	return ev.Exception != nil || model.IsErrorLevel(ev.Level)
 }
 
 func stableHash64(s string) uint64 {
@@ -136,5 +148,3 @@ func (b *tokenBucket) take(now time.Time) bool {
 	}
 	return false
 }
-
-

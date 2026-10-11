@@ -1,0 +1,91 @@
+<?xml version="1.0"?>
+<!--
+  Pyloggle server overrides for ClickHouse 24.3 (merged over the image's config.xml).
+  Goal: a small, predictable footprint for a logs + errors workload on a single node.
+  Mounted by deploy/docker-compose.yml at /etc/clickhouse-server/config.d/pyloggle.xml.
+  See docs/footprint.md for what each knob costs and how to change it.
+-->
+<clickhouse>
+    <!-- Only warnings and errors in the server log; the UI reads nothing from it. -->
+    <logger>
+        <level>warning</level>
+        <size>50M</size>
+        <count>3</count>
+    </logger>
+
+    <!-- Memory: cap the server at 75% of the container limit (mem_limit in compose) instead of
+         the default 90% of the host's RAM, and keep the caches small (defaults: 5 GB mark cache). -->
+    <max_server_memory_usage>0</max_server_memory_usage>
+    <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
+    <mark_cache_size>134217728</mark_cache_size>
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+    <index_mark_cache_size>33554432</index_mark_cache_size>
+    <index_uncompressed_cache_size>0</index_uncompressed_cache_size>
+    <mmap_cache_size>100</mmap_cache_size>
+    <compiled_expression_cache_size>16777216</compiled_expression_cache_size>
+    <compiled_expression_cache_elements_size>1000</compiled_expression_cache_elements_size>
+    <mlock_executable>false</mlock_executable>
+
+    <!-- Concurrency: the UI issues a handful of queries per page; ingest uses one connection. -->
+    <max_connections>256</max_connections>
+    <max_concurrent_queries>16</max_concurrent_queries>
+    <max_thread_pool_size>500</max_thread_pool_size>
+
+    <!-- Background work: daily partitions + TTL drops mean merges are light; two merge threads
+         are plenty for a few thousand events per second. -->
+    <background_pool_size>2</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+    <background_move_pool_size>1</background_move_pool_size>
+    <background_fetches_pool_size>1</background_fetches_pool_size>
+    <background_common_pool_size>2</background_common_pool_size>
+    <background_schedule_pool_size>8</background_schedule_pool_size>
+    <background_message_broker_schedule_pool_size>1</background_message_broker_schedule_pool_size>
+    <background_distributed_schedule_pool_size>1</background_distributed_schedule_pool_size>
+    <background_buffer_flush_schedule_pool_size>1</background_buffer_flush_schedule_pool_size>
+
+    <!-- Metrics collectors: once every 10 s is enough for a single node. -->
+    <asynchronous_metrics_update_period_s>10</asynchronous_metrics_update_period_s>
+    <asynchronous_heavy_metrics_update_period_s>300</asynchronous_heavy_metrics_update_period_s>
+
+    <!-- Expired partitions are dropped whole instead of being rewritten by merges. -->
+    <merge_tree>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
+        <merge_with_ttl_timeout>3600</merge_with_ttl_timeout>
+        <max_bytes_to_merge_at_max_space_in_pool>5368709120</max_bytes_to_merge_at_max_space_in_pool>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>1</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+        <number_of_free_entries_in_pool_to_execute_mutation>1</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>1</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    </merge_tree>
+
+    <!-- Protocols nothing here uses. -->
+    <mysql_port remove="remove"/>
+    <postgresql_port remove="remove"/>
+    <interserver_http_port remove="remove"/>
+
+    <!-- System log tables: keep a 3-day query log for troubleshooting, drop the rest. Each of
+         these is otherwise a MergeTree table that grows forever and costs a background flush. -->
+    <query_log replace="replace">
+        <database>system</database>
+        <table>query_log</table>
+        <engine>ENGINE = MergeTree PARTITION BY toYYYYMM(event_date) ORDER BY (event_date, event_time) TTL event_date + INTERVAL 3 DAY DELETE SETTINGS ttl_only_drop_parts = 1</engine>
+        <flush_interval_milliseconds>15000</flush_interval_milliseconds>
+    </query_log>
+    <query_thread_log remove="remove"/>
+    <query_views_log remove="remove"/>
+    <part_log remove="remove"/>
+    <trace_log remove="remove"/>
+    <text_log remove="remove"/>
+    <metric_log remove="remove"/>
+    <asynchronous_metric_log remove="remove"/>
+    <opentelemetry_span_log remove="remove"/>
+    <crash_log remove="remove"/>
+    <session_log remove="remove"/>
+    <processors_profile_log remove="remove"/>
+    <zookeeper_log remove="remove"/>
+    <filesystem_cache_log remove="remove"/>
+    <filesystem_read_prefetches_log remove="remove"/>
+    <asynchronous_insert_log remove="remove"/>
+    <backup_log remove="remove"/>
+    <s3queue_log remove="remove"/>
+    <blob_storage_log remove="remove"/>
+</clickhouse>

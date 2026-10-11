@@ -217,6 +217,22 @@ func renderPlain(ev AlertEvent) string {
 		for _, s := range ev.Spikes {
 			b.WriteString(fmt.Sprintf("- %s: %s (cur=%d prev=%d delta=%d)\n", s.IssueID, s.Title, s.CurCount, s.PrevCount, s.Delta))
 		}
+	case "new_issue":
+		b.WriteString("New issues:\n")
+		for _, is := range ev.Issues {
+			b.WriteString(fmt.Sprintf("- %s (%s) x%d %s\n", is.Title, is.Culprit, is.Count, is.URL))
+		}
+	case "regression":
+		b.WriteString("Regressed issues (resolved, now back):\n")
+		for _, is := range ev.Issues {
+			b.WriteString(fmt.Sprintf("- %s (%s) x%d %s\n", is.Title, is.Culprit, is.Count, is.URL))
+		}
+	case "log_query":
+		b.WriteString(fmt.Sprintf("Query: %s\n", ev.Rule.Query))
+		b.WriteString(fmt.Sprintf("Matched: %d lines (%s %.0f)\n", ev.Count, comparisonSymbol(ev.Rule.Comparison), ev.Rule.Threshold))
+	}
+	if ev.URL != "" {
+		b.WriteString("\nOpen: " + ev.URL + "\n")
 	}
 	return b.String()
 }
@@ -238,5 +254,3 @@ func safe(s string) string {
 	}
 	return s
 }
-
-

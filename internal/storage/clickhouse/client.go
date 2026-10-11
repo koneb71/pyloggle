@@ -2,14 +2,11 @@ package clickhouse
 
 import (
 	"context"
-	"errors"
-	"sync"
+	"encoding/json"
 	"time"
-	"strings"
 
 	ch "github.com/ClickHouse/clickhouse-go/v2"
 
-	"pyloggle/internal/api"
 	"pyloggle/internal/issue"
 	"pyloggle/internal/model"
 )
@@ -18,14 +15,35 @@ import (
 type Client struct {
 	conn ch.Conn
 
-	logCh chan model.Event
-	errCh chan issue.ErrorOccurrence
+	logs   *batcher[model.Event]
+	errs   *batcher[issue.ErrorOccurrence]
+	spans  *batcher[model.Span]
+	points *batcher[model.MetricPoint]
 
 	batchSize    int
 	batchTimeout time.Duration
+	queueSize    int
+}
 
-	wg   sync.WaitGroup
-	stop chan struct{}
+// Stats reports batching health for /healthz?verbose=1 and the System page. The four legacy
+// counters stay for compatibility; Queues carries every write queue.
+type Stats struct {
+	DroppedLogs   uint64         `json:"dropped_logs"`
+	DroppedErrors uint64         `json:"dropped_errors"`
+	QueuedLogs    int            `json:"queued_logs"`
+	QueuedErrors  int            `json:"queued_errors"`
+	Queues        []BatcherStats `json:"queues"`
+}
+
+func (c *Client) Stats() Stats {
+	ls, es, ss, ps := c.logs.stats(), c.errs.stats(), c.spans.stats(), c.points.stats()
+	return Stats{
+		DroppedLogs:   ls.Dropped,
+		DroppedErrors: es.Dropped,
+		QueuedLogs:    ls.Depth,
+		QueuedErrors:  es.Depth,
+		Queues:        []BatcherStats{ls, es, ss, ps},
+	}
 }
 
 func New(dsn string, maxQueueSize int, batchSize int, batchTimeout time.Duration) (*Client, error) {
@@ -67,178 +85,95 @@ func New(dsn string, maxQueueSize int, batchSize int, batchTimeout time.Duration
 		batchTimeout = 5 * time.Second
 	}
 
-	c := &Client{
-		conn:         conn,
-		logCh:        make(chan model.Event, maxQueueSize),
-		errCh:        make(chan issue.ErrorOccurrence, maxQueueSize),
-		batchSize:    batchSize,
-		batchTimeout: batchTimeout,
-		stop:         make(chan struct{}),
-	}
-
-	c.wg.Add(2)
-	go c.runLogs()
-	go c.runErrors()
-
+	c := &Client{conn: conn, batchSize: batchSize, batchTimeout: batchTimeout, queueSize: maxQueueSize}
+	c.logs = newBatcher("logs", maxQueueSize, batchSize, batchTimeout, c.flushLogs)
+	c.errs = newBatcher("errors", maxQueueSize, batchSize, batchTimeout, c.flushErrors)
+	c.spans = newBatcher("spans", maxQueueSize*4, batchSize*4, batchTimeout, c.flushSpans)
+	c.points = newBatcher("metrics", maxQueueSize*4, batchSize*4, batchTimeout, c.flushPoints)
 	return c, nil
 }
 
+func (c *Client) batchers() []interface{ close() } {
+	return []interface{ close() }{c.logs, c.errs, c.spans, c.points}
+}
+
 func (c *Client) Close() error {
-	select {
-	case <-c.stop:
-		// already closed
-	default:
-		close(c.stop)
+	for _, b := range c.batchers() {
+		b.close()
 	}
-	c.wg.Wait()
 	return c.conn.Close()
 }
 
-type LogRow struct {
-	TS        time.Time
-	Service   string
-	Env       string
-	Level     string
-	Logger    string
-	Message   string
-	TraceID   string
-	SpanID    string
-	RequestID string
-	ProjectID string
-	Attrs     map[string]string
-}
-
+// InsertLog enqueues a log row. Non-error rows never block; errors wait briefly.
 func (c *Client) InsertLog(ctx context.Context, ev model.Event) error {
-	// Never block request handling for non-error logs.
-	select {
-	case c.logCh <- ev:
-		return nil
-	default:
-		// Keep errors even if queue is full (best effort).
-		if ev.Exception != nil || strings.EqualFold(ev.Level, "error") {
-			t := time.NewTimer(250 * time.Millisecond)
-			defer t.Stop()
-			select {
-			case c.logCh <- ev:
-				return nil
-			case <-t.C:
-				return errors.New("log queue full")
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
-		return nil
+	wait := time.Duration(0)
+	if ev.IsError() {
+		wait = 250 * time.Millisecond
 	}
+	err := c.logs.enqueue(ctx, ev, wait)
+	if err == errQueueFull && !ev.IsError() {
+		return nil // low-signal rows are dropped silently (counted in stats)
+	}
+	return err
 }
 
+// InsertErrorOccurrence enqueues an occurrence; errors are high-signal so we allow brief blocking.
 func (c *Client) InsertErrorOccurrence(ctx context.Context, occ issue.ErrorOccurrence) error {
-	// Errors are high-signal; we allow brief blocking to avoid dropping.
-	select {
-	case c.errCh <- occ:
-		return nil
-	default:
-		t := time.NewTimer(750 * time.Millisecond)
-		defer t.Stop()
-		select {
-		case c.errCh <- occ:
-			return nil
-		case <-t.C:
-			return errors.New("error queue full")
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+	return c.errs.enqueue(ctx, occ, 750*time.Millisecond)
 }
 
-func (c *Client) runLogs() {
-	defer c.wg.Done()
-
-	t := time.NewTimer(c.batchTimeout)
-	defer t.Stop()
-
-	buf := make([]model.Event, 0, c.batchSize)
-	flush := func() {
-		if len(buf) == 0 {
-			return
-		}
-		_ = c.flushLogs(buf)
-		buf = buf[:0]
-	}
-
-	for {
-		select {
-		case <-c.stop:
-			flush()
-			return
-		case ev := <-c.logCh:
-			buf = append(buf, ev)
-			if len(buf) >= c.batchSize {
-				flush()
-				resetTimer(t, c.batchTimeout)
-			}
-		case <-t.C:
-			flush()
-			resetTimer(t, c.batchTimeout)
-		}
-	}
+// EnqueueLog / EnqueueErrorOccurrence make *Client usable directly as an ingest sink.
+func (c *Client) EnqueueLog(ctx context.Context, ev model.Event) error {
+	return c.InsertLog(ctx, ev)
 }
 
-func (c *Client) runErrors() {
-	defer c.wg.Done()
-
-	t := time.NewTimer(c.batchTimeout)
-	defer t.Stop()
-
-	buf := make([]issue.ErrorOccurrence, 0, c.batchSize)
-	flush := func() {
-		if len(buf) == 0 {
-			return
-		}
-		_ = c.flushErrors(buf)
-		buf = buf[:0]
-	}
-
-	for {
-		select {
-		case <-c.stop:
-			flush()
-			return
-		case occ := <-c.errCh:
-			buf = append(buf, occ)
-			if len(buf) >= c.batchSize {
-				flush()
-				resetTimer(t, c.batchTimeout)
-			}
-		case <-t.C:
-			flush()
-			resetTimer(t, c.batchTimeout)
-		}
-	}
+func (c *Client) EnqueueErrorOccurrence(ctx context.Context, occ issue.ErrorOccurrence) error {
+	return c.InsertErrorOccurrence(ctx, occ)
 }
 
-func (c *Client) flushLogs(events []model.Event) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+// Flush writes everything queued so far and waits for it (tests, graceful shutdown).
+func (c *Client) Flush(ctx context.Context) error {
+	if err := c.logs.flushNow(ctx); err != nil {
+		return err
+	}
+	if err := c.errs.flushNow(ctx); err != nil {
+		return err
+	}
+	if err := c.spans.flushNow(ctx); err != nil {
+		return err
+	}
+	return c.points.flushNow(ctx)
+}
 
+func (c *Client) flushLogs(ctx context.Context, events []model.Event) error {
 	batch, err := c.conn.PrepareBatch(ctx, `
 		INSERT INTO logs_raw (
-			ts, service, env, level, logger, message,
-			trace_id, span_id, request_id, project_id,
-			http_remote_addr, http_server_addr,
-			attrs
+			ts, event_id, project_id, service, env, level, logger, message,
+			trace_id, span_id, request_id, issue_id, release, hostname, source,
+			http_method, http_route, http_status, http_url, http_remote_addr, http_server_addr,
+			duration_ms, user_id_hash, exception_type, attrs, tags
 		)
 	`)
 	if err != nil {
 		return err
 	}
 	for _, ev := range events {
-		var httpRemoteAddr, httpServerAddr string
+		var h model.HTTPInfo
 		if ev.HTTP != nil {
-			httpRemoteAddr = ev.HTTP.RemoteAddr
-			httpServerAddr = ev.HTTP.ServerAddr
+			h = *ev.HTTP
 		}
+		var userHash, excType string
+		if ev.User != nil {
+			userHash = ev.User.IDHash
+		}
+		if ev.Exception != nil {
+			excType = ev.Exception.Type
+		}
+		issueID := ev.Attrs.Get("pyloggle.issue_id")
 		if err := batch.Append(
 			ev.Timestamp.UTC(),
+			ev.EventID,
+			ev.ProjectID,
 			ev.Service,
 			ev.Env,
 			ev.Level,
@@ -247,10 +182,21 @@ func (c *Client) flushLogs(events []model.Event) error {
 			ev.TraceID,
 			ev.SpanID,
 			ev.RequestID,
-			ev.ProjectID,
-			httpRemoteAddr,
-			httpServerAddr,
-			ev.Attrs,
+			issueID,
+			ev.Release,
+			ev.Hostname,
+			ev.Source,
+			h.Method,
+			h.Route,
+			h.Status,
+			h.URL,
+			h.RemoteAddr,
+			h.ServerAddr,
+			float32(ev.DurationMS),
+			userHash,
+			excType,
+			nonNilMap(ev.Attrs),
+			nonNilMap(ev.Tags),
 		); err != nil {
 			_ = batch.Abort()
 			return err
@@ -259,18 +205,20 @@ func (c *Client) flushLogs(events []model.Event) error {
 	return batch.Send()
 }
 
-func (c *Client) flushErrors(occs []issue.ErrorOccurrence) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+func (c *Client) flushErrors(ctx context.Context, occs []issue.ErrorOccurrence) error {
 	batch, err := c.conn.PrepareBatch(ctx, `
 		INSERT INTO error_occurrences (
-			ts, issue_id, service, env, project_id,
-			exception_type, exception_message, stack_fingerprint, title,
-			stack_frames,
+			ts, event_id, project_id, service, env, issue_id,
+			level, logger, message,
+			exception_type, exception_module, exception_message, stack_fingerprint, fingerprint_version, title, culprit,
+			stack_frames, frames_json, chain_json, notes, breadcrumbs_json,
 			trace_id, span_id, request_id,
-			http_method, http_route, http_status, http_user_agent, http_remote_addr, http_server_addr,
-			user_id_hash, attrs
+			http_method, http_route, http_status, http_url, http_query, http_headers, http_body,
+			http_user_agent, http_remote_addr, http_server_addr, http_client_ip,
+			user_id_hash, user_id, user_email, user_username, user_ip,
+			release, hostname, runtime_name, runtime_version, runtime_platform, runtime_pid, runtime_thread,
+			sdk_name, sdk_version, source, mechanism_type, mechanism_handled,
+			tags, attrs, extra_json
 		)
 	`)
 	if err != nil {
@@ -288,29 +236,70 @@ func (c *Client) flushErrors(occs []issue.ErrorOccurrence) error {
 				"is_in_app": fr.IsInApp,
 			})
 		}
-
+		handled := uint8(1)
+		if !occ.MechanismHandled {
+			handled = 0
+		}
+		notes := occ.Notes
+		if notes == nil {
+			notes = []string{}
+		}
 		if err := batch.Append(
 			occ.TS.UTC(),
-			occ.IssueID,
+			occ.EventID,
+			occ.ProjectID,
 			occ.Service,
 			occ.Env,
-			occ.ProjectID,
+			occ.IssueID,
+			occ.Level,
+			occ.Logger,
+			occ.Message,
 			occ.ExceptionType,
+			occ.ExceptionModule,
 			occ.ExceptionMessage,
 			occ.StackFingerprint,
+			occ.FingerprintVersion,
 			occ.Title,
+			occ.Culprit,
 			stackFrames,
+			jsonOrEmpty(occ.Frames),
+			jsonOrEmpty(occ.Chain),
+			notes,
+			jsonOrEmpty(occ.Breadcrumbs),
 			occ.TraceID,
 			occ.SpanID,
 			occ.RequestID,
-			occ.HTTPMethod,
-			occ.HTTPRoute,
-			occ.HTTPStatus,
-			occ.HTTPUserAgent,
-			occ.HTTPRemoteAddr,
-			occ.HTTPServerAddr,
-			occ.UserIDHash,
-			occ.Attrs,
+			occ.HTTP.Method,
+			occ.HTTP.Route,
+			occ.HTTP.Status,
+			occ.HTTP.URL,
+			occ.HTTP.Query,
+			nonNilMap(occ.HTTP.Headers),
+			string(occ.HTTP.Body),
+			occ.HTTP.UserAgent,
+			occ.HTTP.RemoteAddr,
+			occ.HTTP.ServerAddr,
+			occ.HTTP.ClientIP,
+			occ.User.IDHash,
+			occ.User.ID,
+			occ.User.Email,
+			occ.User.Username,
+			occ.User.IP,
+			occ.Release,
+			occ.Hostname,
+			occ.Runtime.Name,
+			occ.Runtime.Version,
+			occ.Runtime.Platform,
+			uint32(occ.Runtime.PID),
+			occ.Runtime.Thread,
+			occ.SDK.Name,
+			occ.SDK.Version,
+			occ.Source,
+			occ.MechanismType,
+			handled,
+			nonNilMap(occ.Tags),
+			nonNilMap(occ.Attrs),
+			occ.Extra,
 		); err != nil {
 			_ = batch.Abort()
 			return err
@@ -320,14 +309,34 @@ func (c *Client) flushErrors(occs []issue.ErrorOccurrence) error {
 	return batch.Send()
 }
 
-func resetTimer(t *time.Timer, d time.Duration) {
-	if !t.Stop() {
-		select {
-		case <-t.C:
-		default:
+func nonNilMap(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
+}
+
+// jsonOrEmpty serializes v, or returns "" for nil/empty slices so the column stays small.
+func jsonOrEmpty(v any) string {
+	switch x := v.(type) {
+	case []model.Frame:
+		if len(x) == 0 {
+			return ""
+		}
+	case []model.ChainedException:
+		if len(x) == 0 {
+			return ""
+		}
+	case []model.Breadcrumb:
+		if len(x) == 0 {
+			return ""
 		}
 	}
-	t.Reset(d)
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 type ProjectRow struct {
@@ -335,369 +344,6 @@ type ProjectRow struct {
 	Name            string `ch:"name"`
 	MaxEventsPerSec uint32 `ch:"max_events_per_second"`
 	MaxStorageGB    uint32 `ch:"max_storage_gb"`
+	RetentionDays   uint16 `ch:"retention_days"`
 	APIKeyHash      string `ch:"api_key_hash"`
 }
-
-func (c *Client) GetProjectByAPIKeyHash(ctx context.Context, apiKeyHash string) (ProjectRow, bool, error) {
-	if apiKeyHash == "" {
-		return ProjectRow{}, false, nil
-	}
-	// projects is append-only; always select the latest version per id so rotated keys
-	// invalidate old keys.
-	// Note: ClickHouse can reject argMax(...) usage directly in HAVING (ILLEGAL_AGGREGATION) in some versions.
-	// Use a subquery and filter on the computed value instead.
-	q := `
-		SELECT
-			id, name, max_events_per_second, max_storage_gb, api_key_hash
-		FROM (
-			SELECT
-				id,
-				argMax(name, updated_at) as name,
-				argMax(max_events_per_second, updated_at) as max_events_per_second,
-				argMax(max_storage_gb, updated_at) as max_storage_gb,
-				argMax(api_key_hash, updated_at) as api_key_hash
-			FROM projects
-			GROUP BY id
-		)
-		WHERE api_key_hash = ?
-		LIMIT 1
-	`
-	var rows []ProjectRow
-	if err := c.conn.Select(ctx, &rows, q, apiKeyHash); err != nil {
-		return ProjectRow{}, false, err
-	}
-	if len(rows) == 0 {
-		return ProjectRow{}, false, nil
-	}
-	return rows[0], true, nil
-}
-
-type issueSummaryRow struct {
-	IssueID          string    `ch:"issue_id"`
-	Service          string    `ch:"service"`
-	Env              string    `ch:"env"`
-	ProjectID        string    `ch:"project_id"`
-	Title            string    `ch:"title"`
-	Status           string    `ch:"status"`
-	StatusUpdatedAt  time.Time `ch:"status_updated_at"`
-	FirstSeen        time.Time `ch:"first_seen"`
-	LastSeen         time.Time `ch:"last_seen"`
-	OccurrenceCount  uint64    `ch:"occurrence_count"`
-	AffectedUsers    uint32    `ch:"affected_users"`
-	ExceptionType    string    `ch:"exception_type"`
-	StackFingerprint string    `ch:"stack_fingerprint"`
-	TopFilename      string    `ch:"top_frame_filename"`
-	TopLineno        uint32    `ch:"top_frame_lineno"`
-	TopFunction      string    `ch:"top_frame_function"`
-}
-
-func (c *Client) GetIssueSummary(ctx context.Context, projectID, issueID string) (api.IssueSummary, bool, error) {
-	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(issueID) == "" {
-		return api.IssueSummary{}, false, errors.New("missing project_id/issue_id")
-	}
-
-	q := `
-		SELECT
-			s.issue_id,
-			s.service,
-			s.env,
-			s.project_id,
-			s.title,
-			coalesce(st.status, 'open') as status,
-			coalesce(st.updated_at, toDateTime64(0, 3, 'UTC')) as status_updated_at,
-			s.first_seen,
-			s.last_seen,
-			s.occurrence_count,
-			s.affected_users,
-			s.exception_type,
-			s.stack_fingerprint,
-			s.top_frame_filename,
-			s.top_frame_lineno,
-			s.top_frame_function
-		FROM issues_stats s
-		LEFT JOIN (
-			SELECT
-				project_id, service, env, issue_id,
-				argMax(status, ist.updated_at) as status,
-				max(ist.updated_at) as updated_at
-			FROM issues_state AS ist
-			GROUP BY project_id, service, env, issue_id
-		) st
-		ON st.project_id = s.project_id
-		AND st.service = s.service
-		AND st.env = s.env
-		AND st.issue_id = s.issue_id
-		WHERE s.project_id = ?
-		AND s.issue_id = ?
-		ORDER BY s.last_seen DESC
-		LIMIT 1
-	`
-
-	rows := make([]issueSummaryRow, 0, 1)
-	if err := c.conn.Select(ctx, &rows, q, projectID, issueID); err != nil {
-		return api.IssueSummary{}, false, err
-	}
-	if len(rows) == 0 {
-		return api.IssueSummary{}, false, nil
-	}
-
-	r := rows[0]
-	isRegressed := false
-	// Compute regression: if the issue is marked resolved but we have new occurrences after status_updated_at.
-	if strings.EqualFold(r.Status, "resolved") && r.LastSeen.After(r.StatusUpdatedAt) {
-		isRegressed = true
-	}
-
-	return api.IssueSummary{
-		IssueID:          r.IssueID,
-		Service:          r.Service,
-		Env:              r.Env,
-		ProjectID:        r.ProjectID,
-		Title:            r.Title,
-		Status:           r.Status,
-		IsRegressed:      isRegressed,
-		StatusUpdatedAt:  r.StatusUpdatedAt,
-		FirstSeen:        r.FirstSeen,
-		LastSeen:         r.LastSeen,
-		OccurrenceCount:  r.OccurrenceCount,
-		AffectedUsers:    r.AffectedUsers,
-		ExceptionType:    r.ExceptionType,
-		TopFilename:      r.TopFilename,
-		TopLineno:        r.TopLineno,
-		TopFunction:      r.TopFunction,
-		StackFingerprint: r.StackFingerprint,
-	}, true, nil
-}
-
-func (c *Client) ListIssues(ctx context.Context, projectID, service, env string, from, to time.Time, limit int) ([]api.IssueSummary, error) {
-	if strings.TrimSpace(projectID) == "" {
-		return nil, errors.New("missing project_id")
-	}
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
-	}
-
-	q := `
-		SELECT
-			s.issue_id,
-			s.service,
-			s.env,
-			s.project_id,
-			s.title,
-			coalesce(st.status, 'open') as status,
-			coalesce(st.updated_at, toDateTime64(0, 3, 'UTC')) as status_updated_at,
-			s.first_seen,
-			s.last_seen,
-			s.occurrence_count,
-			s.affected_users,
-			s.exception_type,
-			s.stack_fingerprint,
-			s.top_frame_filename,
-			s.top_frame_lineno,
-			s.top_frame_function
-		FROM issues_stats s
-		LEFT JOIN (
-			SELECT
-				project_id, service, env, issue_id,
-				argMax(status, ist.updated_at) as status,
-				max(ist.updated_at) as updated_at
-			FROM issues_state AS ist
-			GROUP BY project_id, service, env, issue_id
-		) st
-		ON st.project_id = s.project_id
-		AND st.service = s.service
-		AND st.env = s.env
-		AND st.issue_id = s.issue_id
-		WHERE s.project_id = ?
-	`
-
-	rows := make([]issueSummaryRow, 0, limit)
-	args := make([]any, 0, 6)
-	args = append(args, projectID)
-	if service != "" {
-		q += " AND s.service = ?\n"
-		args = append(args, service)
-	}
-	if env != "" {
-		q += " AND s.env = ?\n"
-		args = append(args, env)
-	}
-	if !from.IsZero() {
-		q += " AND s.last_seen >= ?\n"
-		args = append(args, from.UTC())
-	}
-	if !to.IsZero() {
-		q += " AND s.last_seen < ?\n"
-		args = append(args, to.UTC())
-	}
-	q += " ORDER BY s.last_seen DESC\n LIMIT ?\n"
-	args = append(args, limit)
-
-	if err := c.conn.Select(ctx, &rows, q, args...); err != nil {
-		return nil, err
-	}
-
-	out := make([]api.IssueSummary, 0, len(rows))
-	for _, r := range rows {
-		isRegressed := false
-		// Compute regression: if the issue is marked resolved but we have new occurrences after status_updated_at.
-		if strings.EqualFold(r.Status, "resolved") && r.LastSeen.After(r.StatusUpdatedAt) {
-			isRegressed = true
-		}
-		out = append(out, api.IssueSummary{
-			IssueID:          r.IssueID,
-			Service:          r.Service,
-			Env:              r.Env,
-			ProjectID:        r.ProjectID,
-			Title:            r.Title,
-			Status:           r.Status,
-			IsRegressed:      isRegressed,
-			StatusUpdatedAt:  r.StatusUpdatedAt,
-			FirstSeen:        r.FirstSeen,
-			LastSeen:         r.LastSeen,
-			OccurrenceCount:  r.OccurrenceCount,
-			AffectedUsers:    r.AffectedUsers,
-			ExceptionType:    r.ExceptionType,
-			TopFilename:      r.TopFilename,
-			TopLineno:        r.TopLineno,
-			TopFunction:      r.TopFunction,
-			StackFingerprint: r.StackFingerprint,
-		})
-	}
-	return out, nil
-}
-
-func (c *Client) UpsertIssueState(ctx context.Context, projectID, service, env, issueID, status, updatedBy, comment string) error {
-	now := time.Now().UTC()
-	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(service) == "" || strings.TrimSpace(env) == "" || strings.TrimSpace(issueID) == "" {
-		return errors.New("missing project_id/service/env/issue_id")
-	}
-	if status == "" {
-		status = "open"
-	}
-	batch, err := c.conn.PrepareBatch(ctx, `
-		INSERT INTO issues_state (
-			issue_id, service, env, project_id,
-			status, is_regressed, regressed_from,
-			updated_at, updated_by, comment
-		)
-	`)
-	if err != nil {
-		return err
-	}
-	if err := batch.Append(
-		issueID,
-		service,
-		env,
-		projectID,
-		status,
-		uint8(0),
-		"",
-		now,
-		updatedBy,
-		comment,
-	); err != nil {
-		_ = batch.Abort()
-		return err
-	}
-	return batch.Send()
-}
-
-type occurrenceRow struct {
-	TS              time.Time         `ch:"ts"`
-	IssueID          string            `ch:"issue_id"`
-	Service          string            `ch:"service"`
-	Env              string            `ch:"env"`
-	ProjectID        string            `ch:"project_id"`
-	Title            string            `ch:"title"`
-	ExceptionType    string            `ch:"exception_type"`
-	ExceptionMessage string            `ch:"exception_message"`
-	StackFingerprint string            `ch:"stack_fingerprint"`
-	StackFrames      []map[string]any  `ch:"stack_frames"`
-	TraceID          string            `ch:"trace_id"`
-	RequestID        string            `ch:"request_id"`
-	HTTPMethod       string            `ch:"http_method"`
-	HTTPRoute        string            `ch:"http_route"`
-	HTTPStatus       uint16            `ch:"http_status"`
-	UserIDHash       string            `ch:"user_id_hash"`
-	Attrs            map[string]string `ch:"attrs"`
-}
-
-func (c *Client) ListIssueOccurrences(ctx context.Context, projectID, issueID string, from, to time.Time, limit int) ([]api.ErrorOccurrence, error) {
-	if strings.TrimSpace(projectID) == "" || strings.TrimSpace(issueID) == "" {
-		return nil, errors.New("missing project_id/issue_id")
-	}
-	if limit <= 0 {
-		limit = 50
-	}
-	if limit > 200 {
-		limit = 200
-	}
-
-	q := `
-		SELECT
-			ts, issue_id, service, env, project_id,
-			title, exception_type, exception_message, stack_fingerprint,
-			stack_frames,
-			trace_id, request_id,
-			http_method, http_route, http_status,
-			user_id_hash, attrs
-		FROM error_occurrences
-		WHERE project_id = ?
-		  AND issue_id = ?
-	`
-	args := make([]any, 0, 5)
-	args = append(args, projectID, issueID)
-	if !from.IsZero() {
-		q += " AND ts >= ?\n"
-		args = append(args, from.UTC())
-	}
-	if !to.IsZero() {
-		q += " AND ts < ?\n"
-		args = append(args, to.UTC())
-	}
-	q += " ORDER BY ts DESC\n LIMIT ?\n"
-	args = append(args, limit)
-
-	rows := make([]occurrenceRow, 0, limit)
-	if err := c.conn.Select(ctx, &rows, q, args...); err != nil {
-		return nil, err
-	}
-
-	out := make([]api.ErrorOccurrence, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, api.ErrorOccurrence{
-			TS:              r.TS,
-			IssueID:         r.IssueID,
-			Service:         r.Service,
-			Env:             r.Env,
-			ProjectID:       r.ProjectID,
-			Title:           r.Title,
-			ExceptionType:   r.ExceptionType,
-			ExceptionMessage:r.ExceptionMessage,
-			StackFingerprint:r.StackFingerprint,
-			StackFrames:     r.StackFrames,
-			TraceID:         r.TraceID,
-			RequestID:       r.RequestID,
-			HTTPMethod:      r.HTTPMethod,
-			HTTPRoute:       r.HTTPRoute,
-			HTTPStatus:      r.HTTPStatus,
-			UserIDHash:      r.UserIDHash,
-			Attrs:           r.Attrs,
-		})
-	}
-	return out, nil
-}
-
-func optionalEq(name, v string) string {
-	if v == "" {
-		return ""
-	}
-	// parameter still passed, query references it only when non-empty
-	return " AND " + name + " = {" + name + ":String}\n"
-}
-
-

@@ -1,27 +1,16 @@
-import os
+"""Flask app instrumented with pyloggle: request scope, unhandled exceptions (once), logs."""
+import logging
 
 from flask import Flask
 
-from pyloggle import Client, ClientConfig
+import pyloggle
 from pyloggle.flask import init_app
 
-import logging
-
-app = Flask(__name__)
-
-# Ensure INFO-level application logs are emitted (Pyloggle's handler doesn't change levels).
 logging.basicConfig(level=logging.INFO)
 
-client = Client(
-    ClientConfig(
-        ingest_url=os.getenv("PYLOGGLE_INGEST_URL", "http://localhost:8080/v1/ingest"),
-        api_key=os.getenv("PYLOGGLE_API_KEY") or os.getenv("PYLOGGLE_TOKEN"),
-        service="example-flask",
-        env="dev",
-        project_id=os.getenv("PYLOGGLE_PROJECT_ID", "default"),
-    )
-)
+client = pyloggle.init(service="example-flask", env="dev", emit_request_latency=True)
 
+app = Flask(__name__)
 init_app(app, client)
 
 
@@ -33,11 +22,13 @@ def hello():
 
 @app.get("/boom")
 def boom():
-    logging.getLogger(__name__).warning("about to raise from flask")
-    raise RuntimeError("boom from flask")
+    pyloggle.add_breadcrumb("about to fail", category="demo")
+    logging.getLogger(__name__).warning("about to raise")
+    try:
+        {}["missing"]
+    except KeyError as exc:
+        raise RuntimeError("boom from flask") from exc
 
 
 if __name__ == "__main__":
-    app.run(port=5050, debug=True)
-
-
+    app.run(host="127.0.0.1", port=5050, debug=False)
