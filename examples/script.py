@@ -1,34 +1,37 @@
+"""Plain script: one call to init(), then every log line, breadcrumb and uncaught exception
+reaches pyloggle. Set PYLOGGLE_INGEST_URL / PYLOGGLE_API_KEY (and optionally
+PYLOGGLE_PROJECT_ID, PYLOGGLE_ENV, PYLOGGLE_RELEASE) in the environment."""
 import logging
-import os
 
-from pyloggle import Client, ClientConfig
-from pyloggle.logging_handler import PyloggleHandler
+import pyloggle
+
+pyloggle.init(service="example-script", env="dev")
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("example")
+
+pyloggle.set_tag("job", "nightly-report")
+pyloggle.set_user({"id": "user-123"})  # hashed; raw ids/emails only with send_default_pii=True
+
+
+def load_orders(path):
+    log.info("loading orders from %s", path)
+    pyloggle.add_breadcrumb("opening file", category="io", data={"path": path})
+    raise FileNotFoundError(path)
 
 
 def main():
-    client = Client(
-        ClientConfig(
-            ingest_url=os.getenv("PYLOGGLE_INGEST_URL", "http://localhost:8080/v1/ingest"),
-            api_key=os.getenv("PYLOGGLE_API_KEY") or os.getenv("PYLOGGLE_TOKEN"),
-            service="example-script",
-            env="dev",
-            project_id=os.getenv("PYLOGGLE_PROJECT_ID", "default"),
-        )
-    )
-
-    logger = logging.getLogger("example")
-    logger.setLevel(logging.INFO)
-    logger.addHandler(PyloggleHandler(client))
-
+    log.info("starting")
     try:
         1 / 0
-    except Exception:
-        logger.exception("boom from script")
-
-    client.flush()
+    except ZeroDivisionError:
+        log.exception("division failed (reported via logging)")
+    try:
+        load_orders("/tmp/orders.csv")
+    except FileNotFoundError as exc:
+        pyloggle.capture_exception(exc, tags={"stage": "load"})
+    # An uncaught exception is reported by the installed excepthook and flushed before exit.
+    raise RuntimeError("boom from script (uncaught)")
 
 
 if __name__ == "__main__":
     main()
-
-

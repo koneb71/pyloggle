@@ -11,23 +11,38 @@ type Config struct {
 	ClickHouseDSN string
 	Port          string
 
-	// UI auth mode for the server-rendered UI under /ui/.
+	// UI auth mode for the single-page app under /ui/.
 	// Values:
-	// - "azure" (default): enforce UI auth via Azure OIDC session cookies
+	// - "azure" (default): Microsoft Entra ID single-tenant login (an OIDC preset)
+	// - "oidc": any OpenID Connect provider (PYLOGGLE_OIDC_*)
 	// - "disabled": bypass UI auth checks (intended for local dev)
 	UIAuthMode string
 
-	// Azure UI auth (single-tenant; OIDC v2 endpoints).
-	// Required when UIAuthMode == "azure".
+	// Azure preset (single-tenant; OIDC v2 endpoints). Required when UIAuthMode == "azure".
 	AzureTenantID     string
 	AzureClientID     string
 	AzureClientSecret string
 	// Optional. If empty, derived from the request (scheme+host+"/ui/oauth2/callback").
 	AzureRedirectURL string
 
-	// Required when UIAuthMode == "azure".
-	// Used to sign UI cookies (session + transient oauth state).
+	// Generic OIDC (PYLOGGLE_OIDC_*). Required when UIAuthMode == "oidc": the issuer serves
+	// /.well-known/openid-configuration; client id + secret identify this app.
+	OIDCIssuer         string
+	OIDCClientID       string
+	OIDCClientSecret   string
+	OIDCScopes         string   // default "openid profile email"
+	OIDCRedirectURL    string   // optional, derived from the request when empty
+	OIDCDisplayName    string   // login button label, e.g. "Okta"
+	OIDCAllowedDomains []string // optional e-mail domain allow-list
+	OIDCAllowedEmails  []string // optional e-mail allow-list
+
+	// Required when UI auth is on (azure or oidc). Used to sign UI cookies (session + transient
+	// oauth state).
 	UISessionSecret string
+
+	// Optional allowlist (emails, UPNs or subject ids) for project/alert mutations in Azure mode.
+	// Empty keeps the historical behavior: any signed-in user may manage projects.
+	UIAdmins []string
 
 	// WebUI live refresh polling interval (HTMX). Used by results containers via hx-trigger="every Ns".
 	// Set via PYLOGGLE_UI_POLL_SECONDS. Defaults to 2.
@@ -46,15 +61,46 @@ type Config struct {
 	DefaultProjID     string
 
 	// Rate limiting (per project+service) and sampling (non-errors only).
-	RateLimitRPS   float64
-	RateLimitBurst float64
-	SampleDebug    float64
-	SampleInfo     float64
-	SampleWarn     float64
+	RateLimitRPS    float64
+	RateLimitBurst  float64
+	SampleDebug     float64
+	SampleInfo      float64
+	SampleWarn      float64
+	SampleByRequest bool // seed sampling by request_id so a kept request keeps all its lines
+
+	// Schema management and retention.
+	AutoMigrate          bool // apply embedded migrations at startup
+	MigrateRebuild       bool // v2 upgrade: rebuild event tables with daily partitions (copies the retention window)
+	RetentionLogsDays    int
+	RetentionErrorsDays  int
+	RetentionStatsDays   int
+	RetentionSpansDays   int
+	RetentionMetricsDays int
+
+	// OTLP ingestion. OTLPStoreSpans keeps every span in the spans table (7-day TTL by default);
+	// OTLPStoreServerSpans also stores OK server spans as "request" log rows so the explorer,
+	// analytics and request stats see OTLP traffic like SDK traffic.
+	OTLPStoreSpans       bool
+	OTLPStoreServerSpans bool
+	OTLPStoreMetrics     bool // keep OTLP metric points (30-day TTL by default)
+
+	// PublicURL is the externally reachable base URL (for links in alerts), e.g. https://logs.example.com
+	PublicURL string
+
+	// ExportMaxRows caps one CSV/NDJSON export (PYLOGGLE_EXPORT_MAX_ROWS, default 100000).
+	ExportMaxRows int
+
+	// MetricsToken, when set, is the bearer token GET /metrics requires (PYLOGGLE_METRICS_TOKEN).
+	MetricsToken string
 
 	// Alerting (optional)
 	AlertingEnabled      bool
 	AlertingPollInterval time.Duration
+	// Evaluation windows end this long before "now" so batches still in flight are not counted
+	// as missing (absence monitors) or under-counted (threshold monitors).
+	AlertingEvalDelay time.Duration
+	// Slack incoming webhook used when a rule lists the "slack" channel without its own URLs.
+	AlertSlackWebhookURL string
 
 	// Email notifier (SMTP). If SMTPHost is empty, email notifications are disabled.
 	SMTPHost     string
@@ -68,46 +114,73 @@ type Config struct {
 	AlertWebhookTimeout time.Duration
 
 	// Telegram notifier (Bot API). If AlertTelegramBotToken is empty, Telegram notifications are disabled.
-	AlertTelegramBotToken string
-	AlertTelegramTimeout  time.Duration
+	AlertTelegramBotToken  string
+	AlertTelegramTimeout   time.Duration
 	AlertTelegramParseMode string // optional: MarkdownV2 | HTML
 }
 
 func FromEnv() Config {
 	uiAuthMode := strings.ToLower(strings.TrimSpace(getenv("PYLOGGLE_UI_AUTH", "azure")))
-	if uiAuthMode != "azure" && uiAuthMode != "disabled" {
+	if uiAuthMode != "azure" && uiAuthMode != "disabled" && uiAuthMode != "oidc" {
 		uiAuthMode = "azure"
 	}
 
 	return Config{
-		ClickHouseDSN:     getenv("CLICKHOUSE_DSN", "clickhouse://localhost:9000/pyloggle?dial_timeout=10s&read_timeout=20s"),
-		Port:              getenv("INGEST_PORT", "8080"),
-		UIAuthMode:        uiAuthMode,
-		AzureTenantID:     strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_TENANT_ID")),
-		AzureClientID:     strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_CLIENT_ID")),
-		AzureClientSecret: os.Getenv("PYLOGGLE_AZURE_CLIENT_SECRET"),
-		AzureRedirectURL:  strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_REDIRECT_URL")),
-		UISessionSecret:   os.Getenv("PYLOGGLE_UI_SESSION_SECRET"),
-		UIPollSeconds:     getenvInt("PYLOGGLE_UI_POLL_SECONDS", 2),
-		MaxQueueSize:      getenvInt("INGEST_MAX_QUEUE_SIZE", 10000),
-		MaxStreams:        getenvInt("INGEST_MAX_STREAMS", 200),
-		MaxQueuePerStream: getenvInt("INGEST_MAX_QUEUE_PER_STREAM", 2000),
-		BatchSize:         getenvInt("INGEST_BATCH_SIZE", 500),
-		BatchTimeout:      getenvDuration("INGEST_BATCH_TIMEOUT", 5*time.Second),
-		SharedSecret:      os.Getenv("INGEST_SHARED_SECRET"),
-		AdminToken:        os.Getenv("PYLOGGLE_ADMIN_TOKEN"),
-		DefaultEnv:        getenv("PYLOGGLE_DEFAULT_ENV", "prod"),
-		DefaultSvc:        getenv("PYLOGGLE_DEFAULT_SERVICE", "unknown"),
-		DefaultProjID:     getenv("PYLOGGLE_DEFAULT_PROJECT_ID", "default"),
+		ClickHouseDSN:      getenv("CLICKHOUSE_DSN", "clickhouse://localhost:9000/pyloggle?dial_timeout=10s&read_timeout=20s"),
+		Port:               getenv("INGEST_PORT", "8080"),
+		UIAuthMode:         uiAuthMode,
+		AzureTenantID:      strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_TENANT_ID")),
+		AzureClientID:      strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_CLIENT_ID")),
+		AzureClientSecret:  os.Getenv("PYLOGGLE_AZURE_CLIENT_SECRET"),
+		AzureRedirectURL:   strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_REDIRECT_URL")),
+		OIDCIssuer:         strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_OIDC_ISSUER")), "/"),
+		OIDCClientID:       strings.TrimSpace(os.Getenv("PYLOGGLE_OIDC_CLIENT_ID")),
+		OIDCClientSecret:   os.Getenv("PYLOGGLE_OIDC_CLIENT_SECRET"),
+		OIDCScopes:         getenv("PYLOGGLE_OIDC_SCOPES", "openid profile email"),
+		OIDCRedirectURL:    strings.TrimSpace(os.Getenv("PYLOGGLE_OIDC_REDIRECT_URL")),
+		OIDCDisplayName:    strings.TrimSpace(os.Getenv("PYLOGGLE_OIDC_DISPLAY_NAME")),
+		OIDCAllowedDomains: splitList(os.Getenv("PYLOGGLE_OIDC_ALLOWED_DOMAINS")),
+		OIDCAllowedEmails:  splitList(os.Getenv("PYLOGGLE_OIDC_ALLOWED_EMAILS")),
+		UISessionSecret:    os.Getenv("PYLOGGLE_UI_SESSION_SECRET"),
+		UIAdmins:           splitList(os.Getenv("PYLOGGLE_UI_ADMINS")),
+		UIPollSeconds:      getenvInt("PYLOGGLE_UI_POLL_SECONDS", 2),
+		MaxQueueSize:       getenvInt("INGEST_MAX_QUEUE_SIZE", 10000),
+		MaxStreams:         getenvInt("INGEST_MAX_STREAMS", 200),
+		MaxQueuePerStream:  getenvInt("INGEST_MAX_QUEUE_PER_STREAM", 2000),
+		BatchSize:          getenvInt("INGEST_BATCH_SIZE", 500),
+		BatchTimeout:       getenvDuration("INGEST_BATCH_TIMEOUT", 5*time.Second),
+		SharedSecret:       os.Getenv("INGEST_SHARED_SECRET"),
+		AdminToken:         os.Getenv("PYLOGGLE_ADMIN_TOKEN"),
+		DefaultEnv:         getenv("PYLOGGLE_DEFAULT_ENV", "prod"),
+		DefaultSvc:         getenv("PYLOGGLE_DEFAULT_SERVICE", "unknown"),
+		DefaultProjID:      getenv("PYLOGGLE_DEFAULT_PROJECT_ID", "default"),
 
-		RateLimitRPS:   getenvFloat("INGEST_RATE_LIMIT_RPS", 2000),   // per service by default
-		RateLimitBurst: getenvFloat("INGEST_RATE_LIMIT_BURST", 4000), // allow bursts
-		SampleDebug:    getenvFloat("INGEST_SAMPLE_DEBUG", 0.05),
-		SampleInfo:     getenvFloat("INGEST_SAMPLE_INFO", 0.20),
-		SampleWarn:     getenvFloat("INGEST_SAMPLE_WARN", 1.00),
+		RateLimitRPS:    getenvFloat("INGEST_RATE_LIMIT_RPS", 2000),   // per service by default
+		RateLimitBurst:  getenvFloat("INGEST_RATE_LIMIT_BURST", 4000), // allow bursts
+		SampleDebug:     getenvFloat("INGEST_SAMPLE_DEBUG", 0.10),
+		SampleInfo:      getenvFloat("INGEST_SAMPLE_INFO", 1.00), // a log explorer must show the INFO lines people search for
+		SampleWarn:      getenvFloat("INGEST_SAMPLE_WARN", 1.00),
+		SampleByRequest: getenvBool("INGEST_SAMPLE_BY_REQUEST", true),
+
+		AutoMigrate:          getenvBool("PYLOGGLE_AUTO_MIGRATE", true),
+		MigrateRebuild:       getenvBool("PYLOGGLE_MIGRATE_REBUILD", true),
+		RetentionLogsDays:    getenvInt("PYLOGGLE_RETENTION_LOGS_DAYS", 30),
+		RetentionErrorsDays:  getenvInt("PYLOGGLE_RETENTION_ERRORS_DAYS", 30),
+		RetentionStatsDays:   getenvInt("PYLOGGLE_RETENTION_STATS_DAYS", 365),
+		RetentionSpansDays:   getenvInt("PYLOGGLE_RETENTION_SPANS_DAYS", 7),
+		RetentionMetricsDays: getenvInt("PYLOGGLE_RETENTION_METRICS_DAYS", 30),
+
+		OTLPStoreSpans:       getenvBool("OTLP_STORE_SPANS", true),
+		OTLPStoreServerSpans: getenvBool("OTLP_STORE_SERVER_SPANS", true),
+		OTLPStoreMetrics:     getenvBool("OTLP_STORE_METRICS", true),
+		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_PUBLIC_URL")), "/"),
+		ExportMaxRows:        getenvInt("PYLOGGLE_EXPORT_MAX_ROWS", 100000),
+		MetricsToken:         strings.TrimSpace(os.Getenv("PYLOGGLE_METRICS_TOKEN")),
 
 		AlertingEnabled:      getenvBool("ALERTING_ENABLED", false),
 		AlertingPollInterval: getenvDuration("ALERTING_POLL_INTERVAL", 30*time.Second),
+		AlertingEvalDelay:    getenvDuration("ALERTING_EVAL_DELAY", 30*time.Second),
+		AlertSlackWebhookURL: strings.TrimSpace(os.Getenv("ALERT_SLACK_WEBHOOK_URL")),
 
 		SMTPHost:     os.Getenv("ALERT_SMTP_HOST"),
 		SMTPPort:     getenvInt("ALERT_SMTP_PORT", 587),
@@ -118,10 +191,20 @@ func FromEnv() Config {
 
 		AlertWebhookTimeout: getenvDuration("ALERT_WEBHOOK_TIMEOUT", 5*time.Second),
 
-		AlertTelegramBotToken: os.Getenv("ALERT_TELEGRAM_BOT_TOKEN"),
-		AlertTelegramTimeout:  getenvDuration("ALERT_TELEGRAM_TIMEOUT", 5*time.Second),
+		AlertTelegramBotToken:  os.Getenv("ALERT_TELEGRAM_BOT_TOKEN"),
+		AlertTelegramTimeout:   getenvDuration("ALERT_TELEGRAM_TIMEOUT", 5*time.Second),
 		AlertTelegramParseMode: os.Getenv("ALERT_TELEGRAM_PARSE_MODE"),
 	}
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func getenv(k, def string) string {
@@ -169,3 +252,48 @@ func getenvBool(k string, def bool) bool {
 	}
 	return def
 }
+
+// OIDCSettings are the effective OpenID Connect parameters for the configured UI auth mode.
+type OIDCSettings struct {
+	Mode           string // azure | oidc | disabled
+	Issuer         string
+	ClientID       string
+	ClientSecret   string
+	Scopes         string
+	RedirectURL    string
+	DisplayName    string
+	AllowedDomains []string
+	AllowedEmails  []string
+	// Azure is the preset: fixed endpoints, tenant check, object id as subject.
+	Azure       bool
+	AzureTenant string
+}
+
+// OIDC resolves the login settings: the Azure preset derives its issuer from the tenant and
+// reuses the PYLOGGLE_AZURE_* values; "oidc" reads PYLOGGLE_OIDC_*.
+func (c Config) OIDC() OIDCSettings {
+	mode := strings.ToLower(strings.TrimSpace(c.UIAuthMode))
+	switch mode {
+	case "azure":
+		tid := strings.TrimSpace(c.AzureTenantID)
+		return OIDCSettings{Mode: mode, Azure: true, AzureTenant: tid,
+			Issuer: "https://login.microsoftonline.com/" + tid + "/v2.0", ClientID: strings.TrimSpace(c.AzureClientID), ClientSecret: strings.TrimSpace(c.AzureClientSecret),
+			Scopes: "openid profile email", RedirectURL: strings.TrimSpace(c.AzureRedirectURL), DisplayName: "Microsoft",
+			AllowedDomains: c.OIDCAllowedDomains, AllowedEmails: c.OIDCAllowedEmails}
+	case "oidc":
+		name := c.OIDCDisplayName
+		if name == "" {
+			name = "SSO"
+		}
+		scopes := strings.TrimSpace(c.OIDCScopes)
+		if scopes == "" {
+			scopes = "openid profile email"
+		}
+		return OIDCSettings{Mode: mode, Issuer: c.OIDCIssuer, ClientID: c.OIDCClientID, ClientSecret: strings.TrimSpace(c.OIDCClientSecret), Scopes: scopes,
+			RedirectURL: c.OIDCRedirectURL, DisplayName: name, AllowedDomains: c.OIDCAllowedDomains, AllowedEmails: c.OIDCAllowedEmails}
+	}
+	return OIDCSettings{Mode: "disabled"}
+}
+
+// Enabled reports whether the UI requires a login session.
+func (o OIDCSettings) Enabled() bool { return o.Mode == "azure" || o.Mode == "oidc" }

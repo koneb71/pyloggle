@@ -2,15 +2,39 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Callable, Optional, Any
+import uuid
+from typing import Any, Callable, Optional
 
+from . import scope as _scope
+from ._request import begin_request, client_ip, end_request, headers_for_event
 from .client import Client
-from .context import ensure_request_id, set_request_id, set_user_id_hash, get_user_id_hash
-from .stack import exception_to_payload
+from .context import get_user_id_hash, set_request_id, set_user_id_hash
+from .otel import current_ids as _otel_ids
+from .otel import server_span_active as _otel_server_span_active
+from .stack import captured_event_id, exception_to_payload, mark_captured
 from .user import hash_user_id
 
 
+def telemetry(**overrides: Any) -> dict:
+    """The ``telemetry=`` dict for ``FastAPI(telemetry=...)`` (0.142+) when the SDK is also
+    installed: FastAPI keeps its request and operation spans and its HTTP metrics, the SDK owns
+    exceptions (``logs=False``, so a crash is one issue with locals and breadcrumbs, linked to
+    the native trace), and exporters still come from the environment
+    (``OTEL_EXPORTER_OTLP_ENDPOINT``, ``FASTAPI_OTEL_AUTO_CONFIGURE=true``).
+
+        app = FastAPI(telemetry=pyloggle.fastapi.telemetry(exclude=lambda s: s["path"] == "/health"))
+        app.add_middleware(PyloggleFastAPIMiddleware, client=client)
+    """
+    cfg: dict = {"logs": False}
+    cfg.update(overrides)
+    return cfg
+
+
 class PyloggleFastAPIMiddleware:
+    """Pure ASGI middleware (works with FastAPI, Starlette and any ASGI app): request scope,
+    unhandled-exception capture (exactly once per request), optional request timing, and the
+    asyncio exception hook for background tasks."""
+
     def __init__(
         self,
         app,
@@ -22,6 +46,7 @@ class PyloggleFastAPIMiddleware:
         self.app = app
         self.client = client
         self.user_id_getter = user_id_getter
+        self._asyncio_hooked = False
 
         if capture_logs:
             try:
@@ -35,26 +60,61 @@ class PyloggleFastAPIMiddleware:
         if scope.get("type") != "http":
             return await self.app(scope, receive, send)
 
+        if not self._asyncio_hooked and bool(getattr(self.client.config, "install_excepthooks", True)):
+            self._asyncio_hooked = True
+            try:
+                from . import hooks
+
+                hooks.install_asyncio_hook(None, client=self.client)
+            except Exception:
+                pass
+
+        headers = _headers_dict(scope)
         url = _pyloggle_get_full_url(scope)
         server_addr = _pyloggle_get_server_addr(scope)
+        remote = ""
+        client_addr = scope.get("client")
+        if client_addr and len(client_addr) >= 1:
+            remote = str(client_addr[0])
+        http_base = {
+            "method": scope.get("method", ""),
+            "route": _route_path(scope),
+            "url": url,
+            "user_agent": headers.get("user-agent", ""),
+            "remote_addr": remote,
+            "server_addr": server_addr,
+            "client_ip": client_ip(remote, headers, self.client.config),
+        }
+        qs = scope.get("query_string") or b""
+        try:
+            qs_str = qs if isinstance(qs, str) else bytes(qs).decode("latin1", errors="ignore")
+        except Exception:
+            qs_str = ""
+        if qs_str:
+            http_base["query"] = qs_str
 
-        # ensure request id for correlation
-        request_id = ensure_request_id()
+        token, request_id = begin_request(config=self.client.config, headers=headers, http=http_base)
         set_request_id(request_id)
+        otel_tid, otel_sid = _otel_ids()
+        if otel_tid:
+            # FastAPI's native telemetry (and the contrib instrumentation) opened the request
+            # span around the middleware stack: correlate with it, not with the upstream parent.
+            sc = _scope.effective_scope()
+            sc.trace_id, sc.span_id = otel_tid, otel_sid
+        # Decided now, while the span is recording: it ends with the last body chunk, before
+        # this call returns.
+        otel_server_span = _otel_server_span_active()
 
-        # Best-effort: set user id hash early for this request if the app provides a getter.
         if self.user_id_getter is not None:
             try:
                 uid = self.user_id_getter(scope)
                 set_user_id_hash(hash_user_id(uid, salt=self.client.config.user_id_salt))
             except Exception:
-                # never break the app due to identity extraction
                 pass
 
         start = time.perf_counter()
-        status_code = 500
+        status_code: Optional[int] = None
 
-        # Optional request body capture: wrap receive to buffer while replaying messages unchanged.
         body_buf: bytearray | None = None
         body_truncated = False
         max_body_bytes = 0
@@ -73,13 +133,12 @@ class PyloggleFastAPIMiddleware:
                         b = msg.get("body") or b""
                         if isinstance(b, bytearray):
                             b = bytes(b)
-                        if isinstance(b, (bytes,)):
-                            if b:
-                                remaining = max(0, max_body_bytes - len(body_buf))
-                                if remaining > 0:
-                                    body_buf.extend(b[:remaining])
-                                if len(b) > remaining:
-                                    body_truncated = True
+                        if isinstance(b, (bytes,)) and b:
+                            remaining = max(0, max_body_bytes - len(body_buf))
+                            if remaining > 0:
+                                body_buf.extend(b[:remaining])
+                            if len(b) > remaining:
+                                body_truncated = True
                     return msg
 
                 receive_to_app = receive_wrapper
@@ -97,105 +156,100 @@ class PyloggleFastAPIMiddleware:
         try:
             await self.app(scope, receive_to_app, send_wrapper)
         except Exception as exc:
-            route = _route_path(scope)
-            method = scope.get("method", "")
-            headers = _headers_dict(scope)
-            ua = headers.get("user-agent", "")
-            remote = ""
-            client_addr = scope.get("client")
-            if client_addr and len(client_addr) >= 1:
-                remote = str(client_addr[0])
-
-            user_id_hash = get_user_id_hash() or ""
-
-            attrs = {}
-            if bool(getattr(self.client.config, "emit_request_latency", False)):
-                attrs["latency_ms"] = str(int((time.perf_counter() - start) * 1000))
-
-            body_obj = None
-            if body_buf is not None and len(body_buf) > 0:
-                body_obj, body_truncated2 = _pyloggle_decode_request_body(scope, bytes(body_buf), body_truncated)
-                if body_truncated2:
-                    body_truncated = True
-            if body_truncated:
-                attrs["request_body_truncated"] = True
-
-            self.client.emit(
-                {
-                    "ts": _iso_now(),
-                    "level": "error",
-                    "logger": "pyloggle.fastapi",
-                    "message": str(exc),
-                    "request_id": request_id,
-                    "exception": exception_to_payload(exc),
-                    "http": {
-                        "method": method,
-                        "route": route,
-                        "status": 500,
-                        "url": url,
-                        "user_agent": ua,
-                        "remote_addr": remote,
-                        "server_addr": server_addr,
-                        **({"body": body_obj} if body_obj is not None else {}),
-                    },
-                    **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
-                    "attrs": attrs,
-                }
-            )
+            try:
+                self._capture(exc, scope, headers, http_base, status_code, start, body_buf, body_truncated, request_id)
+            except Exception:
+                pass
             raise
         else:
-            # Successful request completion. Optionally emit a per-request timing event.
-            if not bool(getattr(self.client.config, "emit_request_latency", False)):
-                return
+            if not bool(getattr(self.client.config, "emit_request_latency", False)) or otel_server_span:
+                return  # the server span already yields the request line
+            try:
+                final_status = int(status_code if status_code is not None else 500)
+                level = "info"
+                if final_status >= 500:
+                    level = "error"
+                elif final_status >= 400:
+                    level = "warn"
+                duration_ms = round((time.perf_counter() - start) * 1000, 2)
+                attrs: dict[str, Any] = {"latency_ms": str(int(duration_ms))}
+                http = dict(http_base)
+                http["route"] = _route_path(scope)  # the router fills scope["route"] after we started
+                http["status"] = final_status
+                if body_buf is not None and len(body_buf) > 0:
+                    body_obj, body_truncated2 = _pyloggle_decode_request_body(scope, bytes(body_buf), body_truncated)
+                    if body_truncated2:
+                        body_truncated = True
+                    if body_obj is not None:
+                        http["body"] = body_obj
+                if body_truncated:
+                    attrs["request_body_truncated"] = True
+                user_id_hash = get_user_id_hash() or ""
+                self.client.emit(
+                    {
+                        "ts": _iso_now(),
+                        "level": level,
+                        "logger": "pyloggle.fastapi",
+                        "message": "request",
+                        "request_id": request_id,
+                        "http": http,
+                        **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
+                        "duration_ms": duration_ms,
+                        "attrs": attrs,
+                    }
+                )
+            except Exception:
+                pass
+        finally:
+            end_request(token)
 
-            route = _route_path(scope)
-            method = scope.get("method", "")
-            headers = _headers_dict(scope)
-            ua = headers.get("user-agent", "")
-            remote = ""
-            client_addr = scope.get("client")
-            if client_addr and len(client_addr) >= 1:
-                remote = str(client_addr[0])
+    def _capture(self, exc, scope, headers, http_base, status_code, start, body_buf, body_truncated, request_id):
+        if captured_event_id(exc):
+            return
+        if bool(getattr(self.client.config, "otel_owns_exceptions", False)):
+            mark_captured(exc, "otel")  # the OTLP path reports it; log lines stay duplicates
+            return
+        attrs: dict[str, Any] = {}
+        duration_ms = None
+        if bool(getattr(self.client.config, "emit_request_latency", False)):
+            duration_ms = round((time.perf_counter() - start) * 1000, 2)
+            attrs["latency_ms"] = str(int(duration_ms))
+        http = dict(http_base)
+        http["route"] = _route_path(scope)
+        http["status"] = int(status_code) if status_code is not None else 500
+        hdrs = headers_for_event(headers, self.client.config)
+        if hdrs:
+            http["headers"] = hdrs
+        if body_buf is not None and len(body_buf) > 0:
+            body_obj, body_truncated2 = _pyloggle_decode_request_body(scope, bytes(body_buf), body_truncated)
+            if body_truncated2:
+                body_truncated = True
+            if body_obj is not None:
+                http["body"] = body_obj
+        if body_truncated:
+            attrs["request_body_truncated"] = True
+        user_id_hash = get_user_id_hash() or ""
+        event_id = uuid.uuid4().hex
+        ev = {
+            "event_id": event_id,
+            "ts": _iso_now(),
+            "level": "error",
+            "logger": "pyloggle.fastapi",
+            "message": str(exc) or type(exc).__name__,
+            "request_id": request_id,
+            "exception": exception_to_payload(exc, config=self.client.config),
+            "mechanism": {"type": "asgi", "handled": False},
+            "http": http,
+            **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
+            **({"duration_ms": duration_ms} if duration_ms is not None else {}),
+            "attrs": attrs,
+        }
+        mark_captured(exc, event_id)
+        self.client.emit(ev)
 
-            user_id_hash = get_user_id_hash() or ""
-            latency_ms = str(int((time.perf_counter() - start) * 1000))
 
-            level = "info"
-            if int(status_code) >= 500:
-                level = "error"
-            elif int(status_code) >= 400:
-                level = "warn"
-
-            attrs: dict[str, Any] = {"latency_ms": latency_ms}
-            body_obj = None
-            if body_buf is not None and len(body_buf) > 0:
-                body_obj, body_truncated2 = _pyloggle_decode_request_body(scope, bytes(body_buf), body_truncated)
-                if body_truncated2:
-                    body_truncated = True
-            if body_truncated:
-                attrs["request_body_truncated"] = True
-
-            self.client.emit(
-                {
-                    "ts": _iso_now(),
-                    "level": level,
-                    "logger": "pyloggle.fastapi",
-                    "message": "request",
-                    "request_id": request_id,
-                    "http": {
-                        "method": method,
-                        "route": route,
-                        "status": int(status_code),
-                        "url": url,
-                        "user_agent": ua,
-                        "remote_addr": remote,
-                        "server_addr": server_addr,
-                        **({"body": body_obj} if body_obj is not None else {}),
-                    },
-                    **({"user": {"id_hash": user_id_hash}} if user_id_hash else {}),
-                    "attrs": attrs,
-                }
-            )
+# Alias for non-FastAPI ASGI apps.
+PyloggleASGIMiddleware = PyloggleFastAPIMiddleware
 
 
 def _pyloggle_get_full_url(scope) -> str:
@@ -264,7 +318,6 @@ def _pyloggle_get_server_addr(scope) -> str:
     if not host_s:
         return ""
 
-    # Wrap IPv6 literals when attaching a port.
     def _wrap_ipv6(h: str) -> str:
         if ":" in h and not h.startswith("[") and not h.endswith("]"):
             return f"[{h}]"
@@ -326,7 +379,7 @@ def _route_path(scope) -> str:
 
 
 def _iso_now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    return _scope.iso_now()
 
 
 def _headers_dict(scope) -> dict[str, str]:
@@ -338,5 +391,3 @@ def _headers_dict(scope) -> dict[str, str]:
         except Exception:
             continue
     return out
-
-

@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -13,10 +14,32 @@ import (
 	"pyloggle/internal/auth"
 	"pyloggle/internal/config"
 	"pyloggle/internal/ingest"
+	"pyloggle/internal/metrics"
+	"pyloggle/internal/otlp"
 	"pyloggle/internal/storage/clickhouse"
+	"pyloggle/internal/sysinfo"
 	"pyloggle/internal/tenant"
+	"pyloggle/internal/timeparse"
 	"pyloggle/internal/webui"
 )
+
+// MetricsHandler serves the Prometheus text exposition; with a token it requires
+// "Authorization: Bearer <token>".
+func MetricsHandler(token string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token != "" {
+			auth := r.Header.Get("Authorization")
+			if len(auth) < 8 || !strings.EqualFold(auth[:7], "Bearer ") || subtle.ConstantTimeCompare([]byte(strings.TrimSpace(auth[7:])), []byte(token)) != 1 {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="pyloggle metrics"`)
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		metrics.Default.WriteText(w)
+	})
+}
 
 type Server struct {
 	cfg config.Config
@@ -31,8 +54,14 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 		mux: http.NewServeMux(),
 	}
 
-	ing := ingest.NewHandler(cfg, ch)
 	res := tenant.NewResolver(ch, 60*time.Second)
+	ing := ingest.NewHandler(cfg, ch, res)
+	startedAt := time.Now().UTC()
+	collector := sysinfo.New(ch, time.Minute)
+	go collector.Run(context.Background())
+
+	// Prometheus exposition for the process and the ClickHouse gauges the collector refreshes.
+	s.mux.Handle("GET /metrics", MetricsHandler(cfg.MetricsToken))
 
 	// Best-effort: auto-create the default project (unlimited limits) so single-tenant/UI fallback works
 	// even on a fresh database.
@@ -74,8 +103,22 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 	// Note: ingest handler supports both multi-tenant API keys and (optional) legacy shared secret.
 	s.mux.Handle("/v1/ingest", ing)
 
+	// OpenTelemetry door: OTLP/HTTP logs and traces through the same pipeline. The standard
+	// exporter paths (POST /v1/logs, /v1/traces, /v1/metrics) coexist with the GET query APIs.
+	otlpH := otlp.New(ing.Pipeline(), cfg)
+	for _, prefix := range []string{"/v1", "/v1/otlp/v1"} {
+		s.mux.Handle("POST "+prefix+"/logs", otlpH.Logs())
+		s.mux.Handle("POST "+prefix+"/traces", otlpH.Traces())
+		s.mux.Handle("POST "+prefix+"/metrics", otlpH.Metrics())
+	}
+
 	// Health
 	s.mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("verbose") != "" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "clickhouse": ch.Stats()})
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
 	})
@@ -500,8 +543,10 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 		})
 	})))
 
-	// Minimal Web UI (server-rendered)
-	s.mux.Handle("/ui/", webui.New(cfg, ch, res))
+	// Web UI + its JSON API (session cookies), mirrored under /v1/q/ for API-key clients.
+	ui := webui.New(cfg, ch, res, ing.Pipeline().States()).WithSystem(collector, startedAt)
+	s.mux.Handle("/ui/", ui)
+	s.mux.Handle("/v1/q/", ui.APIKeyAPIHandler())
 	s.mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
 	})
@@ -553,26 +598,8 @@ func parseBool(s string, def bool) bool {
 }
 
 func parseTime(s string) time.Time {
-	if strings.TrimSpace(s) == "" {
-		return time.Time{}
-	}
-	// unix seconds
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 && n < 1_000_000_000_000 {
-		// heuristic: treat as seconds when small, millis when larger
-		if n > 10_000_000_000 {
-			return time.UnixMilli(n).UTC()
-		}
-		return time.Unix(n, 0).UTC()
-	}
-	// RFC3339
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t.UTC()
-	}
-	// RFC3339Nano
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t.UTC()
-	}
-	return time.Time{}
+	t, _ := timeparse.Parse(s)
+	return t
 }
 
 func checkAdmin(adminToken string, r *http.Request) bool {
@@ -580,5 +607,5 @@ func checkAdmin(adminToken string, r *http.Request) bool {
 		return false
 	}
 	key := r.Header.Get("X-Admin-Token")
-	return key != "" && key == adminToken
+	return key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(adminToken)) == 1
 }

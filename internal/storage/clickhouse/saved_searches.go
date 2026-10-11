@@ -86,17 +86,19 @@ func (c *Client) ListSavedSearches(ctx context.Context, projectID, userID string
 		limit = 200
 	}
 
-	whereUser := ""
+	// Visibility is decided on the latest version of each row (the argMax aliases), so the
+	// filter belongs in HAVING, not WHERE: ClickHouse resolves "user_id" there to the aggregate.
+	havingUser := ""
 	args := make([]any, 0, 4)
 	args = append(args, projectID)
 	if userID != "" && includePublic {
-		whereUser = " AND (user_id = ? OR is_public = 1)\n"
+		havingUser = " AND (user_id = ? OR is_public = 1)\n"
 		args = append(args, userID)
 	} else if userID != "" {
-		whereUser = " AND user_id = ?\n"
+		havingUser = " AND user_id = ?\n"
 		args = append(args, userID)
 	} else if includePublic {
-		whereUser = " AND is_public = 1\n"
+		havingUser = " AND is_public = 1\n"
 	}
 
 	q := `
@@ -115,10 +117,9 @@ func (c *Client) ListSavedSearches(ctx context.Context, projectID, userID string
 			max(last_used_at) as last_used_at
 		FROM saved_searches AS s
 		WHERE project_id = ?
-		` + whereUser + `
 		GROUP BY project_id, id
 		HAVING is_deleted = 0
-		` + optionalPinnedHaving(onlyPinned) + `
+		` + havingUser + optionalPinnedHaving(onlyPinned) + `
 		ORDER BY is_pinned DESC, updated_at DESC
 		LIMIT ?
 	`
@@ -305,5 +306,3 @@ func optionalPinnedHaving(onlyPinned bool) string {
 	}
 	return " AND is_pinned = 1\n"
 }
-
-

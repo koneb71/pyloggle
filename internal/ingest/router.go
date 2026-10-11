@@ -8,6 +8,7 @@ import (
 
 	"pyloggle/internal/config"
 	"pyloggle/internal/issue"
+	"pyloggle/internal/metrics"
 	"pyloggle/internal/model"
 	"pyloggle/internal/storage/clickhouse"
 )
@@ -106,6 +107,17 @@ func (r *streamRouter) EnqueueErrorOccurrence(ctx context.Context, occ issue.Err
 	}
 }
 
+// EnqueueSpans hands spans straight to the client's own batcher: they arrive in bulk per
+// request and are never high-signal enough to need per-stream fairness.
+func (r *streamRouter) EnqueueSpans(ctx context.Context, spans []model.Span) error {
+	return r.ch.InsertSpans(ctx, spans)
+}
+
+// EnqueueMetricPoints hands metric points to the client's batcher, like spans.
+func (r *streamRouter) EnqueueMetricPoints(ctx context.Context, points []model.MetricPoint) error {
+	return r.ch.InsertMetricPoints(ctx, points)
+}
+
 // getStream returns the stream for (projectID, service). If stream capacity is exceeded,
 // returns the overflow stream, and overflowed=true.
 func (r *streamRouter) getStream(projectID, service string) (*stream, bool) {
@@ -122,11 +134,13 @@ func (r *streamRouter) getStream(projectID, service string) (*stream, bool) {
 	// Cap the number of streams to keep goroutines bounded.
 	if r.cfg.MaxStreams > 0 && len(r.streams) >= r.cfg.MaxStreams {
 		r.overflow.start(r)
+		metrics.StreamOverflow.Inc()
 		return r.overflow, true
 	}
 
 	s := r.newStreamLocked(key)
 	s.start(r)
+	metrics.StreamsActive.Set(float64(len(r.streams)))
 	return s, false
 }
 
