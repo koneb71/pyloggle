@@ -63,6 +63,9 @@ type Config struct {
 	// OTLP ingestion: store OK server spans as "request" log rows (off by default to limit volume).
 	OTLPStoreServerSpans bool
 
+	// PublicURL is the externally reachable base URL (for links in alerts), e.g. https://logs.example.com
+	PublicURL string
+
 	// Alerting (optional)
 	AlertingEnabled      bool
 	AlertingPollInterval time.Duration
@@ -125,6 +128,7 @@ func FromEnv() Config {
 		RetentionStatsDays:  getenvInt("PYLOGGLE_RETENTION_STATS_DAYS", 365),
 
 		OTLPStoreServerSpans: getenvBool("OTLP_STORE_SERVER_SPANS", false),
+		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_PUBLIC_URL")), "/"),
 
 		AlertingEnabled:      getenvBool("ALERTING_ENABLED", false),
 		AlertingPollInterval: getenvDuration("ALERTING_POLL_INTERVAL", 30*time.Second),
