@@ -1,16 +1,24 @@
-version: '3.8'
-
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.3-alpine
     container_name: pyloggle-clickhouse
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+      # Footprint tuning (memory caps, small caches, two merge threads, no unused system logs).
+      # See docs/footprint.md before changing these.
+      - ./clickhouse/config.d/pyloggle.xml:/etc/clickhouse-server/config.d/pyloggle.xml:ro
+      - ./clickhouse/users.d/pyloggle.xml:/etc/clickhouse-server/users.d/pyloggle.xml:ro
     environment:
       CLICKHOUSE_DB: pyloggle
       CLICKHOUSE_USER: pyloggle
       CLICKHOUSE_PASSWORD: pyloggle
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    # ClickHouse sizes its own memory cap from this limit (75% of it, see config.d).
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    cpus: 2
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
     healthcheck:
       # The schema is applied by ingestd at startup (embedded migrations); only wait for the server.
       test: ["CMD-SHELL", "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query \"SELECT 1\""]
@@ -34,14 +42,20 @@ services:
       # connections intermittently stall, while an established connection stays healthy.
       CLICKHOUSE_DSN: "clickhouse://pyloggle:pyloggle@clickhouse:9000/pyloggle?dial_timeout=30s&read_timeout=60s&compress=none&max_open_conns=1&max_idle_conns=1&conn_max_lifetime=0s"
       INGEST_PORT: "8080"
-      # Local dev: disable UI auth (bypasses Azure session enforcement).
+      # Local dev: disable UI auth (bypasses Azure session enforcement). See README for Azure.
       PYLOGGLE_UI_AUTH: "disabled"
       INGEST_MAX_QUEUE_SIZE: "10000"
       INGEST_BATCH_SIZE: "500"
       INGEST_BATCH_TIMEOUT: "5s"
-      # Retention (days). Expired partitions are dropped whole, which costs almost nothing.
+      # Retention (days). Expired daily partitions are dropped whole, which costs almost nothing.
       PYLOGGLE_RETENTION_LOGS_DAYS: "30"
       PYLOGGLE_RETENTION_ERRORS_DAYS: "30"
+      PYLOGGLE_RETENTION_STATS_DAYS: "365"
+      # Go's soft heap limit: the GC works harder before the container limit below is reached.
+      GOMEMLIMIT: "200MiB"
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: 1
     restart: unless-stopped
 
 volumes:
