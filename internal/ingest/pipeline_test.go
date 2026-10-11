@@ -21,10 +21,11 @@ import (
 )
 
 type memSink struct {
-	mu    sync.Mutex
-	logs  []model.Event
-	occs  []issue.ErrorOccurrence
-	spans []model.Span
+	mu     sync.Mutex
+	logs   []model.Event
+	occs   []issue.ErrorOccurrence
+	spans  []model.Span
+	points []model.MetricPoint
 }
 
 func (m *memSink) EnqueueLog(_ context.Context, ev model.Event) error {
@@ -44,6 +45,12 @@ func (m *memSink) EnqueueSpans(_ context.Context, spans []model.Span) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.spans = append(m.spans, spans...)
+	return nil
+}
+func (m *memSink) EnqueueMetricPoints(_ context.Context, points []model.MetricPoint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.points = append(m.points, points...)
 	return nil
 }
 

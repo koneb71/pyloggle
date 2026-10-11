@@ -183,6 +183,68 @@ var spansSpec = tableSpec{
 	Retention: func(o MigrateOptions) int { return o.RetentionSpansDays },
 }
 
+// metricsPointsSpec is the OTLP metrics table (0.3), created by 013_metrics and managed by
+// ApplyRetention like spans.
+var metricsPointsSpec = tableSpec{
+	Name: "metrics_points",
+	Columns: []column{
+		{"ts", "DateTime64(3, 'UTC') CODEC(DoubleDelta, ZSTD(1))"},
+		{"project_id", "String"},
+		{"service", "LowCardinality(String)"},
+		{"env", "LowCardinality(String)"},
+		{"name", "LowCardinality(String)"},
+		{"unit", "LowCardinality(String)"},
+		{"type", "Enum8('gauge' = 1, 'sum' = 2, 'histogram' = 3, 'summary' = 4)"},
+		{"monotonic", "UInt8"},
+		{"temporality", "Enum8('unspecified' = 0, 'delta' = 1, 'cumulative' = 2)"},
+		{"series_hash", "UInt64"},
+		{"attrs", "Map(String, String) CODEC(ZSTD(3))"},
+		{"value", "Float64 CODEC(Gorilla, ZSTD(1))"},
+		{"count", "UInt64 CODEC(T64, ZSTD(1))"},
+		{"sum", "Float64 CODEC(Gorilla, ZSTD(1))"},
+		{"bounds", "Array(Float64) CODEC(ZSTD(3))"},
+		{"bucket_counts", "Array(UInt64) CODEC(ZSTD(3))"},
+	},
+	OrderBy:   "(project_id, name, service, env, series_hash, ts)",
+	TTLColumn: "ts",
+	Retention: func(o MigrateOptions) int { return o.RetentionMetricsDays },
+}
+
+// metricsCatalogDDL keeps one row per (project, metric) for the picker; the view folds every
+// insert into it.
+var metricsCatalogDDL = []string{
+	`CREATE TABLE IF NOT EXISTS metrics_catalog (
+    project_id String,
+    name LowCardinality(String),
+    type Enum8('gauge' = 1, 'sum' = 2, 'histogram' = 3, 'summary' = 4),
+    unit LowCardinality(String),
+    monotonic UInt8,
+    temporality Enum8('unspecified' = 0, 'delta' = 1, 'cumulative' = 2),
+    last_seen DateTime('UTC')
+)
+ENGINE = ReplacingMergeTree(last_seen)
+ORDER BY (project_id, name)
+SETTINGS index_granularity = 8192`,
+	`CREATE MATERIALIZED VIEW IF NOT EXISTS metrics_catalog_mv TO metrics_catalog AS
+SELECT project_id, name, any(type) AS type, any(unit) AS unit, max(monotonic) AS monotonic, max(temporality) AS temporality, max(toDateTime(ts)) AS last_seen
+FROM metrics_points
+GROUP BY project_id, name`,
+}
+
+// createMetrics is the 013_metrics migration step.
+func createMetrics(ctx context.Context, c *Client, opts MigrateOptions) error {
+	opts = opts.withDefaults()
+	if err := c.Exec(ctx, metricsPointsSpec.createSQL(metricsPointsSpec.Name, metricsPointsSpec.Retention(opts))); err != nil {
+		return err
+	}
+	for _, stmt := range metricsCatalogDDL {
+		if err := c.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // createSpans is the 012_spans migration step.
 func createSpans(ctx context.Context, c *Client, opts MigrateOptions) error {
 	opts = opts.withDefaults()

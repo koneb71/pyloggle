@@ -444,3 +444,38 @@ export interface TraceDetail {
   errors: Occurrence[];
   logs: LogEvent[];
 }
+
+export interface MetricInfo {
+  name: string;
+  type: "gauge" | "sum" | "histogram" | "summary" | string;
+  unit?: string;
+  monotonic?: boolean;
+  temporality?: string;
+  last_seen: string;
+}
+
+export interface MetricValue {
+  ts: string;
+  value: number | null;
+}
+
+export interface MetricSerie {
+  label: string;
+  points: MetricValue[];
+}
+
+export interface MetricSeries {
+  name: string;
+  type: string;
+  unit?: string;
+  agg: string;
+  group_by?: string;
+  bucket_seconds: number;
+  series: MetricSerie[];
+  other?: MetricSerie;
+}
+
+export interface RequestStatsResponse extends RequestStats {
+  source: "logs" | "otel" | string;
+  available: boolean;
+}

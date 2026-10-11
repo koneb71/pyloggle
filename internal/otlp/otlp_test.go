@@ -13,6 +13,7 @@ import (
 	"time"
 
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	metricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -147,10 +148,11 @@ func TestTracesMapping(t *testing.T) {
 }
 
 type memSink struct {
-	mu    sync.Mutex
-	logs  []model.Event
-	occs  []issue.ErrorOccurrence
-	spans []model.Span
+	mu     sync.Mutex
+	logs   []model.Event
+	occs   []issue.ErrorOccurrence
+	spans  []model.Span
+	points []model.MetricPoint
 }
 
 func (m *memSink) EnqueueLog(_ context.Context, ev model.Event) error {
@@ -169,6 +171,12 @@ func (m *memSink) EnqueueSpans(_ context.Context, spans []model.Span) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.spans = append(m.spans, spans...)
+	return nil
+}
+func (m *memSink) EnqueueMetricPoints(_ context.Context, points []model.MetricPoint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.points = append(m.points, points...)
 	return nil
 }
 
@@ -364,5 +372,87 @@ func TestHandlerStoresSpans(t *testing.T) {
 		if !store && n != 0 {
 			t.Fatalf("OTLP_STORE_SPANS=false must keep no spans: %d", n)
 		}
+	}
+}
+
+func TestMetricsMapping(t *testing.T) {
+	raw, _ := os.ReadFile("testdata/metrics_http.json")
+	var md metricsv1.MetricsData
+	if err := protojson.Unmarshal(raw, &md); err != nil {
+		t.Fatal(err)
+	}
+	pts := MetricsToPoints(&md, time.Now())
+	if len(pts) != 6 {
+		t.Fatalf("points: %d (the over-long name must be dropped)", len(pts))
+	}
+	h := pts[0]
+	if h.Name != model.HTTPServerDuration || h.Type != "histogram" || h.Unit != "s" || h.Temporality != "cumulative" || h.Service != "checkout" || h.Env != "prod" {
+		t.Fatalf("histogram: %+v", h)
+	}
+	if h.Count != 12 || h.Sum != 0.84 || len(h.Bounds) != 14 || len(h.BucketCounts) != 15 || h.Attrs[model.AttrHTTPRoute] != "/orders/{id}" || h.Attrs[model.AttrHTTPStatusCode] != "200" {
+		t.Fatalf("histogram detail: %+v", h)
+	}
+	if h.TS.UnixNano() != 1735689660000000000 || h.SeriesHash == 0 || h.SeriesHash == pts[1].SeriesHash {
+		t.Fatalf("identity: %v %d %d", h.TS, h.SeriesHash, pts[1].SeriesHash)
+	}
+	if statusCode(pts[1].Attrs) != 500 {
+		t.Fatalf("status: %v", pts[1].Attrs)
+	}
+	active := pts[2]
+	if active.Type != "sum" || active.Monotonic || active.Value != 2 || active.Temporality != "cumulative" {
+		t.Fatalf("active requests: %+v", active)
+	}
+	cpu := pts[3]
+	if cpu.Type != "sum" || !cpu.Monotonic || cpu.Value != 12.5 || cpu.Attrs["cpu.mode"] != "user" {
+		t.Fatalf("cpu: %+v", cpu)
+	}
+	mem := pts[4]
+	if mem.Type != "gauge" || mem.Value != 104857600 || len(mem.Attrs) != 0 || mem.SeriesHash != SeriesHash(nil, nil) {
+		t.Fatalf("memory: %+v", mem)
+	}
+	sum := pts[5]
+	if sum.Type != "summary" || sum.Count != 4 || sum.Sum != 40 || sum.Unit != "ms" {
+		t.Fatalf("summary: %+v", sum)
+	}
+	// Stable hashing, independent of attribute order.
+	a, ha := pointAttrs(nil)
+	if len(a) != 0 || ha != SeriesHash(nil, nil) {
+		t.Fatalf("empty attrs hash: %d", ha)
+	}
+}
+
+func TestHandlerStoresMetrics(t *testing.T) {
+	raw, _ := os.ReadFile("testdata/metrics_http.json")
+	for _, store := range []bool{true, false} {
+		cfg := config.FromEnv()
+		cfg.DefaultProjID = "p1"
+		cfg.OTLPStoreMetrics = store
+		sink := &memSink{}
+		h := New(ingest.NewPipeline(cfg, sink, nil, nil), cfg)
+		req := httptest.NewRequest("POST", "/v1/metrics", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		h.Metrics().ServeHTTP(rec, req)
+		if rec.Code != 200 || rec.Body.String() != "{}" {
+			t.Fatalf("store=%v: %d %s", store, rec.Code, rec.Body.String())
+		}
+		sink.mu.Lock()
+		n := len(sink.points)
+		sink.mu.Unlock()
+		if store && (n != 6 || sink.points[0].ProjectID != "p1") {
+			t.Fatalf("stored points: %d", n)
+		}
+		if !store && n != 0 {
+			t.Fatalf("OTLP_STORE_METRICS=false must keep nothing: %d", n)
+		}
+	}
+	req := httptest.NewRequest("POST", "/v1/metrics", bytes.NewReader([]byte("{not json")))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	cfg := config.FromEnv()
+	cfg.DefaultProjID = "p1"
+	New(ingest.NewPipeline(cfg, &memSink{}, nil, nil), cfg).Metrics().ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("bad payload must 400: %d", rec.Code)
 	}
 }

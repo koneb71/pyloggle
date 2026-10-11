@@ -1,14 +1,15 @@
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { Users } from "lucide-react";
-import { useErrorTrend, useLogVolume, useOverview, useRequestStats, useTopIssues } from "@/api/hooks";
+import { useErrorTrend, useLogVolume, useMetricNames, useOverview, useRequestStats, useTopIssues } from "@/api/hooks";
 import { PageHeader } from "@/components/shell/app-shell";
 import { TimeRangePicker } from "@/components/shell/time-range-picker";
 import { TimelineHistogram } from "@/components/charts/timeline-histogram";
 import { TrendChart } from "@/components/charts/trend-chart";
 import { MultiLineChart } from "@/components/charts/multi-line";
 import { Sparkline } from "@/components/charts/sparkline";
-import { Badge, Card, CardHeader, EmptyState, ErrorState, LevelBadge, Skeleton, StatTile, StatusBadge, TimeAgo } from "@/components/ui";
+import { Badge, Card, CardHeader, EmptyState, ErrorState, LevelBadge, SegmentedControl, Skeleton, StatTile, StatusBadge, TimeAgo } from "@/components/ui";
+import { MetricCard } from "./metric-card";
 import { useRange } from "@/lib/use-range";
 import { useUrlState } from "@/lib/url";
 import { bucketLabel, fmtMs, fmtNumber, fmtPct } from "@/lib/time";
@@ -18,13 +19,16 @@ const DASH_DEFAULT = { from: "-24h", to: "" };
 
 export function DashboardsPage() {
   const { range, setRange, zoom } = useRange(DASH_DEFAULT);
-  const { get } = useUrlState();
+  const { get, set } = useUrlState();
   const scope = useMemo(() => ({ from: range.from, to: range.to, service: get("service") || undefined, env: get("env") || undefined }), [range.from, range.to, get]);
+  const metricNames = useMetricNames();
+  const hasOtelHTTP = (metricNames.data?.items ?? []).some((m) => m.name === "http.server.request.duration");
+  const reqSource = get("req_src") === "otel" && hasOtelHTTP ? "otel" : "logs";
   const overview = useOverview(scope);
   const errors = useErrorTrend(scope);
   const volume = useLogVolume(scope);
   const top = useTopIssues(scope);
-  const reqs = useRequestStats(scope);
+  const reqs = useRequestStats({ ...scope, source: reqSource });
   const o = overview.data?.overview;
   const errRate = o && o.events > 0 ? (o.errors / o.events) * 100 : 0;
   const rt = reqs.data?.totals;
@@ -60,6 +64,19 @@ export function DashboardsPage() {
             <StatTile label="Affected users" value={o ? fmtNumber(o.affected_users) : "…"} hint="distinct users with errors" />
             <StatTile label="Services" value={o ? fmtNumber(o.services) : "…"} hint="reporting in range" />
           </div>
+          {hasOtelHTTP && (
+            <div className="flex items-center gap-2 text-xs text-ink-3">
+              <span>Request tiles from</span>
+              <SegmentedControl
+                value={reqSource}
+                onChange={(v) => set({ req_src: v === "logs" ? undefined : v })}
+                options={[
+                  { value: "logs", label: "logs", title: "SDK request events and OTLP server spans" },
+                  { value: "otel", label: "OTel metrics", title: "http.server.request.duration histogram" },
+                ]}
+              />
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <StatTile label="Requests" value={rt ? fmtNumber(rt.requests) : "…"} hint={rt ? `${rt.rps.toFixed(rt.rps < 1 ? 2 : 1)} req/s over the range` : undefined} />
             <StatTile label="5xx rate" value={rt ? fmtPct(rt.error_pct) : "…"} hint={rt ? `${fmtNumber(rt.errors)} failed requests` : undefined} tone={rt && rt.error_pct >= 1 ? "critical" : rt && rt.error_pct > 0 ? "warning" : undefined} />
@@ -81,7 +98,7 @@ export function DashboardsPage() {
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
             <Card>
-              <CardHeader title="Requests and 5xx" sub={reqs.data ? `${bucketLabel(reqs.data.bucket_seconds)} buckets · from request_stats_minutely` : undefined} />
+              <CardHeader title="Requests and 5xx" sub={reqs.data ? `${bucketLabel(reqs.data.bucket_seconds)} buckets · ${reqSource === "otel" ? "from http.server.request.duration" : "from request_stats_minutely"}` : undefined} />
               <div className="p-2">
                 <MultiLineChart buckets={reqSeries.buckets} series={reqSeries.traffic} bucketSeconds={reqs.data?.bucket_seconds} height={200} loading={reqs.isPending} emptyText="No request rows yet (Flask/FastAPI integrations and OTLP server spans feed this)" />
               </div>
@@ -130,6 +147,7 @@ export function DashboardsPage() {
               </table>
             )}
           </Card>
+          <MetricCard range={range} scope={{ service: scope.service, env: scope.env }} state={{ name: get("m"), agg: get("m_agg"), groupBy: get("m_by") }} onState={(p) => set({ m: p.name, m_agg: p.agg, m_by: p.groupBy })} />
           <Card>
             <CardHeader title="Top issues" sub="by occurrences in range" actions={<Link to="/issues" className="text-xs text-accent hover:underline">All issues →</Link>} />
             {top.isPending ? (

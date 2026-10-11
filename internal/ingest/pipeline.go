@@ -25,6 +25,7 @@ type Sink interface {
 	EnqueueLog(ctx context.Context, ev model.Event) error
 	EnqueueErrorOccurrence(ctx context.Context, occ issue.ErrorOccurrence) error
 	EnqueueSpans(ctx context.Context, spans []model.Span) error
+	EnqueueMetricPoints(ctx context.Context, points []model.MetricPoint) error
 }
 
 // IssueStateStore is the slice of storage the pipeline needs for regression and snooze handling.
@@ -198,6 +199,45 @@ func (p *Pipeline) ProcessSpans(ctx context.Context, t Tenant, spans []model.Spa
 	}
 	metrics.SpansAccepted.Add(float64(len(spans)), t.ProjectID)
 	return len(spans), Accepted
+}
+
+// ProcessMetrics stores a batch of OTLP metric points: project defaults, the storage quota and
+// one rate-limit token per batch.
+func (p *Pipeline) ProcessMetrics(ctx context.Context, t Tenant, points []model.MetricPoint, rawLen int) (int, Outcome) {
+	if len(points) == 0 {
+		return 0, Accepted
+	}
+	now := p.now().UTC()
+	if !p.qt.allow(t.ProjectID, false, rawLen, t.MaxStorageGB, now) {
+		return 0, DroppedQuota
+	}
+	for i := range points {
+		pt := &points[i]
+		pt.ProjectID = t.ProjectID
+		if pt.Service == "" {
+			pt.Service = p.cfg.DefaultSvc
+		}
+		if pt.Env == "" {
+			pt.Env = p.cfg.DefaultEnv
+		}
+		if pt.TS.IsZero() {
+			pt.TS = now
+		}
+		if pt.Type == "" {
+			pt.Type = "gauge"
+		}
+		if pt.Temporality == "" {
+			pt.Temporality = "unspecified"
+		}
+	}
+	if t.RPS > 0 && !p.lim.take(t.ProjectID+"|"+points[0].Service, t.RPS, t.Burst) {
+		return 0, DroppedRateLimit
+	}
+	if err := p.sink.EnqueueMetricPoints(ctx, points); err != nil {
+		return 0, DroppedQueueFull
+	}
+	metrics.PointsAccepted.Add(float64(len(points)), t.ProjectID)
+	return len(points), Accepted
 }
 
 // Process normalizes, protects and stores one event. rawLen is the encoded size for quotas.

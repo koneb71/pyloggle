@@ -112,6 +112,11 @@ func (r *streamRouter) EnqueueSpans(ctx context.Context, spans []model.Span) err
 	return r.ch.InsertSpans(ctx, spans)
 }
 
+// EnqueueMetricPoints hands metric points to the client's batcher, like spans.
+func (r *streamRouter) EnqueueMetricPoints(ctx context.Context, points []model.MetricPoint) error {
+	return r.ch.InsertMetricPoints(ctx, points)
+}
+
 // getStream returns the stream for (projectID, service). If stream capacity is exceeded,
 // returns the overflow stream, and overflowed=true.
 func (r *streamRouter) getStream(projectID, service string) (*stream, bool) {
