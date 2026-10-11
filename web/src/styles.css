@@ -1,0 +1,254 @@
+@import "tailwindcss";
+
+/* Dark mode is a class toggle (set in index.html before paint) so the user's choice wins over the OS. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens. Chart series colors below were validated with the dataviz palette validator
+ * (light: aqua/blue/yellow/red/violet, dark: the same hues stepped for the dark surface).
+ * Status colors are reserved for state (never reused as a series) and always ship with a label.
+ */
+:root {
+  color-scheme: light;
+  --bg: #f9f9f7;          /* page plane */
+  --surface: #fcfcfb;     /* cards, table, chart surface */
+  --surface-2: #f3f2ee;   /* inset / hover */
+  --surface-3: #ebeae4;
+  --border: rgba(11, 11, 11, 0.1);
+  --border-strong: #c3c2b7;
+  --grid: #e1e0d9;
+  --text: #0b0b0b;
+  --text-2: #52514e;
+  --text-3: #898781;
+  --accent: #2a78d6;
+  --accent-ink: #ffffff;
+  --accent-soft: #e7f0fb;
+  --focus: #2a78d6;
+
+  --lvl-debug: #1baf7a;
+  --lvl-info: #2a78d6;
+  --lvl-warn: #eda100;
+  --lvl-error: #e34948;
+  --lvl-fatal: #6250d6;
+  --lvl-other: #898781;
+
+  --st-good: #0ca30c;
+  --st-good-text: #006300;
+  --st-warning: #fab219;
+  --st-serious: #ec835a;
+  --st-critical: #d03b3b;
+
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #6250d6;
+  --series-8: #e34948;
+
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.06), 0 4px 16px rgba(11, 11, 11, 0.06);
+  --radius: 8px;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.dark {
+  color-scheme: dark;
+  --bg: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #232322;
+  --surface-3: #2c2c2a;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: #383835;
+  --grid: #2c2c2a;
+  --text: #f0efec;
+  --text-2: #c3c2b7;
+  --text-3: #898781;
+  --accent: #3987e5;
+  --accent-ink: #ffffff;
+  --accent-soft: #15283f;
+  --focus: #3987e5;
+
+  --lvl-debug: #199e70;
+  --lvl-info: #3987e5;
+  --lvl-warn: #c98500;
+  --lvl-error: #d94545;
+  --lvl-fatal: #9085e9;
+  --lvl-other: #898781;
+
+  --st-good: #0ca30c;
+  --st-good-text: #0ca30c;
+  --st-warning: #fab219;
+  --st-serious: #ec835a;
+  --st-critical: #d03b3b;
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-grid: var(--grid);
+  --color-ink: var(--text);
+  --color-ink-2: var(--text-2);
+  --color-ink-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-good: var(--st-good);
+  --color-good-text: var(--st-good-text);
+  --color-warning: var(--st-warning);
+  --color-serious: var(--st-serious);
+  --color-critical: var(--st-critical);
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+  --radius-md: var(--radius);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  border-color: var(--border);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbars that don't shout */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+/* Level color bar used in the logs list */
+.lvl-bar {
+  width: 3px;
+  border-radius: 2px;
+  align-self: stretch;
+  flex: none;
+}
+
+/* Code / pre blocks */
+pre,
+code,
+kbd {
+  font-family: var(--mono);
+}
+
+.frame-context {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.frame-context .ln {
+  display: inline-block;
+  width: 4ch;
+  text-align: right;
+  margin-right: 1.25ch;
+  color: var(--text-3);
+  user-select: none;
+}
+
+.frame-context .hl {
+  background: color-mix(in oklab, var(--lvl-error) 14%, transparent);
+}
+
+/* Query editor chip highlighting */
+.q-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  max-width: 28rem;
+}
+
+.q-chip.neg {
+  text-decoration: line-through;
+  text-decoration-color: var(--lvl-error);
+}
+
+/* recharts tweaks: hairline grid, recessive axes */
+.recharts-cartesian-grid line {
+  stroke: var(--grid);
+}
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: var(--border-strong);
+}
+.recharts-cartesian-axis-tick text {
+  fill: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.recharts-tooltip-cursor {
+  fill: color-mix(in oklab, var(--text) 6%, transparent);
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.skeleton {
+  background: var(--surface-3);
+  border-radius: 4px;
+  animation: pulse-soft 1.4s ease-in-out infinite;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--st-good);
+  animation: pulse-soft 1.2s ease-in-out infinite;
+}

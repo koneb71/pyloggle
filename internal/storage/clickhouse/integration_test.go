@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"net/url"
 	"os"
+	"pyloggle/internal/api"
 	"strings"
 	"testing"
 	"time"
@@ -290,4 +291,65 @@ func TestIntegrationFreshInstall(t *testing.T) {
 	if err := c.ApplyRetention(ctx, MigrateOptions{Logf: t.Logf}); err != nil {
 		t.Fatalf("retention: %v", err)
 	}
+}
+
+func TestIntegrationSavedSearchVisibility(t *testing.T) {
+	c, cleanup := integrationClient(t)
+	defer cleanup()
+	ctx := context.Background()
+	if _, err := c.Migrate(ctx, MigrateOptions{Rebuild: true, Logf: t.Logf}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	mine, err := c.UpsertSavedSearch(ctx, api.SavedSearch{ProjectID: "p1", UserID: "alice", Name: "mine", Query: "{}", IsPublic: false})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if _, err := c.UpsertSavedSearch(ctx, api.SavedSearch{ProjectID: "p1", UserID: "bob", Name: "shared", Query: "{}", IsPublic: true}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if _, err := c.UpsertSavedSearch(ctx, api.SavedSearch{ProjectID: "p1", UserID: "bob", Name: "private-bob", Query: "{}", IsPublic: false}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	// A later version flips "mine" to public: visibility must follow the latest version.
+	mine.IsPublic = true
+	if _, err := c.UpsertSavedSearch(ctx, mine); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	names := func(items []api.SavedSearch) []string {
+		out := []string{}
+		for _, it := range items {
+			out = append(out, it.Name)
+		}
+		return out
+	}
+	got, err := c.ListSavedSearches(ctx, "p1", "carol", true, false, 50)
+	if err != nil {
+		t.Fatalf("list public: %v", err)
+	}
+	if n := names(got); len(n) != 2 || !contains(n, "mine") || !contains(n, "shared") {
+		t.Fatalf("carol should see the two public views, got %v", n)
+	}
+	got, err = c.ListSavedSearches(ctx, "p1", "bob", true, false, 50)
+	if err != nil {
+		t.Fatalf("list bob: %v", err)
+	}
+	if n := names(got); len(n) != 3 {
+		t.Fatalf("bob should see own + public views, got %v", n)
+	}
+	got, err = c.ListSavedSearches(ctx, "p1", "bob", false, false, 50)
+	if err != nil {
+		t.Fatalf("list bob only: %v", err)
+	}
+	if n := names(got); len(n) != 2 || contains(n, "mine") {
+		t.Fatalf("bob (no public) should see only his views, got %v", n)
+	}
+}
+
+func contains(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
