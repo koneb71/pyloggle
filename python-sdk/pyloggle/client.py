@@ -74,6 +74,7 @@ class ClientConfig:
     in_app_include: Sequence[str] = ()  # module or path prefixes that are "your code"
     in_app_exclude: Sequence[str] = ()
     max_breadcrumbs: int = 50
+    db_breadcrumbs: bool = True  # Django: one breadcrumb per SQL statement (statement only, no params)
     install_excepthooks: bool = True  # sys/threading/unraisable (+ asyncio via integrations)
 
     # resource control

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pyloggle"
 version = "0.2.0"
-description = "Lightweight log + error tracking SDK for Pyloggle (structured tracebacks, breadcrumbs, Flask/FastAPI/logging integrations)"
+description = "Lightweight log + error tracking SDK for Pyloggle (structured tracebacks, breadcrumbs, Flask/FastAPI/Django/logging integrations)"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{name = "Pyloggle"}]
@@ -20,7 +20,8 @@ classifiers = [
 [project.optional-dependencies]
 flask = ["flask>=2.3"]
 fastapi = ["fastapi>=0.110"]
-test = ["pytest>=8", "flask>=2.3", "fastapi>=0.110", "httpx>=0.27"]
+django = ["django>=4.2"]
+test = ["pytest>=8", "flask>=2.3", "fastapi>=0.110", "httpx>=0.27", "django>=4.2"]
 
 [tool.setuptools.packages.find]
 where = ["."]
