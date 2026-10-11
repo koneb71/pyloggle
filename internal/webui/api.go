@@ -144,6 +144,11 @@ func (u *UI) newAPIMux(prefix string) *http.ServeMux {
 	reg("POST", "/projects", u.apiProjectCreate)
 	reg("POST", "/projects/{id}", u.apiProjectUpdate)
 	reg("POST", "/projects/{id}/rotate-key", u.apiProjectRotateKey)
+	reg("GET", "/projects/{id}", u.apiProject)
+	reg("GET", "/projects/{id}/usage", u.apiProjectUsage)
+	reg("DELETE", "/projects/{id}", u.apiProjectDelete)
+	reg("POST", "/projects/{id}/purge-user", u.apiProjectPurgeUser)
+	reg("GET", "/admin/audit", u.apiAudit)
 	// alerts
 	reg("GET", "/alerts/rules", u.apiAlertRules)
 	reg("POST", "/alerts/rules", u.apiAlertRuleUpsert)
@@ -272,12 +277,12 @@ func (u *UI) withProjectAPI(next http.Handler) http.Handler {
 }
 
 func projectOptional(path string) bool {
-	for _, suffix := range []string{"/me", "/login", "/logout", "/project/select", "/projects"} {
+	for _, suffix := range []string{"/me", "/login", "/logout", "/project/select", "/projects", "/admin/audit"} {
 		if strings.HasSuffix(path, suffix) {
 			return true
 		}
 	}
-	return false
+	return strings.Contains(path, "/projects/")
 }
 
 var errNoProject = errors.New("no project selected")

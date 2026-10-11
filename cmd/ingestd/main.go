@@ -65,6 +65,8 @@ func main() {
 		r := alerting.NewRunner(cfg, ch)
 		go r.Run(ctx)
 	}
+	// Per-project retention overrides: one pass shortly after start, then daily at 03:10 UTC.
+	go runTrimmer(ctx, ch, migrateOpts)
 
 	go func() {
 		log.Printf("pyloggle ingestd listening on %s", httpSrv.Addr)
@@ -99,6 +101,36 @@ func connectWithRetry(cfg config.Config, maxWait time.Duration) *clickhouse.Clie
 		time.Sleep(backoff)
 		if backoff < 10*time.Second {
 			backoff *= 2
+		}
+	}
+}
+
+// runTrimmer applies per-project retention overrides on a daily schedule.
+func runTrimmer(ctx context.Context, ch *clickhouse.Client, opts clickhouse.MigrateOptions) {
+	run := func() {
+		tctx, cancel := context.WithTimeout(ctx, time.Hour)
+		defer cancel()
+		if err := ch.TrimProjects(tctx, opts, log.Printf); err != nil {
+			log.Printf("retention trim: %v", err)
+		}
+	}
+	select {
+	case <-time.After(2 * time.Minute):
+		run()
+	case <-ctx.Done():
+		return
+	}
+	for {
+		now := time.Now().UTC()
+		next := time.Date(now.Year(), now.Month(), now.Day(), 3, 10, 0, 0, time.UTC)
+		if !next.After(now) {
+			next = next.AddDate(0, 0, 1)
+		}
+		select {
+		case <-time.After(time.Until(next)):
+			run()
+		case <-ctx.Done():
+			return
 		}
 	}
 }

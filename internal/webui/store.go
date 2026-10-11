@@ -64,6 +64,16 @@ type Store interface {
 	CreateProject(ctx context.Context, p clickhouse.ProjectUpsert) (clickhouse.ProjectView, string, error)
 	UpsertProject(ctx context.Context, p clickhouse.ProjectUpsert) (clickhouse.ProjectView, error)
 	RotateProjectAPIKey(ctx context.Context, projectID string) (clickhouse.ProjectView, string, error)
+	GetProjectIncludingDeleted(ctx context.Context, projectID string) (clickhouse.ProjectView, bool, error)
+	MarkProjectDeleted(ctx context.Context, projectID string) error
+	PurgeProjectData(ctx context.Context, projectID string) error
+	PurgeUser(ctx context.Context, projectID, userIDHash, userEmail string) error
+	ProjectUsage(ctx context.Context, projectID string, days int) ([]api.UsageDay, error)
+	TableCompression(ctx context.Context) (map[string]float64, error)
+	RecomputeUsage(ctx context.Context, projectID string) error
+	PendingMutations(ctx context.Context, needle string) (int, error)
+	AddAudit(ctx context.Context, a api.AuditEntry) error
+	ListAudit(ctx context.Context, projectID string, limit int) ([]api.AuditEntry, error)
 
 	// alerts
 	ListAlertRules(ctx context.Context, projectID string) ([]api.AlertRule, error)

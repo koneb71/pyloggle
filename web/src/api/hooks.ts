@@ -3,6 +3,8 @@ import { del, get, post } from "./client";
 import type {
   AlertFiring,
   AlertRule,
+  AuditEntry,
+  ProjectUsage,
   Histogram,
   IssueActivity,
   LogAggregate,
@@ -234,6 +236,11 @@ export interface MetricSeriesParams {
 export const useMetricSeries = (p: MetricSeriesParams, enabled = true) =>
   useQuery({ queryKey: ["metric-series", p], queryFn: () => get<MetricSeries>("/metrics/series", p), enabled: enabled && !!p.name, placeholderData: keepPreviousData, retry: false });
 
+export const useProjectUsage = (id: string | undefined, enabled = true) =>
+  useQuery({ queryKey: ["project-usage", id], queryFn: () => get<ProjectUsage>(`/projects/${id}/usage`, { days: 30 }), enabled: enabled && !!id, staleTime: 30_000 });
+
+export const useAudit = (enabled: boolean) => useQuery({ queryKey: ["audit"], queryFn: () => get<{ items: AuditEntry[] }>("/admin/audit", { limit: 50 }), enabled });
+
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => get<{ items: Project[] }>("/projects") });
 
 export function useProjectMutations() {
@@ -246,6 +253,8 @@ export function useProjectMutations() {
     create: useMutation({ mutationFn: (v: Partial<Project>) => post<{ project: Project; api_key: string }>("/projects", v), onSuccess: invalidate }),
     update: useMutation({ mutationFn: (v: Partial<Project> & { id: string }) => post<{ project: Project }>(`/projects/${v.id}`, v), onSuccess: invalidate }),
     rotate: useMutation({ mutationFn: (id: string) => post<{ project: Project; api_key: string }>(`/projects/${id}/rotate-key`), onSuccess: invalidate }),
+    remove: useMutation({ mutationFn: (id: string) => del<{ status: string }>(`/projects/${id}`), onSuccess: invalidate }),
+    purgeUser: useMutation({ mutationFn: (v: { id: string; user_id_hash?: string; user_email?: string }) => post<{ status: string }>(`/projects/${v.id}/purge-user`, { user_id_hash: v.user_id_hash, user_email: v.user_email }) }),
     select: useMutation({ mutationFn: (project_id: string) => post("/project/select", { project_id }), onSuccess: () => qc.invalidateQueries() }),
   };
 }

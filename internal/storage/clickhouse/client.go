@@ -344,6 +344,7 @@ type ProjectRow struct {
 	Name            string `ch:"name"`
 	MaxEventsPerSec uint32 `ch:"max_events_per_second"`
 	MaxStorageGB    uint32 `ch:"max_storage_gb"`
+	RetentionDays   uint16 `ch:"retention_days"`
 	APIKeyHash      string `ch:"api_key_hash"`
 }
 
@@ -357,18 +358,20 @@ func (c *Client) GetProjectByAPIKeyHash(ctx context.Context, apiKeyHash string) 
 	// Use a subquery and filter on the computed value instead.
 	q := `
 		SELECT
-			id, name, max_events_per_second, max_storage_gb, api_key_hash
+			id, name, max_events_per_second, max_storage_gb, retention_days, api_key_hash
 		FROM (
 			SELECT
 				id,
 				argMax(name, updated_at) as name,
 				argMax(max_events_per_second, updated_at) as max_events_per_second,
 				argMax(max_storage_gb, updated_at) as max_storage_gb,
+				argMax(retention_days, updated_at) as retention_days,
+				argMax(is_deleted, updated_at) as is_deleted,
 				argMax(api_key_hash, updated_at) as api_key_hash
 			FROM projects
 			GROUP BY id
 		)
-		WHERE api_key_hash = ?
+		WHERE api_key_hash = ? AND is_deleted = 0
 		LIMIT 1
 	`
 	var rows []ProjectRow

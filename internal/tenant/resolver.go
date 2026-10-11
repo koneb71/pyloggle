@@ -77,3 +77,21 @@ func (r *Resolver) ResolveByAPIKey(ctx context.Context, apiKey string) (Project,
 
 	return proj, true, nil
 }
+
+// Invalidate forgets one cached key hash (rotation).
+func (r *Resolver) Invalidate(apiKeyHash string) {
+	r.mu.Lock()
+	delete(r.cache, apiKeyHash)
+	r.mu.Unlock()
+}
+
+// InvalidateProject forgets every cached key of a project (deletion, quota changes).
+func (r *Resolver) InvalidateProject(projectID string) {
+	r.mu.Lock()
+	for h, it := range r.cache {
+		if it.p.ID == projectID {
+			delete(r.cache, h)
+		}
+	}
+	r.mu.Unlock()
+}

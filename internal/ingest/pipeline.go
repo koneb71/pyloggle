@@ -92,7 +92,7 @@ type Pipeline struct {
 	store  IssueStateStore
 	res    KeyResolver
 	lim    *limiter
-	qt     *quotaTracker
+	qt     *usageGuard
 
 	relMu    sync.Mutex
 	releases map[string]releaseSeen
@@ -106,9 +106,17 @@ func NewPipeline(cfg config.Config, sink Sink, store IssueStateStore, res KeyRes
 		store: store,
 		res:   res,
 		lim:   newLimiter(cfg),
-		qt:    newQuotaTracker(),
 		now:   time.Now,
 	}
+	var usage UsageStore
+	if us, ok := store.(UsageStore); ok {
+		usage = us
+	}
+	window := cfg.RetentionLogsDays
+	if cfg.RetentionErrorsDays > window {
+		window = cfg.RetentionErrorsDays
+	}
+	p.qt = newUsageGuard(usage, time.Duration(window)*24*time.Hour)
 	var loader issue.StateLoader
 	if store != nil {
 		loader = store.GetIssueState
