@@ -9,7 +9,7 @@ export interface Me {
   is_admin: boolean;
   project?: { id: string; name: string };
   projects: { id: string; name: string }[];
-  features: { alerting: boolean; public_url?: string };
+  features: { alerting: boolean; traces?: boolean; public_url?: string };
 }
 
 export interface IssueSummary {
@@ -361,4 +361,86 @@ export interface RequestStats {
   totals: RouteStats;
   points: RequestPoint[];
   routes: RouteStats[];
+}
+
+export interface SpanEvent {
+  ts: string;
+  name: string;
+  attrs?: Record<string, string>;
+}
+
+export interface Span {
+  trace_id: string;
+  span_id: string;
+  parent_span_id?: string;
+  service: string;
+  env: string;
+  release?: string;
+  hostname?: string;
+  scope?: string;
+  name: string;
+  kind: "unspecified" | "internal" | "server" | "client" | "producer" | "consumer" | string;
+  status: "unset" | "ok" | "error" | string;
+  status_message?: string;
+  start_ts: string;
+  duration_us: number;
+  http_method?: string;
+  http_route?: string;
+  http_status?: number;
+  attrs: Record<string, string>;
+  events?: SpanEvent[];
+}
+
+export interface TraceSummary {
+  trace_id: string;
+  root_span_id: string;
+  service: string;
+  name: string;
+  kind: string;
+  status: string;
+  start_ts: string;
+  duration_us: number;
+  http_method?: string;
+  http_route?: string;
+  http_status?: number;
+  span_count: number;
+  errors: number;
+  services: string[];
+}
+
+export interface SpanNameStats {
+  name: string;
+  count: number;
+  p50_us: number;
+  p95_us: number;
+  error_pct: number;
+}
+
+export interface LatencyBucket {
+  from_us: number;
+  to_us: number;
+  count: number;
+}
+
+export interface TraceStats {
+  by_name: SpanNameStats[];
+  latency: LatencyBucket[];
+}
+
+export interface TracesResponse {
+  items: TraceSummary[];
+  next_cursor?: string;
+  from: string;
+  to: string;
+  stats?: TraceStats;
+}
+
+export interface TraceDetail {
+  trace_id: string;
+  start_ts: string;
+  duration_us: number;
+  services: string[];
+  spans: Span[];
+  errors: Occurrence[];
+  logs: LogEvent[];
 }

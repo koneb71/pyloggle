@@ -7,6 +7,8 @@ import type {
   IssueActivity,
   LogAggregate,
   RequestStats,
+  TraceDetail,
+  TracesResponse,
   IssueDetail,
   IssueListResponse,
   LogContext,
@@ -190,6 +192,24 @@ export const useLogVolume = (p: { from?: string; to?: string; service?: string; 
 
 export const useTopIssues = (p: { from?: string; to?: string; service?: string; env?: string }) =>
   useQuery({ queryKey: ["top-issues", p], queryFn: () => get<{ items: IssueListResponse["items"] }>("/metrics/top-issues", { ...p, limit: 8 }), placeholderData: keepPreviousData });
+
+export interface TracesParams {
+  q?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  cursor?: string;
+  include?: string;
+}
+
+export const useTraces = (p: TracesParams, enabled = true) =>
+  useQuery({ queryKey: ["traces", p], queryFn: () => get<TracesResponse>("/traces", p), enabled, placeholderData: keepPreviousData, retry: false });
+
+export const useTrace = (id: string | undefined, at?: string) =>
+  useQuery({ queryKey: ["trace", id, at], queryFn: () => get<TraceDetail>(`/traces/${id}`, { at }), enabled: !!id, retry: false });
+
+export const useTraceFields = () =>
+  useQuery({ queryKey: ["trace-fields"], queryFn: () => get<{ fields: string[]; syntax: string[] }>("/traces/fields"), staleTime: Infinity });
 
 export const useRequestStats = (p: { from?: string; to?: string; service?: string; env?: string }) =>
   useQuery({ queryKey: ["request-stats", p], queryFn: () => get<RequestStats>("/metrics/requests", { ...p, limit: 10 }), placeholderData: keepPreviousData });

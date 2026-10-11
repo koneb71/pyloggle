@@ -404,3 +404,83 @@ type RequestStats struct {
 	Points        []RequestPoint `json:"points"`
 	Routes        []RouteStats   `json:"routes"`
 }
+
+// Span is one stored span (traces API).
+type Span struct {
+	TraceID      string            `json:"trace_id"`
+	SpanID       string            `json:"span_id"`
+	ParentSpanID string            `json:"parent_span_id,omitempty"`
+	Service      string            `json:"service"`
+	Env          string            `json:"env"`
+	Release      string            `json:"release,omitempty"`
+	Hostname     string            `json:"hostname,omitempty"`
+	Scope        string            `json:"scope,omitempty"`
+	Name         string            `json:"name"`
+	Kind         string            `json:"kind"`
+	Status       string            `json:"status"`
+	StatusMsg    string            `json:"status_message,omitempty"`
+	StartTS      time.Time         `json:"start_ts"`
+	DurationUS   uint64            `json:"duration_us"`
+	HTTPMethod   string            `json:"http_method,omitempty"`
+	HTTPRoute    string            `json:"http_route,omitempty"`
+	HTTPStatus   uint16            `json:"http_status,omitempty"`
+	Attrs        map[string]string `json:"attrs"`
+	Events       []SpanEvent       `json:"events,omitempty"`
+}
+
+type SpanEvent struct {
+	TS    time.Time         `json:"ts"`
+	Name  string            `json:"name"`
+	Attrs map[string]string `json:"attrs,omitempty"`
+}
+
+// TraceSummary is one row of the traces list: the trace's entry span plus trace-wide counts.
+type TraceSummary struct {
+	TraceID    string    `json:"trace_id"`
+	RootSpanID string    `json:"root_span_id"`
+	Service    string    `json:"service"`
+	Name       string    `json:"name"`
+	Kind       string    `json:"kind"`
+	Status     string    `json:"status"`
+	StartTS    time.Time `json:"start_ts"`
+	DurationUS uint64    `json:"duration_us"`
+	HTTPMethod string    `json:"http_method,omitempty"`
+	HTTPRoute  string    `json:"http_route,omitempty"`
+	HTTPStatus uint16    `json:"http_status,omitempty"`
+	SpanCount  uint64    `json:"span_count"`
+	Errors     uint64    `json:"errors"`
+	Services   []string  `json:"services"`
+}
+
+// SpanNameStats is the latency/error summary of one span name.
+type SpanNameStats struct {
+	Name     string  `json:"name"`
+	Count    uint64  `json:"count"`
+	P50US    float64 `json:"p50_us"`
+	P95US    float64 `json:"p95_us"`
+	ErrorPct float64 `json:"error_pct"`
+}
+
+// LatencyBucket is one power-of-two bucket of entry-span durations: [FromUS, ToUS).
+type LatencyBucket struct {
+	FromUS uint64 `json:"from_us"`
+	ToUS   uint64 `json:"to_us"`
+	Count  uint64 `json:"count"`
+}
+
+type TraceStats struct {
+	ByName  []SpanNameStats `json:"by_name"`
+	Latency []LatencyBucket `json:"latency"`
+}
+
+// TraceDetail is one trace: its spans (flat; the client builds the tree), the error
+// occurrences and the log lines that carry the trace id.
+type TraceDetail struct {
+	TraceID    string            `json:"trace_id"`
+	StartTS    time.Time         `json:"start_ts"`
+	DurationUS uint64            `json:"duration_us"`
+	Services   []string          `json:"services"`
+	Spans      []Span            `json:"spans"`
+	Errors     []ErrorOccurrence `json:"errors"`
+	Logs       []LogEvent        `json:"logs"`
+}

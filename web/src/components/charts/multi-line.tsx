@@ -64,7 +64,7 @@ export function MultiLineChart({ buckets, series, bucketSeconds = 60, height = 1
           <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} strokeDasharray="0" />
             <XAxis dataKey="ts" tickFormatter={(v: string) => fmtAxisTime(new Date(v), spanMs)} minTickGap={48} tickLine={false} axisLine={{ stroke: "var(--border-strong)" }} height={18} />
-            <YAxis width={46} tickLine={false} axisLine={false} tickFormatter={(v: number) => format(v)} domain={[0, "auto"]} />
+            <YAxis width={60} tickLine={false} axisLine={false} tickFormatter={(v: number) => format(v)} domain={[0, "auto"]} />
             <Tooltip
               isAnimationActive={false}
               cursor={{ stroke: "var(--border-strong)" }}

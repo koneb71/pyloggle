@@ -212,9 +212,9 @@ func applyCommonAttrs(ev *model.Event, attrs []*commonv1.KeyValue) {
 		case "url.full", "http.url":
 			h.URL, hasHTTP = v, true
 		case "url.path", "http.target":
-			if h.Route == "" {
-				h.Route = v
-			}
+			// Raw paths are not routes: they would explode the route cardinality of the
+			// request statistics. They stay available as attributes.
+			ev.Attrs = ev.Attrs.Set(k, v)
 			hasHTTP = true
 		case "url.query":
 			h.Query, hasHTTP = v, true
@@ -310,10 +310,18 @@ func LogsToEvents(ld *logsv1.LogsData, now time.Time) []model.Event {
 	return out
 }
 
-// TracesToEvents maps spans: exception events become error events, ERROR spans without one
-// become error logs, and (optionally) OK server spans become "request" logs with a duration.
+// TracesToEvents maps spans onto events only (see TracesToEventsAndSpans).
 func TracesToEvents(td *tracev1.TracesData, storeServerSpans bool, now time.Time) []model.Event {
+	evs, _ := TracesToEventsAndSpans(td, storeServerSpans, now)
+	return evs
+}
+
+// TracesToEventsAndSpans walks the payload once. Every span becomes a Span row; exception
+// events become error events, ERROR spans without one become error logs, and (optionally) OK
+// server spans become "request" logs with a duration.
+func TracesToEventsAndSpans(td *tracev1.TracesData, storeServerSpans bool, now time.Time) ([]model.Event, []model.Span) {
 	var out []model.Event
+	var spans []model.Span
 	for _, rs := range td.GetResourceSpans() {
 		ri := readResource(rs.GetResource())
 		for _, ss := range rs.GetScopeSpans() {
@@ -330,6 +338,7 @@ func TracesToEvents(td *tracev1.TracesData, storeServerSpans bool, now time.Time
 				if sp.GetEndTimeUnixNano() > sp.GetStartTimeUnixNano() {
 					base.DurationMS = float64(sp.GetEndTimeUnixNano()-sp.GetStartTimeUnixNano()) / 1e6
 				}
+				spans = append(spans, spanRow(ri, scope, sp, base, now))
 				hadException := false
 				for _, sev := range sp.GetEvents() {
 					if sev.GetName() != "exception" {
@@ -362,9 +371,11 @@ func TracesToEvents(td *tracev1.TracesData, storeServerSpans bool, now time.Time
 						ev.Timestamp = model.At(now)
 					}
 					ev.Level = model.LevelError
-					ev.Message = status.GetMessage()
-					if ev.Message == "" {
-						ev.Message = "span " + sp.GetName() + " failed"
+					// The span name leads so the issue title says what failed, not only why
+					// ("GET /inventory/{sku} failed: 503" rather than "503").
+					ev.Message = sp.GetName() + " failed"
+					if msg := strings.TrimSpace(status.GetMessage()); msg != "" {
+						ev.Message += ": " + msg
 					}
 					out = append(out, ev)
 					continue
@@ -389,7 +400,85 @@ func TracesToEvents(td *tracev1.TracesData, storeServerSpans bool, now time.Time
 			}
 		}
 	}
-	return out
+	return out, spans
+}
+
+// spanRow builds the stored span from the decoded span and the event template that already
+// carries the resource and attribute mapping. Resource attributes stay on the log rows; the
+// span keeps its own attributes plus the HTTP details that have no column.
+func spanRow(ri resourceInfo, scope string, sp *tracev1.Span, base model.Event, now time.Time) model.Span {
+	row := model.Span{
+		Service: ri.service, Env: ri.env, Release: ri.release, Hostname: ri.hostname, Scope: scope,
+		TraceID: base.TraceID, SpanID: base.SpanID, ParentSpanID: idHex(sp.GetParentSpanId()),
+		Name: sp.GetName(), Kind: spanKind(sp.GetKind()), Status: spanStatus(sp.GetStatus().GetCode()), StatusMsg: sp.GetStatus().GetMessage(),
+		StartTS: unixNano(sp.GetStartTimeUnixNano()).Time, Attrs: model.Attrs{},
+	}
+	if row.StartTS.IsZero() {
+		row.StartTS = now.UTC()
+	}
+	if sp.GetEndTimeUnixNano() > sp.GetStartTimeUnixNano() {
+		row.DurationUS = (sp.GetEndTimeUnixNano() - sp.GetStartTimeUnixNano()) / 1000
+	}
+	for k, v := range base.Attrs {
+		if strings.HasPrefix(k, "resource.") {
+			continue
+		}
+		row.Attrs[k] = v
+	}
+	if base.RequestID != "" {
+		row.Attrs["request_id"] = base.RequestID
+	}
+	if h := base.HTTP; h != nil {
+		row.HTTPMethod, row.HTTPRoute, row.HTTPStatus = h.Method, h.Route, h.Status
+		for k, v := range map[string]string{"url.full": h.URL, "url.query": h.Query, "user_agent.original": h.UserAgent, "client.address": h.ClientIP, "server.address": h.ServerAddr} {
+			if v != "" {
+				row.Attrs[k] = v
+			}
+		}
+	}
+	if base.User != nil && base.User.ID != "" {
+		row.Attrs["enduser.id"] = base.User.ID
+	}
+	for _, sev := range sp.GetEvents() {
+		e := model.SpanEvent{TS: unixNano(sev.GetTimeUnixNano()).Time, Name: sev.GetName()}
+		if e.TS.IsZero() {
+			e.TS = row.StartTS
+		}
+		if attrs := sev.GetAttributes(); len(attrs) > 0 {
+			e.Attrs = model.Attrs{}
+			for _, kv := range attrs {
+				e.Attrs[kv.GetKey()] = anyValueString(kv.GetValue())
+			}
+		}
+		row.Events = append(row.Events, e)
+	}
+	return row
+}
+
+func spanKind(k tracev1.Span_SpanKind) string {
+	switch k {
+	case tracev1.Span_SPAN_KIND_INTERNAL:
+		return "internal"
+	case tracev1.Span_SPAN_KIND_SERVER:
+		return "server"
+	case tracev1.Span_SPAN_KIND_CLIENT:
+		return "client"
+	case tracev1.Span_SPAN_KIND_PRODUCER:
+		return "producer"
+	case tracev1.Span_SPAN_KIND_CONSUMER:
+		return "consumer"
+	}
+	return "unspecified"
+}
+
+func spanStatus(c tracev1.Status_StatusCode) string {
+	switch c {
+	case tracev1.Status_STATUS_CODE_OK:
+		return "ok"
+	case tracev1.Status_STATUS_CODE_ERROR:
+		return "error"
+	}
+	return "unset"
 }
 
 func cloneAttrs(a model.Attrs) model.Attrs {

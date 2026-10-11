@@ -106,6 +106,12 @@ func (r *streamRouter) EnqueueErrorOccurrence(ctx context.Context, occ issue.Err
 	}
 }
 
+// EnqueueSpans hands spans straight to the client's own batcher: they arrive in bulk per
+// request and are never high-signal enough to need per-stream fairness.
+func (r *streamRouter) EnqueueSpans(ctx context.Context, spans []model.Span) error {
+	return r.ch.InsertSpans(ctx, spans)
+}
+
 // getStream returns the stream for (projectID, service). If stream capacity is exceeded,
 // returns the overflow stream, and overflowed=true.
 func (r *streamRouter) getStream(projectID, service string) (*stream, bool) {

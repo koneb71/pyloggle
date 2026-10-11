@@ -15,8 +15,9 @@ import (
 type Client struct {
 	conn ch.Conn
 
-	logs *batcher[model.Event]
-	errs *batcher[issue.ErrorOccurrence]
+	logs  *batcher[model.Event]
+	errs  *batcher[issue.ErrorOccurrence]
+	spans *batcher[model.Span]
 
 	batchSize    int
 	batchTimeout time.Duration
@@ -34,13 +35,13 @@ type Stats struct {
 }
 
 func (c *Client) Stats() Stats {
-	ls, es := c.logs.stats(), c.errs.stats()
+	ls, es, ss := c.logs.stats(), c.errs.stats(), c.spans.stats()
 	return Stats{
 		DroppedLogs:   ls.Dropped,
 		DroppedErrors: es.Dropped,
 		QueuedLogs:    ls.Depth,
 		QueuedErrors:  es.Depth,
-		Queues:        []BatcherStats{ls, es},
+		Queues:        []BatcherStats{ls, es, ss},
 	}
 }
 
@@ -86,11 +87,12 @@ func New(dsn string, maxQueueSize int, batchSize int, batchTimeout time.Duration
 	c := &Client{conn: conn, batchSize: batchSize, batchTimeout: batchTimeout, queueSize: maxQueueSize}
 	c.logs = newBatcher("logs", maxQueueSize, batchSize, batchTimeout, c.flushLogs)
 	c.errs = newBatcher("errors", maxQueueSize, batchSize, batchTimeout, c.flushErrors)
+	c.spans = newBatcher("spans", maxQueueSize*4, batchSize*4, batchTimeout, c.flushSpans)
 	return c, nil
 }
 
 func (c *Client) batchers() []interface{ close() } {
-	return []interface{ close() }{c.logs, c.errs}
+	return []interface{ close() }{c.logs, c.errs, c.spans}
 }
 
 func (c *Client) Close() error {
@@ -132,7 +134,10 @@ func (c *Client) Flush(ctx context.Context) error {
 	if err := c.logs.flushNow(ctx); err != nil {
 		return err
 	}
-	return c.errs.flushNow(ctx)
+	if err := c.errs.flushNow(ctx); err != nil {
+		return err
+	}
+	return c.spans.flushNow(ctx)
 }
 
 func (c *Client) flushLogs(ctx context.Context, events []model.Event) error {

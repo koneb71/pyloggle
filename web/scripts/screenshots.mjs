@@ -17,6 +17,9 @@ const pages = [
   ["logs", "/ui/logs?from=-24h"],
   ["logs-filtered", "/ui/logs?from=-24h&q=level%3Aerror&sel=__FIRST_LOG__"],
   ["logs-patterns", "/ui/logs?from=-24h&view=patterns"],
+  ["logs-analytics", "/ui/logs?from=-24h&view=analytics&group_by_a=http.route&metric=p95"],
+  ["traces", "/ui/traces?from=-24h"],
+  ["trace", "/ui/traces/__FIRST_TRACE__?at=__FIRST_TRACE_AT__"],
   ["dashboards", "/ui/dashboards?from=-24h"],
   ["alerts", "/ui/alerts"],
   ["projects", "/ui/projects"],
@@ -27,7 +30,8 @@ async function firstIds() {
   const h = { Accept: "application/json" };
   const issues = await fetch(`${base}/ui/api/issues?from=-30d&status=all&limit=1`, { headers: h }).then((r) => r.json());
   const logs = await fetch(`${base}/ui/api/logs?from=-30d&q=level:error&limit=1`, { headers: h }).then((r) => r.json());
-  return { issue: issues.items?.[0]?.issue_id ?? "", log: logs.items?.[0]?.event_id ?? "" };
+  const traces = await fetch(`${base}/ui/api/traces?from=-7d&limit=1`, { headers: h }).then((r) => r.json()).catch(() => ({}));
+  return { issue: issues.items?.[0]?.issue_id ?? "", log: logs.items?.[0]?.event_id ?? "", trace: traces.items?.[0]?.trace_id ?? "", traceAt: traces.items?.[0]?.start_ts ?? "" };
 }
 
 const ids = await firstIds();
@@ -40,7 +44,7 @@ for (const scheme of ["light", "dark"]) {
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   for (const [name, p] of pages) {
-    const url = base + p.replace("__FIRST_ISSUE__", ids.issue).replace("__FIRST_LOG__", ids.log);
+    const url = base + p.replace("__FIRST_ISSUE__", ids.issue).replace("__FIRST_LOG__", ids.log).replace("__FIRST_TRACE__", ids.trace).replace("__FIRST_TRACE_AT__", encodeURIComponent(ids.traceAt));
     await page.goto(url, { waitUntil: "networkidle" });
     await page.waitForTimeout(400);
     const file = path.join(out, `${name}-${scheme}.png`);

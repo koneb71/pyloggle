@@ -57,9 +57,14 @@ export function LogDetailPanel({ event, onClose, onFilter, onExclude, onPickColu
             </Button>
           )}
           {event.trace_id && (
-            <Button size="xs" icon={<GitBranch size={11} />} onClick={() => onFilter(term("trace_id", event.trace_id))}>
-              Same trace
-            </Button>
+            <>
+              <Link to={`/traces/${event.trace_id}?at=${encodeURIComponent(event.ts)}`} className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-surface px-1.5 text-[11px] font-medium text-ink hover:bg-surface-2" title="Open the trace waterfall">
+                <GitBranch size={11} /> View trace
+              </Link>
+              <Button size="xs" onClick={() => onFilter(term("trace_id", event.trace_id))} title="Only lines from this trace">
+                Same trace
+              </Button>
+            </>
           )}
           <Button size="xs" icon={<ListTree size={11} />} onClick={() => setCtxOpen(true)} title="Surrounding lines from the same service">
             View in context
