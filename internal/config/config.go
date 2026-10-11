@@ -29,6 +29,10 @@ type Config struct {
 	// Used to sign UI cookies (session + transient oauth state).
 	UISessionSecret string
 
+	// Optional allowlist (emails, UPNs or subject ids) for project/alert mutations in Azure mode.
+	// Empty keeps the historical behavior: any signed-in user may manage projects.
+	UIAdmins []string
+
 	// WebUI live refresh polling interval (HTMX). Used by results containers via hx-trigger="every Ns".
 	// Set via PYLOGGLE_UI_POLL_SECONDS. Defaults to 2.
 	UIPollSeconds int
@@ -102,6 +106,7 @@ func FromEnv() Config {
 		AzureClientSecret: os.Getenv("PYLOGGLE_AZURE_CLIENT_SECRET"),
 		AzureRedirectURL:  strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_REDIRECT_URL")),
 		UISessionSecret:   os.Getenv("PYLOGGLE_UI_SESSION_SECRET"),
+		UIAdmins:          splitList(os.Getenv("PYLOGGLE_UI_ADMINS")),
 		UIPollSeconds:     getenvInt("PYLOGGLE_UI_POLL_SECONDS", 2),
 		MaxQueueSize:      getenvInt("INGEST_MAX_QUEUE_SIZE", 10000),
 		MaxStreams:        getenvInt("INGEST_MAX_STREAMS", 200),
@@ -146,6 +151,16 @@ func FromEnv() Config {
 		AlertTelegramTimeout:   getenvDuration("ALERT_TELEGRAM_TIMEOUT", 5*time.Second),
 		AlertTelegramParseMode: os.Getenv("ALERT_TELEGRAM_PARSE_MODE"),
 	}
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func getenv(k, def string) string {

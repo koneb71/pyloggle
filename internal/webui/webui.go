@@ -15,6 +15,7 @@ import (
 	"pyloggle/internal/api"
 	"pyloggle/internal/auth"
 	"pyloggle/internal/config"
+	"pyloggle/internal/issue"
 	"pyloggle/internal/storage/clickhouse"
 	"pyloggle/internal/tenant"
 )
@@ -31,6 +32,12 @@ type UI struct {
 	res  *tenant.Resolver
 	tpl  map[string]*template.Template
 	jwks *jwksCache
+
+	// JSON API dependencies (fakeable in tests).
+	store  Store
+	keys   KeyResolver
+	states *issue.StateCache // shared with ingest so UI state changes are seen at once
+	api    http.Handler
 }
 
 func isHXRequest(r *http.Request) bool {
@@ -49,7 +56,9 @@ func (u *UI) renderPageOrPartial(w http.ResponseWriter, r *http.Request, page st
 	_ = u.tpl[page].ExecuteTemplate(w, name, data)
 }
 
-func New(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver) http.Handler {
+// New builds the UI handler. states may be nil (then ingest learns about UI state changes after
+// its cache TTL).
+func New(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver, states *issue.StateCache) *UI {
 	funcs := template.FuncMap{
 		"formatTS": func(t time.Time) string {
 			if t.IsZero() {
@@ -106,7 +115,22 @@ func New(cfg config.Config, ch *clickhouse.Client, res *tenant.Resolver) http.Ha
 		"dashboards.html":   parsePage("dashboards.html"),
 		"projects.html":     parsePage("projects.html"),
 	}
-	return &UI{cfg: cfg, ch: ch, res: res, tpl: tpls}
+	u := &UI{cfg: cfg, ch: ch, res: res, tpl: tpls, states: states}
+	if ch != nil {
+		u.store = ch
+	}
+	if res != nil {
+		u.keys = res
+	}
+	u.api = u.uiAPIHandler()
+	return u
+}
+
+// NewForTest builds a UI around fakes (no ClickHouse, no templates).
+func NewForTest(cfg config.Config, store Store, keys KeyResolver, states *issue.StateCache) *UI {
+	u := &UI{cfg: cfg, store: store, keys: keys, states: states}
+	u.api = u.uiAPIHandler()
+	return u
 }
 
 type baseData struct {
@@ -184,6 +208,10 @@ func (u *UI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Only handle /ui/* subtree.
 	if !strings.HasPrefix(r.URL.Path, "/ui/") {
 		http.NotFound(w, r)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/ui/api/") {
+		u.api.ServeHTTP(w, r)
 		return
 	}
 
