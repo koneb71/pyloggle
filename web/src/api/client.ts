@@ -10,7 +10,13 @@ export class ApiRequestError extends Error {
   }
 }
 
-const BASE = "/ui/api";
+export const API_BASE = "/ui/api";
+const BASE = API_BASE;
+
+/** Absolute API URL for links the browser opens directly (exports). */
+export function apiUrl(path: string, params: Query = {}): string {
+  return BASE + path + qs(params);
+}
 
 export type Query = { [k: string]: string | number | boolean | undefined | null | string[] };
 

@@ -62,3 +62,25 @@ func (u *UI) apiTopIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "items": items})
 }
+
+// apiRequestStats serves the dashboard request tiles from request_stats_minutely.
+func (u *UI) apiRequestStats(w http.ResponseWriter, r *http.Request) {
+	from, to := qRange(r, 24*time.Hour)
+	qs := r.URL.Query()
+	bucket := qInt(r, "bucket_seconds", 0, 7*86400)
+	if bucket == 0 {
+		bucket = int(clickhouse.NiceBucket(from, to, qInt(r, "buckets", 80, 500)) / time.Second)
+	}
+	st, err := u.store.RequestStats(r.Context(), auth.ProjectIDFromContext(r.Context()), qs.Get("service"), qs.Get("env"), from, to, bucket, qInt(r, "limit", 10, 100))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+		return
+	}
+	if st.Points == nil {
+		st.Points = []api.RequestPoint{}
+	}
+	if st.Routes == nil {
+		st.Routes = []api.RouteStats{}
+	}
+	writeJSON(w, http.StatusOK, st)
+}

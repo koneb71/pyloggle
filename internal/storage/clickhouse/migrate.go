@@ -72,6 +72,7 @@ var migrations = []migration{
 	{Name: "008_drop_v1_stats", SQL: "008_drop_v1_stats.sql"},
 	{Name: "009_alerting_v2", SQL: "009_alerting_v2.sql"},
 	{Name: "010_issues_workflow", SQL: "010_issues_workflow.sql"},
+	{Name: "011_request_stats", SQL: "011_request_stats.sql"},
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations, in order.
@@ -141,6 +142,11 @@ func (c *Client) Migrate(ctx context.Context, opts MigrateOptions) ([]string, er
 }
 
 // Exec runs one DDL/DML statement.
+// QueryRow runs a single-row query (tests, admin tooling).
+func (c *Client) QueryRow(ctx context.Context, query string, args ...any) interface{ Scan(dest ...any) error } {
+	return c.conn.QueryRow(ctx, query, args...)
+}
+
 func (c *Client) Exec(ctx context.Context, stmt string) error {
 	return c.conn.Exec(ctx, stmt)
 }

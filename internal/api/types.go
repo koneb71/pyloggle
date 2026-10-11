@@ -349,3 +349,58 @@ type ProjectRotateKeyResponse struct {
 	Project Project `json:"project"`
 	APIKey  string  `json:"api_key"`
 }
+
+// AggregateGroup is one series of an analytics query: a group key with its row count, the
+// metric over the whole range and the metric per bucket (null where the bucket has no rows).
+type AggregateGroup struct {
+	Key    string     `json:"key"`
+	Rows   uint64     `json:"rows"`
+	Value  *float64   `json:"value"`
+	Series []*float64 `json:"series,omitempty"`
+}
+
+// LogAggregate is the analytics view of the explorer selection: a metric (count, avg, p95...)
+// over an optional field, split by a group-by field, bucketed over time.
+type LogAggregate struct {
+	BucketSeconds int              `json:"bucket_seconds"`
+	GroupBy       string           `json:"group_by"`
+	Metric        string           `json:"metric"`
+	Of            string           `json:"of,omitempty"`
+	Buckets       []time.Time      `json:"buckets"`
+	Total         AggregateGroup   `json:"total"`
+	Groups        []AggregateGroup `json:"groups"`
+	Other         *AggregateGroup  `json:"other,omitempty"`
+	Histogram     *Histogram       `json:"histogram,omitempty"` // count metric only: the stacked timeline shape
+}
+
+// RequestPoint is one bucket of request traffic from request_stats_minutely.
+type RequestPoint struct {
+	TS       time.Time `json:"ts"`
+	Requests uint64    `json:"requests"`
+	Errors   uint64    `json:"errors"`
+	P50MS    float64   `json:"p50_ms"`
+	P95MS    float64   `json:"p95_ms"`
+	P99MS    float64   `json:"p99_ms"`
+}
+
+// RouteStats summarizes one method+route (or, for totals, everything) over the range.
+type RouteStats struct {
+	Method   string  `json:"method,omitempty"`
+	Route    string  `json:"route,omitempty"`
+	Requests uint64  `json:"requests"`
+	Errors   uint64  `json:"errors"`
+	ErrorPct float64 `json:"error_pct"`
+	RPS      float64 `json:"rps"`
+	P50MS    float64 `json:"p50_ms"`
+	P95MS    float64 `json:"p95_ms"`
+	P99MS    float64 `json:"p99_ms"`
+}
+
+type RequestStats struct {
+	BucketSeconds int            `json:"bucket_seconds"`
+	From          time.Time      `json:"from"`
+	To            time.Time      `json:"to"`
+	Totals        RouteStats     `json:"totals"`
+	Points        []RequestPoint `json:"points"`
+	Routes        []RouteStats   `json:"routes"`
+}

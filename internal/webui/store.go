@@ -35,12 +35,14 @@ type Store interface {
 	LogContext(ctx context.Context, projectID, eventID string, before, after int) (api.LogContext, bool, error)
 	LogPatterns(ctx context.Context, q clickhouse.LogQuery, limit int) ([]api.LogPattern, error)
 	CountLogs(ctx context.Context, q clickhouse.LogQuery) (uint64, error)
+	LogAggregate(ctx context.Context, q clickhouse.LogQuery, spec clickhouse.AggregateSpec) (api.LogAggregate, error)
 
 	// metrics
 	Overview(ctx context.Context, projectID, service, env string, from, to time.Time) (api.Overview, error)
 	ErrorTrend(ctx context.Context, projectID, service, env, httpRoute, httpMethod string, from, to time.Time, bucketSeconds int) ([]api.TimeSeriesPoint, error)
 	LogVolumeByLevel(ctx context.Context, projectID, service, env string, from, to time.Time, bucketSeconds int) (api.Histogram, error)
 	TopIssues(ctx context.Context, projectID, service, env string, from, to time.Time, limit int) ([]api.IssueSummary, error)
+	RequestStats(ctx context.Context, projectID, service, env string, from, to time.Time, bucketSeconds, routeLimit int) (api.RequestStats, error)
 
 	// saved views
 	ListSavedSearches(ctx context.Context, projectID, userID string, includePublic bool, onlyPinned bool, limit int) ([]api.SavedSearch, error)

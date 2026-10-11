@@ -12,12 +12,18 @@ export interface ViewState {
   group_by?: string;
   cols?: string;
   facets?: string;
+  /** Explorer mode: list (default) | patterns | analytics. */
+  view?: string;
+  /** Analytics mode settings. */
+  group_by_a?: string;
+  metric?: string;
+  of?: string;
 }
 
 export function parseView(v: SavedView): ViewState | null {
   try {
     const o = JSON.parse(v.query) as Partial<ViewState>;
-    return { q: o.q ?? "", from: o.from ?? "-1h", to: o.to ?? "", group_by: o.group_by, cols: o.cols, facets: o.facets };
+    return { q: o.q ?? "", from: o.from ?? "-1h", to: o.to ?? "", group_by: o.group_by, cols: o.cols, facets: o.facets, view: o.view, group_by_a: o.group_by_a, metric: o.metric, of: o.of };
   } catch {
     return { q: v.query, from: "-1h", to: "" };
   }

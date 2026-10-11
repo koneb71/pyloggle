@@ -72,6 +72,9 @@ type Config struct {
 	// PublicURL is the externally reachable base URL (for links in alerts), e.g. https://logs.example.com
 	PublicURL string
 
+	// ExportMaxRows caps one CSV/NDJSON export (PYLOGGLE_EXPORT_MAX_ROWS, default 100000).
+	ExportMaxRows int
+
 	// Alerting (optional)
 	AlertingEnabled      bool
 	AlertingPollInterval time.Duration
@@ -143,6 +146,7 @@ func FromEnv() Config {
 
 		OTLPStoreServerSpans: getenvBool("OTLP_STORE_SERVER_SPANS", false),
 		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_PUBLIC_URL")), "/"),
+		ExportMaxRows:        getenvInt("PYLOGGLE_EXPORT_MAX_ROWS", 100000),
 
 		AlertingEnabled:      getenvBool("ALERTING_ENABLED", false),
 		AlertingPollInterval: getenvDuration("ALERTING_POLL_INTERVAL", 30*time.Second),

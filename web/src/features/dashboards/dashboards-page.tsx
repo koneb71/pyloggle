@@ -1,16 +1,17 @@
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { Users } from "lucide-react";
-import { useErrorTrend, useLogVolume, useOverview, useTopIssues } from "@/api/hooks";
+import { useErrorTrend, useLogVolume, useOverview, useRequestStats, useTopIssues } from "@/api/hooks";
 import { PageHeader } from "@/components/shell/app-shell";
 import { TimeRangePicker } from "@/components/shell/time-range-picker";
 import { TimelineHistogram } from "@/components/charts/timeline-histogram";
 import { TrendChart } from "@/components/charts/trend-chart";
+import { MultiLineChart } from "@/components/charts/multi-line";
 import { Sparkline } from "@/components/charts/sparkline";
 import { Badge, Card, CardHeader, EmptyState, ErrorState, LevelBadge, Skeleton, StatTile, StatusBadge, TimeAgo } from "@/components/ui";
 import { useRange } from "@/lib/use-range";
 import { useUrlState } from "@/lib/url";
-import { bucketLabel, fmtNumber } from "@/lib/time";
+import { bucketLabel, fmtMs, fmtNumber, fmtPct } from "@/lib/time";
 import { levelVar } from "@/lib/levels";
 
 const DASH_DEFAULT = { from: "-24h", to: "" };
@@ -23,13 +24,30 @@ export function DashboardsPage() {
   const errors = useErrorTrend(scope);
   const volume = useLogVolume(scope);
   const top = useTopIssues(scope);
+  const reqs = useRequestStats(scope);
   const o = overview.data?.overview;
   const errRate = o && o.events > 0 ? (o.errors / o.events) * 100 : 0;
+  const rt = reqs.data?.totals;
+  const reqSeries = useMemo(() => {
+    const pts = reqs.data?.points ?? [];
+    return {
+      buckets: pts.map((p) => p.ts),
+      traffic: [
+        { name: "requests", values: pts.map((p) => p.requests), color: "var(--series-1)" },
+        { name: "5xx", values: pts.map((p) => p.errors), color: "var(--lvl-error)" },
+      ],
+      latency: [
+        { name: "p50", values: pts.map((p) => (p.requests > 0 ? p.p50_ms : null)), color: "var(--series-3)" },
+        { name: "p95", values: pts.map((p) => (p.requests > 0 ? p.p95_ms : null)), color: "var(--series-1)" },
+        { name: "p99", values: pts.map((p) => (p.requests > 0 ? p.p99_ms : null)), color: "var(--series-7)" },
+      ],
+    };
+  }, [reqs.data]);
 
   return (
     <>
       <PageHeader title="Dashboards" sub="Project health at a glance">
-        <TimeRangePicker value={range} onChange={setRange} onRefresh={() => (overview.refetch(), errors.refetch(), volume.refetch(), top.refetch())} refreshing={overview.isFetching} />
+        <TimeRangePicker value={range} onChange={setRange} onRefresh={() => (overview.refetch(), errors.refetch(), volume.refetch(), top.refetch(), reqs.refetch())} refreshing={overview.isFetching} />
       </PageHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-[1400px] flex-col gap-3 p-4">
@@ -41,6 +59,11 @@ export function DashboardsPage() {
             <StatTile label="New issues" value={o ? fmtNumber(o.new_issues) : "…"} hint="first seen in range" tone={o && o.new_issues > 0 ? "warning" : undefined} />
             <StatTile label="Affected users" value={o ? fmtNumber(o.affected_users) : "…"} hint="distinct users with errors" />
             <StatTile label="Services" value={o ? fmtNumber(o.services) : "…"} hint="reporting in range" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <StatTile label="Requests" value={rt ? fmtNumber(rt.requests) : "…"} hint={rt ? `${rt.rps.toFixed(rt.rps < 1 ? 2 : 1)} req/s over the range` : undefined} />
+            <StatTile label="5xx rate" value={rt ? fmtPct(rt.error_pct) : "…"} hint={rt ? `${fmtNumber(rt.errors)} failed requests` : undefined} tone={rt && rt.error_pct >= 1 ? "critical" : rt && rt.error_pct > 0 ? "warning" : undefined} />
+            <StatTile label="p95 latency" value={rt && rt.requests > 0 ? fmtMs(rt.p95_ms) : "…"} hint={rt && rt.requests > 0 ? `p50 ${fmtMs(rt.p50_ms)} · p99 ${fmtMs(rt.p99_ms)}` : "no request rows in range"} />
           </div>
           <div className="grid gap-3 lg:grid-cols-2">
             <Card>
@@ -56,6 +79,57 @@ export function DashboardsPage() {
               </div>
             </Card>
           </div>
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Card>
+              <CardHeader title="Requests and 5xx" sub={reqs.data ? `${bucketLabel(reqs.data.bucket_seconds)} buckets · from request_stats_minutely` : undefined} />
+              <div className="p-2">
+                <MultiLineChart buckets={reqSeries.buckets} series={reqSeries.traffic} bucketSeconds={reqs.data?.bucket_seconds} height={200} loading={reqs.isPending} emptyText="No request rows yet (Flask/FastAPI integrations and OTLP server spans feed this)" />
+              </div>
+            </Card>
+            <Card>
+              <CardHeader title="Latency" sub="p50 / p95 / p99 of request duration" />
+              <div className="p-2">
+                <MultiLineChart buckets={reqSeries.buckets} series={reqSeries.latency} bucketSeconds={reqs.data?.bucket_seconds} height={200} format={fmtMs} loading={reqs.isPending} emptyText="No timed requests in range" />
+              </div>
+            </Card>
+          </div>
+          <Card>
+            <CardHeader title="Latency by route" sub="busiest routes in range" actions={<Link to="/logs?view=analytics&group_by_a=http.route&metric=p95" className="text-xs text-accent hover:underline">Analytics →</Link>} />
+            {reqs.isPending ? (
+              <Skeleton rows={4} className="p-3" />
+            ) : (reqs.data?.routes.length ?? 0) === 0 ? (
+              <EmptyState title="No request rows in this range" hint="Request stats come from the SDK request events and OTLP server spans." className="py-6" />
+            ) : (
+              <table className="w-full text-[13px]">
+                <thead className="text-left text-[11px] uppercase tracking-wide text-ink-3">
+                  <tr className="border-b border-border">
+                    <th className="px-3 py-1.5 font-medium">route</th>
+                    <th className="px-3 py-1.5 text-right font-medium">requests</th>
+                    <th className="px-3 py-1.5 text-right font-medium">5xx</th>
+                    <th className="px-3 py-1.5 text-right font-medium">p50</th>
+                    <th className="px-3 py-1.5 text-right font-medium">p95</th>
+                    <th className="px-3 py-1.5 text-right font-medium">p99</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reqs.data!.routes.map((r) => (
+                    <tr key={`${r.method} ${r.route}`} className="border-t border-border hover:bg-surface-2">
+                      <td className="max-w-0 px-3 py-1.5">
+                        <Link to={`/logs?q=${encodeURIComponent(`http.route:${JSON.stringify(r.route ?? "")} http.method:${r.method ?? ""}`)}&from=${encodeURIComponent(range.from)}${range.to ? `&to=${encodeURIComponent(range.to)}` : ""}`} className="block truncate font-mono text-ink hover:text-accent" title={`${r.method} ${r.route}`}>
+                          <span className="text-ink-3">{r.method}</span> {r.route}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular text-ink">{fmtNumber(r.requests)}</td>
+                      <td className={`px-3 py-1.5 text-right tabular ${r.error_pct >= 1 ? "text-critical" : "text-ink-2"}`}>{fmtPct(r.error_pct)}</td>
+                      <td className="px-3 py-1.5 text-right tabular text-ink-2">{fmtMs(r.p50_ms)}</td>
+                      <td className="px-3 py-1.5 text-right tabular text-ink">{fmtMs(r.p95_ms)}</td>
+                      <td className="px-3 py-1.5 text-right tabular text-ink-2">{fmtMs(r.p99_ms)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
           <Card>
             <CardHeader title="Top issues" sub="by occurrences in range" actions={<Link to="/issues" className="text-xs text-accent hover:underline">All issues →</Link>} />
             {top.isPending ? (

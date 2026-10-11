@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,10 @@ import (
 // fakeStore records the queries it receives and returns canned data.
 type fakeStore struct {
 	lastLogQuery   clickhouse.LogQuery
+	lastAggregate  clickhouse.AggregateSpec
+	lastService    string
+	logQueries     []clickhouse.LogQuery
+	exportRows     int // rows the fake export source holds
 	lastIssueQuery clickhouse.IssueListQuery
 	states         []api.IssueStateChange
 	comments       []string
@@ -109,9 +114,20 @@ func (f *fakeStore) ListAssignees(context.Context, string) ([]string, error) {
 }
 func (f *fakeStore) QueryLogs(_ context.Context, q clickhouse.LogQuery) ([]api.LogEvent, error) {
 	f.lastLogQuery = q
+	f.logQueries = append(f.logQueries, q)
+	total := 3
+	if f.exportRows > 0 {
+		total = f.exportRows
+	}
+	// Rows are numbered newest first; a keyset cursor resumes after the given event id.
+	start := 0
+	if q.BeforeID != "" {
+		n, _ := strconv.Atoi(strings.TrimPrefix(q.BeforeID, "ev"))
+		start = n + 1
+	}
 	out := make([]api.LogEvent, 0, q.Limit)
-	for i := 0; i < q.Limit && i < 3; i++ {
-		out = append(out, api.LogEvent{EventID: "ev" + string(rune('a'+i)), TS: time.Unix(1700000000-int64(i), 0).UTC(), Message: "m"})
+	for i := start; i < total && len(out) < q.Limit; i++ {
+		out = append(out, api.LogEvent{EventID: "ev" + strconv.Itoa(i), TS: time.Unix(1700000000-int64(i), 0).UTC(), Message: "=SUM(A1)", Service: "api", Attrs: map[string]string{"k": "v"}})
 	}
 	return out, nil
 }
@@ -132,6 +148,17 @@ func (f *fakeStore) LogContext(_ context.Context, _, id string, _, _ int) (api.L
 }
 func (f *fakeStore) LogPatterns(context.Context, clickhouse.LogQuery, int) ([]api.LogPattern, error) {
 	return []api.LogPattern{{Pattern: "x <n>", Count: 2}}, nil
+}
+func (f *fakeStore) LogAggregate(_ context.Context, q clickhouse.LogQuery, spec clickhouse.AggregateSpec) (api.LogAggregate, error) {
+	f.lastLogQuery = q
+	f.lastAggregate = spec
+	v := 12.5
+	return api.LogAggregate{BucketSeconds: int(spec.Bucket / time.Second), GroupBy: spec.GroupBy, Metric: spec.Metric, Of: spec.Of,
+		Total: api.AggregateGroup{Key: "total", Rows: 3, Value: &v}, Groups: []api.AggregateGroup{{Key: "/orders", Rows: 3, Value: &v}}}, nil
+}
+func (f *fakeStore) RequestStats(_ context.Context, _, service, _ string, _, _ time.Time, bucket, limit int) (api.RequestStats, error) {
+	f.lastService = service
+	return api.RequestStats{BucketSeconds: bucket, Totals: api.RouteStats{Requests: 10, Errors: 1, ErrorPct: 10}, Routes: make([]api.RouteStats, limit)}, nil
 }
 func (f *fakeStore) Overview(context.Context, string, string, string, time.Time, time.Time) (api.Overview, error) {
 	return api.Overview{Events: 10}, nil
@@ -403,5 +430,107 @@ func TestAPIKeyMirror(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != 401 {
 		t.Fatalf("mutations without an explicit key must be refused: %d", rec.Code)
+	}
+}
+
+func TestLogsAggregateParams(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/logs/aggregate?q=service:api&from=-6h&group_by=http.route&metric=p95&of=duration_ms&limit=5", nil, nil)
+	if rec.Code != 200 {
+		t.Fatalf("aggregate: %d %s", rec.Code, rec.Body.String())
+	}
+	sp := store.lastAggregate
+	if sp.GroupBy != "http.route" || sp.Metric != "p95" || sp.Of != "duration_ms" || sp.Limit != 5 || sp.Bucket != 10*time.Minute {
+		t.Fatalf("spec: %+v", sp)
+	}
+	if !strings.Contains(store.lastLogQuery.Where, "service = ?") || out["metric"] != "p95" || len(out["groups"].([]any)) != 1 {
+		t.Fatalf("aggregate response: %s", rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/logs/aggregate?metric=avg", nil, nil)
+	if rec.Code != 400 || out["error"] != "bad_metric" {
+		t.Fatalf("avg without a field must 400: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ = do(t, u, "GET", "/ui/api/logs/aggregate?metric=median&of=duration_ms", nil, nil)
+	if rec.Code != 400 {
+		t.Fatalf("unknown metric must 400: %d", rec.Code)
+	}
+	rec, _ = do(t, u, "GET", "/ui/api/logs/aggregate?bucket_seconds=3600", nil, nil)
+	if rec.Code != 200 || store.lastAggregate.Metric != "count" || store.lastAggregate.Bucket != time.Hour {
+		t.Fatalf("defaults: %d %+v", rec.Code, store.lastAggregate)
+	}
+}
+
+func TestLogsExportStreamsPages(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	store.exportRows = 2500
+	rec, _ := do(t, u, "GET", "/ui/api/logs/export?q=service:api&limit=2200&format=csv&cols=ts,event_id,message,service,attrs.k", nil, nil)
+	if rec.Code != 200 {
+		t.Fatalf("export: %d %s", rec.Code, rec.Body.String())
+	}
+	h := rec.Header()
+	if h.Get("Content-Type") != "text/csv; charset=utf-8" || !strings.HasPrefix(h.Get("Content-Disposition"), `attachment; filename="pyloggle-logs-default-`) || h.Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("headers: %v", h)
+	}
+	lines := strings.Split(strings.TrimRight(rec.Body.String(), "\n"), "\n")
+	if lines[0] != "ts,event_id,message,service,attrs.k" || len(lines) != 2201 {
+		t.Fatalf("csv rows: header=%q n=%d", lines[0], len(lines))
+	}
+	if !strings.Contains(lines[1], `,'=SUM(A1),api,v`) {
+		t.Fatalf("formula guard / attr column: %q", lines[1])
+	}
+	// 1000 + 1000 + 200: the keyset cursor carries the last event id of each page.
+	if n := len(store.logQueries); n != 3 || store.logQueries[0].Limit != 1000 || store.logQueries[1].BeforeID != "ev999" || store.logQueries[2].Limit != 200 {
+		t.Fatalf("paging: %d queries %+v", n, store.logQueries)
+	}
+
+	store.logQueries = nil
+	rec, _ = do(t, u, "GET", "/ui/api/logs/export?format=ndjson&limit=5", nil, nil)
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "application/x-ndjson" {
+		t.Fatalf("ndjson: %d %v", rec.Code, rec.Header())
+	}
+	var first map[string]any
+	if err := json.Unmarshal([]byte(strings.SplitN(rec.Body.String(), "\n", 2)[0]), &first); err != nil || first["event_id"] != "ev0" || first["message"] != "=SUM(A1)" {
+		t.Fatalf("ndjson rows keep raw values: %v %v", first, err)
+	}
+	if n := strings.Count(rec.Body.String(), "\n"); n != 5 || len(store.logQueries) != 1 {
+		t.Fatalf("ndjson limit: %d lines, %d queries", n, len(store.logQueries))
+	}
+
+	rec, out := do(t, u, "GET", "/ui/api/logs/export?format=xlsx", nil, nil)
+	if rec.Code != 400 || out["error"] != "bad_format" {
+		t.Fatalf("bad format: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/logs/export?q=level:%3Eerror", nil, nil)
+	if rec.Code != 400 || out["error"] != "bad_query" {
+		t.Fatalf("bad query must stay JSON: %d %s", rec.Code, rec.Body.String())
+	}
+	// The server cap wins over the requested limit.
+	u.cfg.ExportMaxRows = 10
+	store.logQueries = nil
+	rec, _ = do(t, u, "GET", "/ui/api/logs/export?limit=500&format=ndjson", nil, nil)
+	if n := strings.Count(rec.Body.String(), "\n"); rec.Code != 200 || n != 10 {
+		t.Fatalf("cap: %d lines", n)
+	}
+}
+
+func TestRequestStatsRoute(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/metrics/requests?from=-24h&service=api&limit=3", nil, nil)
+	if rec.Code != 200 || store.lastService != "api" || len(out["routes"].([]any)) != 3 {
+		t.Fatalf("requests: %d %s", rec.Code, rec.Body.String())
+	}
+	if out["totals"].(map[string]any)["error_pct"].(float64) != 10 || out["bucket_seconds"].(float64) != 1800 {
+		t.Fatalf("totals/bucket: %s", rec.Body.String())
+	}
+}
+
+func TestCSVSafe(t *testing.T) {
+	for in, want := range map[string]string{"hello": "hello", "=1+1": "'=1+1", "+x": "'+x", "-5": "'-5", "@cmd": "'@cmd", "": ""} {
+		if got := csvSafe(in); got != want {
+			t.Fatalf("csvSafe(%q) = %q want %q", in, got, want)
+		}
+	}
+	if n := exportFilename("My Project!", time.Date(2026, 10, 11, 7, 0, 0, 0, time.UTC), "csv"); n != "pyloggle-logs-My-Project--20261011-070000.csv" {
+		t.Fatalf("filename: %s", n)
 	}
 }

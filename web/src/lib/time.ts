@@ -98,3 +98,18 @@ export function fmtNumber(n: number): string {
   if (n >= 1e4) return `${(n / 1e3).toFixed(1)}k`;
   return n.toLocaleString();
 }
+
+/** Latency formatting: sub-10ms keeps a decimal, then whole ms, then seconds. */
+export function fmtMs(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !isFinite(ms)) return "–";
+  if (ms < 10) return `${ms.toFixed(1)}ms`;
+  return fmtDuration(ms);
+}
+
+/** Compact percentage: 0.034 → "0.03%", 12.3 → "12.3%", 100 → "100%". */
+export function fmtPct(pct: number): string {
+  if (!isFinite(pct)) return "–";
+  if (pct >= 100) return "100%";
+  if (pct >= 10) return `${pct.toFixed(1)}%`;
+  return `${pct.toFixed(2)}%`;
+}

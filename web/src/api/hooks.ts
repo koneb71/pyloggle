@@ -5,6 +5,8 @@ import type {
   AlertRule,
   Histogram,
   IssueActivity,
+  LogAggregate,
+  RequestStats,
   IssueDetail,
   IssueListResponse,
   LogContext,
@@ -140,6 +142,16 @@ export const useLogs = (p: LogsParams, enabled = true) =>
 export const useLogHistogram = (p: LogsParams & { group_by?: string; buckets?: number }, enabled = true) =>
   useQuery({ queryKey: ["logs-histogram", p], queryFn: () => get<Histogram>("/logs/histogram", p), enabled, placeholderData: keepPreviousData, retry: false });
 
+export interface AggregateParams extends LogsParams {
+  group_by?: string;
+  metric?: string;
+  of?: string;
+  buckets?: number;
+}
+
+export const useLogAggregate = (p: AggregateParams, enabled = true) =>
+  useQuery({ queryKey: ["logs-aggregate", p], queryFn: () => get<LogAggregate>("/logs/aggregate", p), enabled, placeholderData: keepPreviousData, retry: false });
+
 export const useLogFacets = (p: LogsParams & { key?: string; fields?: string[]; attr_keys?: number }, enabled = true) =>
   useQuery({ queryKey: ["logs-facets", p], queryFn: () => get<LogFacets>("/logs/facets", p), enabled, placeholderData: keepPreviousData, retry: false });
 
@@ -178,6 +190,9 @@ export const useLogVolume = (p: { from?: string; to?: string; service?: string; 
 
 export const useTopIssues = (p: { from?: string; to?: string; service?: string; env?: string }) =>
   useQuery({ queryKey: ["top-issues", p], queryFn: () => get<{ items: IssueListResponse["items"] }>("/metrics/top-issues", { ...p, limit: 8 }), placeholderData: keepPreviousData });
+
+export const useRequestStats = (p: { from?: string; to?: string; service?: string; env?: string }) =>
+  useQuery({ queryKey: ["request-stats", p], queryFn: () => get<RequestStats>("/metrics/requests", { ...p, limit: 10 }), placeholderData: keepPreviousData });
 
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => get<{ items: Project[] }>("/projects") });
 
