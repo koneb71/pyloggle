@@ -113,3 +113,34 @@ export function fmtPct(pct: number): string {
   if (pct >= 10) return `${pct.toFixed(1)}%`;
   return `${pct.toFixed(2)}%`;
 }
+
+/** Value formatter for an OpenTelemetry unit (s, ms, By, 1, {request}...). */
+export function unitFormatter(unit?: string): (v: number) => string {
+  switch (unit) {
+    case "s":
+      return (v) => fmtMs(v * 1000);
+    case "ms":
+      return (v) => fmtMs(v);
+    case "us":
+      return (v) => fmtMs(v / 1000);
+    case "ns":
+      return (v) => fmtMs(v / 1e6);
+    case "By":
+    case "by":
+      return fmtBytes;
+    case "%":
+      return (v) => `${v.toFixed(1)}%`;
+  }
+  return (v) => (Number.isInteger(v) ? fmtNumber(v) : Math.abs(v) >= 100 ? fmtNumber(Math.round(v)) : v.toFixed(2));
+}
+
+export function fmtBytes(n: number): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let i = 0;
+  let v = n;
+  while (Math.abs(v) >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}

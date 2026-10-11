@@ -13,6 +13,7 @@ import (
 	"time"
 
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	metricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -24,7 +25,7 @@ import (
 
 const maxBody = 32 << 20
 
-// Handler serves POST /v1/logs, /v1/traces and /v1/metrics (accepted and discarded).
+// Handler serves POST /v1/logs, /v1/traces and /v1/metrics.
 type Handler struct {
 	p   *ingest.Pipeline
 	cfg config.Config
@@ -75,6 +76,7 @@ func (h *Handler) handler(k kind) http.Handler {
 		}
 		var events []model.Event
 		var spans []model.Span
+		var points []model.MetricPoint
 		switch k {
 		case kindLogs:
 			var ld logsv1.LogsData
@@ -94,7 +96,14 @@ func (h *Handler) handler(k kind) http.Handler {
 				spans = nil
 			}
 		case kindMetrics:
-			// Accepted so exporters do not error; metrics are not stored.
+			var md metricsv1.MetricsData
+			if err := decode(body, isJSON, &md); err != nil {
+				http.Error(w, "bad payload: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			if h.cfg.OTLPStoreMetrics {
+				points = MetricsToPoints(&md, h.now())
+			}
 		}
 		accepted := 0
 		for _, ev := range events {
@@ -108,6 +117,10 @@ func (h *Handler) handler(k kind) http.Handler {
 				rawLen = 0 // the events already paid for the request bytes
 			}
 			n, _ := h.p.ProcessSpans(r.Context(), t, spans, rawLen)
+			accepted += n
+		}
+		if len(points) > 0 {
+			n, _ := h.p.ProcessMetrics(r.Context(), t, points, len(body))
 			accepted += n
 		}
 		// OTLP success: 200 with an empty Export*Response in the request's encoding.

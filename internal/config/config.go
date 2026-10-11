@@ -71,6 +71,7 @@ type Config struct {
 	// analytics and request stats see OTLP traffic like SDK traffic.
 	OTLPStoreSpans       bool
 	OTLPStoreServerSpans bool
+	OTLPStoreMetrics     bool // keep OTLP metric points (30-day TTL by default)
 
 	// PublicURL is the externally reachable base URL (for links in alerts), e.g. https://logs.example.com
 	PublicURL string
@@ -149,6 +150,7 @@ func FromEnv() Config {
 
 		OTLPStoreSpans:       getenvBool("OTLP_STORE_SPANS", true),
 		OTLPStoreServerSpans: getenvBool("OTLP_STORE_SERVER_SPANS", true),
+		OTLPStoreMetrics:     getenvBool("OTLP_STORE_METRICS", true),
 		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_PUBLIC_URL")), "/"),
 		ExportMaxRows:        getenvInt("PYLOGGLE_EXPORT_MAX_ROWS", 100000),
 

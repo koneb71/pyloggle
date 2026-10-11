@@ -49,6 +49,9 @@ type Store interface {
 	LogVolumeByLevel(ctx context.Context, projectID, service, env string, from, to time.Time, bucketSeconds int) (api.Histogram, error)
 	TopIssues(ctx context.Context, projectID, service, env string, from, to time.Time, limit int) ([]api.IssueSummary, error)
 	RequestStats(ctx context.Context, projectID, service, env string, from, to time.Time, bucketSeconds, routeLimit int) (api.RequestStats, error)
+	RequestStatsFromOTel(ctx context.Context, projectID, service, env string, from, to time.Time, bucketSeconds, routeLimit int) (api.RequestStats, bool, error)
+	MetricNames(ctx context.Context, projectID string) ([]api.MetricInfo, error)
+	MetricSeries(ctx context.Context, q clickhouse.MetricQuery) (api.MetricSeries, bool, error)
 
 	// saved views
 	ListSavedSearches(ctx context.Context, projectID, userID string, includePublic bool, onlyPinned bool, limit int) ([]api.SavedSearch, error)

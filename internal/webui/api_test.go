@@ -19,18 +19,19 @@ import (
 
 // fakeStore records the queries it receives and returns canned data.
 type fakeStore struct {
-	lastLogQuery   clickhouse.LogQuery
-	lastAggregate  clickhouse.AggregateSpec
-	lastSpanQuery  clickhouse.SpanQuery
-	lastTraceAt    time.Time
-	lastService    string
-	logQueries     []clickhouse.LogQuery
-	exportRows     int // rows the fake export source holds
-	lastIssueQuery clickhouse.IssueListQuery
-	states         []api.IssueStateChange
-	comments       []string
-	projects       []clickhouse.ProjectView
-	created        []clickhouse.ProjectUpsert
+	lastLogQuery    clickhouse.LogQuery
+	lastAggregate   clickhouse.AggregateSpec
+	lastSpanQuery   clickhouse.SpanQuery
+	lastMetricQuery clickhouse.MetricQuery
+	lastTraceAt     time.Time
+	lastService     string
+	logQueries      []clickhouse.LogQuery
+	exportRows      int // rows the fake export source holds
+	lastIssueQuery  clickhouse.IssueListQuery
+	states          []api.IssueStateChange
+	comments        []string
+	projects        []clickhouse.ProjectView
+	created         []clickhouse.ProjectUpsert
 }
 
 func (f *fakeStore) QueryIssues(_ context.Context, q clickhouse.IssueListQuery) ([]api.IssueSummary, error) {
@@ -188,6 +189,27 @@ func (f *fakeStore) TraceSpans(_ context.Context, _, id string, at time.Time) ([
 }
 func (f *fakeStore) TraceErrors(_ context.Context, _, id string, _ time.Time) ([]api.ErrorOccurrence, error) {
 	return []api.ErrorOccurrence{{EventID: "e-" + id, TraceID: id, IssueID: "i1"}}, nil
+}
+func (f *fakeStore) RequestStatsFromOTel(_ context.Context, _, service, _ string, _, _ time.Time, bucket, _ int) (api.RequestStats, bool, error) {
+	f.lastService = service
+	if service == "none" {
+		return api.RequestStats{}, false, nil
+	}
+	return api.RequestStats{BucketSeconds: bucket, Totals: api.RouteStats{Requests: 7, P95MS: 120}}, true, nil
+}
+func (f *fakeStore) MetricNames(context.Context, string) ([]api.MetricInfo, error) {
+	return []api.MetricInfo{{Name: "http.server.request.duration", Type: "histogram", Unit: "s", Temporality: "cumulative"}, {Name: "process.cpu.time", Type: "sum", Monotonic: true}}, nil
+}
+func (f *fakeStore) MetricSeries(_ context.Context, q clickhouse.MetricQuery) (api.MetricSeries, bool, error) {
+	f.lastMetricQuery = q
+	if q.Name == "nope" {
+		return api.MetricSeries{}, false, nil
+	}
+	if q.Agg == "median" {
+		return api.MetricSeries{}, true, clickhouse.ErrBadAgg
+	}
+	v := 1.5
+	return api.MetricSeries{Name: q.Name, Type: "gauge", Agg: "avg", BucketSeconds: int(q.Bucket / time.Second), Series: []api.MetricSerie{{Label: "", Points: []api.MetricValue{{Value: &v}}}}}, true, nil
 }
 func (f *fakeStore) Overview(context.Context, string, string, string, time.Time, time.Time) (api.Overview, error) {
 	return api.Overview{Events: 10}, nil
@@ -610,5 +632,52 @@ func TestTracesAPI(t *testing.T) {
 	rec, out = do(t, u, "GET", "/ui/api/me", nil, nil)
 	if rec.Code != 200 || out["features"].(map[string]any)["traces"] != true {
 		t.Fatalf("me.features.traces: %s", rec.Body.String())
+	}
+}
+
+func TestMetricsAPI(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/metrics/names", nil, nil)
+	if rec.Code != 200 || len(out["items"].([]any)) != 2 || out["aggs"] == nil {
+		t.Fatalf("names: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/metrics/series?name=process.cpu.time&agg=rate&group_by=host.name&from=-6h&limit=5&service=api", nil, nil)
+	if rec.Code != 200 {
+		t.Fatalf("series: %d %s", rec.Code, rec.Body.String())
+	}
+	mq := store.lastMetricQuery
+	if mq.Name != "process.cpu.time" || mq.Agg != "rate" || mq.GroupBy != "host.name" || mq.Limit != 5 || mq.Service != "api" || mq.Bucket != 10*time.Minute || mq.ProjectID != "default" {
+		t.Fatalf("metric query: %+v", mq)
+	}
+	if len(out["series"].([]any)) != 1 {
+		t.Fatalf("series body: %s", rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/metrics/series?name=nope", nil, nil)
+	if rec.Code != 404 || out["error"] != "unknown_metric" {
+		t.Fatalf("unknown: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/metrics/series?name=x&agg=median", nil, nil)
+	if rec.Code != 400 || out["error"] != "bad_agg" {
+		t.Fatalf("bad agg: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, _ = do(t, u, "GET", "/ui/api/metrics/series", nil, nil)
+	if rec.Code != 400 {
+		t.Fatalf("missing name: %d", rec.Code)
+	}
+	rec, out = do(t, u, "GET", "/ui/api/metrics/requests?source=otel&from=-24h", nil, nil)
+	if rec.Code != 200 || out["source"] != "otel" || out["available"] != true || out["totals"].(map[string]any)["p95_ms"].(float64) != 120 {
+		t.Fatalf("otel requests: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/metrics/requests?source=otel&service=none", nil, nil)
+	if rec.Code != 200 || out["available"] != false || out["bucket_seconds"].(float64) == 0 || len(out["points"].([]any)) != 0 {
+		t.Fatalf("otel unavailable: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/metrics/requests?source=prometheus", nil, nil)
+	if rec.Code != 400 || out["error"] != "bad_source" {
+		t.Fatalf("bad source: %d", rec.Code)
+	}
+	rec, out = do(t, u, "GET", "/ui/api/metrics/requests", nil, nil)
+	if rec.Code != 200 || out["source"] != "logs" || out["available"] != true {
+		t.Fatalf("logs source: %d %s", rec.Code, rec.Body.String())
 	}
 }

@@ -6,7 +6,9 @@ import type {
   Histogram,
   IssueActivity,
   LogAggregate,
-  RequestStats,
+  MetricInfo,
+  MetricSeries,
+  RequestStatsResponse,
   TraceDetail,
   TracesResponse,
   IssueDetail,
@@ -211,8 +213,26 @@ export const useTrace = (id: string | undefined, at?: string) =>
 export const useTraceFields = () =>
   useQuery({ queryKey: ["trace-fields"], queryFn: () => get<{ fields: string[]; syntax: string[] }>("/traces/fields"), staleTime: Infinity });
 
-export const useRequestStats = (p: { from?: string; to?: string; service?: string; env?: string }) =>
-  useQuery({ queryKey: ["request-stats", p], queryFn: () => get<RequestStats>("/metrics/requests", { ...p, limit: 10 }), placeholderData: keepPreviousData });
+export const useRequestStats = (p: { from?: string; to?: string; service?: string; env?: string; source?: string }) =>
+  useQuery({ queryKey: ["request-stats", p], queryFn: () => get<RequestStatsResponse>("/metrics/requests", { ...p, limit: 10 }), placeholderData: keepPreviousData });
+
+export const useMetricNames = () =>
+  useQuery({ queryKey: ["metric-names"], queryFn: () => get<{ items: MetricInfo[]; aggs: Record<string, string[]> }>("/metrics/names"), staleTime: 60_000 });
+
+export interface MetricSeriesParams {
+  name: string;
+  agg?: string;
+  group_by?: string;
+  from?: string;
+  to?: string;
+  service?: string;
+  env?: string;
+  limit?: number;
+  buckets?: number;
+}
+
+export const useMetricSeries = (p: MetricSeriesParams, enabled = true) =>
+  useQuery({ queryKey: ["metric-series", p], queryFn: () => get<MetricSeries>("/metrics/series", p), enabled: enabled && !!p.name, placeholderData: keepPreviousData, retry: false });
 
 export const useProjects = () => useQuery({ queryKey: ["projects"], queryFn: () => get<{ items: Project[] }>("/projects") });
 

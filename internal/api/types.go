@@ -484,3 +484,36 @@ type TraceDetail struct {
 	Errors     []ErrorOccurrence `json:"errors"`
 	Logs       []LogEvent        `json:"logs"`
 }
+
+// MetricInfo is one catalog entry for the metric picker.
+type MetricInfo struct {
+	Name        string    `json:"name"`
+	Type        string    `json:"type"`
+	Unit        string    `json:"unit,omitempty"`
+	Monotonic   bool      `json:"monotonic,omitempty"`
+	Temporality string    `json:"temporality,omitempty"`
+	LastSeen    time.Time `json:"last_seen"`
+}
+
+// MetricValue is one bucket of a metric series (null where the bucket has no data).
+type MetricValue struct {
+	TS    time.Time `json:"ts"`
+	Value *float64  `json:"value"`
+}
+
+type MetricSerie struct {
+	Label  string        `json:"label"`
+	Points []MetricValue `json:"points"`
+}
+
+// MetricSeries is the answer to GET /metrics/series.
+type MetricSeries struct {
+	Name          string        `json:"name"`
+	Type          string        `json:"type"`
+	Unit          string        `json:"unit,omitempty"`
+	Agg           string        `json:"agg"`
+	GroupBy       string        `json:"group_by,omitempty"`
+	BucketSeconds int           `json:"bucket_seconds"`
+	Series        []MetricSerie `json:"series"`
+	Other         *MetricSerie  `json:"other,omitempty"`
+}

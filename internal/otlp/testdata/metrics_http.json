@@ -1,0 +1,84 @@
+{
+  "resourceMetrics": [{
+    "resource": {"attributes": [
+      {"key": "service.name", "value": {"stringValue": "checkout"}},
+      {"key": "deployment.environment", "value": {"stringValue": "prod"}}
+    ]},
+    "scopeMetrics": [{
+      "scope": {"name": "fastapi", "version": "0.143.0"},
+      "metrics": [
+        {
+          "name": "http.server.request.duration",
+          "unit": "s",
+          "histogram": {
+            "aggregationTemporality": 2,
+            "dataPoints": [
+              {
+                "attributes": [
+                  {"key": "http.request.method", "value": {"stringValue": "GET"}},
+                  {"key": "http.route", "value": {"stringValue": "/orders/{id}"}},
+                  {"key": "http.response.status_code", "value": {"intValue": "200"}},
+                  {"key": "url.scheme", "value": {"stringValue": "http"}}
+                ],
+                "startTimeUnixNano": "1735689600000000000",
+                "timeUnixNano": "1735689660000000000",
+                "count": "12",
+                "sum": 0.84,
+                "bucketCounts": ["0", "2", "6", "3", "1", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"],
+                "explicitBounds": [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10],
+                "min": 0.008,
+                "max": 0.09
+              },
+              {
+                "attributes": [
+                  {"key": "http.request.method", "value": {"stringValue": "POST"}},
+                  {"key": "http.route", "value": {"stringValue": "/pay"}},
+                  {"key": "http.response.status_code", "value": {"intValue": "500"}},
+                  {"key": "error.type", "value": {"stringValue": "RuntimeError"}}
+                ],
+                "startTimeUnixNano": "1735689600000000000",
+                "timeUnixNano": "1735689660000000000",
+                "count": "3",
+                "sum": 1.5,
+                "bucketCounts": ["0", "0", "0", "0", "0", "0", "0", "3", "0", "0", "0", "0", "0", "0", "0"],
+                "explicitBounds": [0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10]
+              }
+            ]
+          }
+        },
+        {
+          "name": "http.server.active_requests",
+          "unit": "{request}",
+          "sum": {
+            "aggregationTemporality": 2,
+            "isMonotonic": false,
+            "dataPoints": [{"attributes": [{"key": "http.request.method", "value": {"stringValue": "GET"}}], "timeUnixNano": "1735689660000000000", "asInt": "2"}]
+          }
+        },
+        {
+          "name": "process.cpu.time",
+          "unit": "s",
+          "sum": {
+            "aggregationTemporality": 2,
+            "isMonotonic": true,
+            "dataPoints": [{"attributes": [{"key": "cpu.mode", "value": {"stringValue": "user"}}], "timeUnixNano": "1735689660000000000", "asDouble": 12.5}]
+          }
+        },
+        {
+          "name": "process.memory.usage",
+          "unit": "By",
+          "gauge": {"dataPoints": [{"timeUnixNano": "1735689660000000000", "asInt": "104857600"}]}
+        },
+        {
+          "name": "rpc.client.duration",
+          "unit": "ms",
+          "summary": {"dataPoints": [{"timeUnixNano": "1735689660000000000", "count": "4", "sum": 40, "quantileValues": [{"quantile": 0.5, "value": 9}, {"quantile": 0.99, "value": 20}]}]}
+        },
+        {
+          "name": "this.name.is.far.too.long.to.be.stored.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "gauge": {"dataPoints": [{"timeUnixNano": "1735689660000000000", "asInt": "1"}]}
+        }
+      ]
+    }]
+  }]
+}
