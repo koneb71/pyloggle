@@ -90,6 +90,36 @@ one `db.query` breadcrumb per SQL statement (statement text only, never paramete
 turns it off), and sync and async views are both supported. With `emit_request_latency=True` every
 request logs a `request` line carrying `duration_ms` and the status.
 
+## OpenTelemetry
+
+The SDK and OpenTelemetry complement each other: OTLP carries traces and metrics, the SDK
+carries the richer error report. With `opentelemetry-api` installed every event takes the
+active span's trace and span ids, so it shows up next to the span in the trace view, and a
+captured exception stamps the span with `pyloggle.event_id` so the server never turns that
+span's own failure into a second issue. The server also folds two reports of the same crash on
+the same trace (the SDK's and an OTEL exception log) into one occurrence, whichever arrives first.
+
+FastAPI 0.142+ ships native telemetry; the recipe for SDK + native is:
+
+```python
+from pyloggle.fastapi import PyloggleFastAPIMiddleware, telemetry
+app = FastAPI(telemetry=telemetry(exclude=lambda s: s["path"] == "/health"))   # logs=False: the SDK owns exceptions
+app.add_middleware(PyloggleFastAPIMiddleware, client=client)
+```
+
+Exporters still come from the environment (`OTEL_EXPORTER_OTLP_ENDPOINT=https://pyloggle/`,
+`OTEL_EXPORTER_OTLP_HEADERS=x-api-key=...`, `FASTAPI_OTEL_AUTO_CONFIGURE=true`). When an
+OpenTelemetry server span covers a request, the integrations leave the `request` line to the
+span. `otel_owns_exceptions=True` makes every integration skip exception capture and only mark
+the exception, for teams that prefer the OTLP path.
+
+## Outgoing HTTP breadcrumbs
+
+`init()` patches `requests`, `httpx` (sync and async) and `urllib3` when they are installed:
+every outgoing call leaves one `http.client` breadcrumb (method, URL without query string or
+credentials, status, duration; failures as error crumbs). `http_breadcrumbs=False` or leaving
+`"http"` out of `integrations=` turns it off.
+
 ## What an error report contains
 
 Exception type/module/message, frames oldest→newest with source context (5 lines before/after),
@@ -98,6 +128,8 @@ chained causes (`raise ... from`, implicit context), exception groups, `__notes_
 request (method, route, URL, query, headers, body when enabled), user, runtime, SDK, tags, extra.
 
 ## Configuration (`ClientConfig` / `init(**kwargs)`)
+
+New in 0.3: `db_breadcrumbs` (Django SQL crumbs), `http_breadcrumbs`, `otel_owns_exceptions`.
 
 | Option | Default | Meaning |
 |---|---|---|

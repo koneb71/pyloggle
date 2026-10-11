@@ -1,52 +1,34 @@
-"""FastAPI app instrumented with OpenTelemetry only (no pyloggle SDK).
-
-Logs and traces go to pyloggle's OTLP door with nothing but an API key:
+"""FastAPI 0.142+ with its native OpenTelemetry support and no pyloggle SDK: one request span
+plus operation spans (dependencies, endpoint, serialization, background tasks), HTTP metrics and
+an exception log per crash, all sent to pyloggle's OTLP doors by three environment variables.
 
     pip install -r examples/requirements-otel.txt
-    export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:8080      # /v1/logs and /v1/traces are appended
+    export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:8080      # /v1/traces, /v1/metrics, /v1/logs are appended
     export OTEL_EXPORTER_OTLP_HEADERS="x-api-key=$PYLOGGLE_API_KEY"
-    export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+    export FASTAPI_OTEL_AUTO_CONFIGURE=true                       # 0.143+: exporters from the environment
     export OTEL_SERVICE_NAME=otel-example
     export OTEL_RESOURCE_ATTRIBUTES=deployment.environment=dev,service.version=1.0.0
     python -m uvicorn examples.otel_app:app --port 5052
 
-    curl -sS http://127.0.0.1:5052/hello ; curl -sS http://127.0.0.1:5052/boom
+    curl -sS http://127.0.0.1:5052/hello/ada ; curl -sS http://127.0.0.1:5052/boom
 
-Exceptions recorded on spans (exception.type/message/stacktrace) become issues; log records
-with exception attributes do too. Python-formatted stack traces are parsed back into frames.
+In pyloggle: Traces lists GET /boom with its operation spans, the exception log becomes an
+issue with parsed frames, and the Dashboards request tiles can read the OTEL HTTP metrics.
 """
 import logging
 
 from fastapi import FastAPI
-from opentelemetry import trace
-from opentelemetry._logs import set_logger_provider
-from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-tracer_provider = TracerProvider()
-tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-trace.set_tracer_provider(tracer_provider)
-
-logger_provider = LoggerProvider()
-logger_provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
-set_logger_provider(logger_provider)
 logging.basicConfig(level=logging.INFO)
-logging.getLogger().addHandler(LoggingHandler(level=logging.INFO, logger_provider=logger_provider))
 
-app = FastAPI()
-FastAPIInstrumentor.instrument_app(app)
+app = FastAPI(telemetry={"exclude": lambda scope: scope["path"] == "/health"})
 log = logging.getLogger("otel.example")
 
 
-@app.get("/hello")
-def hello():
-    log.info("hello from the OTEL example")
-    return {"ok": True}
+@app.get("/hello/{name}")
+def hello(name: str):
+    log.info("hello %s from the native OTEL example", name)
+    return {"hello": name}
 
 
 @app.get("/boom")
@@ -54,4 +36,9 @@ def boom():
     try:
         {}["missing"]
     except KeyError as exc:
-        raise RuntimeError("boom via OpenTelemetry") from exc
+        raise RuntimeError("boom via native OpenTelemetry") from exc
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}

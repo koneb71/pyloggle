@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricsv1 "go.opentelemetry.io/proto/otlp/metrics/v1"
+	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -221,13 +223,24 @@ func TestHandlerJSONProtobufGzip(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
 	h.Traces().ServeHTTP(rec, req)
-	// two logs posts (json + protobuf) produced one occurrence each; traces add the exception
-	// event and the failed span
-	if rec.Code != 200 || len(sink.occs) != 4 {
+	// The two logs posts (json + protobuf) carried the same exception for the same trace, so the
+	// second is a duplicate line, not a second occurrence (an exporter retry must not double
+	// count); traces add the exception event and the failed span.
+	if rec.Code != 200 || len(sink.occs) != 3 {
 		t.Fatalf("traces: %d occs=%d", rec.Code, len(sink.occs))
 	}
-	if sink.occs[2].TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" || sink.occs[2].SpanID != "00f067aa0ba902b7" {
-		t.Fatalf("ids must be hex: %q %q", sink.occs[2].TraceID, sink.occs[2].SpanID)
+	if sink.occs[1].TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" || sink.occs[1].SpanID != "00f067aa0ba902b7" {
+		t.Fatalf("ids must be hex: %q %q", sink.occs[1].TraceID, sink.occs[1].SpanID)
+	}
+	if dups := func() (n int) {
+		for _, l := range sink.logs {
+			if l.SkipIssue {
+				n++
+			}
+		}
+		return
+	}(); dups != 1 {
+		t.Fatalf("the repeated logs post must be stored as one duplicate line: %d", dups)
 	}
 	// Metrics are accepted and discarded; bad payloads are 400; wrong types 415.
 	req = httptest.NewRequest(http.MethodPost, "/v1/metrics", bytes.NewReader([]byte("{}")))
@@ -454,5 +467,124 @@ func TestHandlerStoresMetrics(t *testing.T) {
 	New(ingest.NewPipeline(cfg, &memSink{}, nil, nil), cfg).Metrics().ServeHTTP(rec, req)
 	if rec.Code != 400 {
 		t.Fatalf("bad payload must 400: %d", rec.Code)
+	}
+}
+
+func TestSpanStampedBySDKProducesNoEvents(t *testing.T) {
+	raw, _ := os.ReadFile("testdata/traces_exception.json")
+	var td tracev1.TracesData
+	if err := protojson.Unmarshal(raw, &td); err != nil {
+		t.Fatal(err)
+	}
+	events, spans := TracesToEventsAndSpans(&td, true, time.Now())
+	if len(events) == 0 || len(spans) == 0 {
+		t.Fatalf("fixture must produce events and spans: %d %d", len(events), len(spans))
+	}
+	for _, rs := range td.GetResourceSpans() {
+		for _, ss := range rs.GetScopeSpans() {
+			for _, sp := range ss.GetSpans() {
+				sp.Attributes = append(sp.Attributes, &commonv1.KeyValue{Key: model.AttrSDKEventID, Value: &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: "ev-1"}}})
+			}
+		}
+	}
+	events, spans2 := TracesToEventsAndSpans(&td, true, time.Now())
+	if len(events) != 0 {
+		t.Fatalf("stamped spans must not produce error or request lines: %d", len(events))
+	}
+	if len(spans2) != len(spans) {
+		t.Fatalf("span rows must still be stored: %d vs %d", len(spans2), len(spans))
+	}
+	if spans2[0].Attrs[model.AttrSDKEventID] != "ev-1" {
+		t.Fatalf("span keeps the stamp: %v", spans2[0].Attrs)
+	}
+}
+
+// nativeFastAPITrace builds what FastAPI 0.142+ exports for a crashing request: a server span
+// with error.type set to the exception class and no exception event (the exception travels as
+// a log record), plus a failed internal operation span.
+func nativeFastAPITrace(errorType string) *tracev1.TracesData {
+	str := func(k, v string) *commonv1.KeyValue {
+		return &commonv1.KeyValue{Key: k, Value: &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: v}}}
+	}
+	num := func(k string, v int64) *commonv1.KeyValue {
+		return &commonv1.KeyValue{Key: k, Value: &commonv1.AnyValue{Value: &commonv1.AnyValue_IntValue{IntValue: v}}}
+	}
+	traceID := []byte{0x4b, 0xf9, 0x2f, 0x35, 0x77, 0xb3, 0x4d, 0xa6, 0xa3, 0xce, 0x92, 0x9d, 0x0e, 0x0e, 0x47, 0x36}
+	root := []byte{0, 0xf0, 0x67, 0xaa, 0x0b, 0xa9, 0x02, 0xb7}
+	child := []byte{0, 0xf0, 0x67, 0xaa, 0x0b, 0xa9, 0x02, 0xb8}
+	start := uint64(1_760_000_000_000_000_000)
+	err := &tracev1.Status{Code: tracev1.Status_STATUS_CODE_ERROR}
+	return &tracev1.TracesData{ResourceSpans: []*tracev1.ResourceSpans{{
+		Resource: &resourcev1.Resource{Attributes: []*commonv1.KeyValue{str("service.name", "otel-example"), str("deployment.environment", "dev")}},
+		ScopeSpans: []*tracev1.ScopeSpans{{Scope: &commonv1.InstrumentationScope{Name: "fastapi"}, Spans: []*tracev1.Span{
+			{TraceId: traceID, SpanId: root, Name: "GET /boom", Kind: tracev1.Span_SPAN_KIND_SERVER, StartTimeUnixNano: start, EndTimeUnixNano: start + 2_000_000, Status: err,
+				Attributes: []*commonv1.KeyValue{str("http.request.method", "GET"), str("http.route", "/boom"), num("http.response.status_code", 500), str("url.path", "/boom"), str("error.type", errorType)}},
+			{TraceId: traceID, SpanId: child, ParentSpanId: root, Name: "fastapi.endpoint", Kind: tracev1.Span_SPAN_KIND_INTERNAL, StartTimeUnixNano: start + 100_000, EndTimeUnixNano: start + 1_900_000, Status: err,
+				Attributes: []*commonv1.KeyValue{str("error.type", errorType)}},
+		}}},
+	}}}
+}
+
+func TestNativeFastAPIFailureIsOneRequestLineNotIssues(t *testing.T) {
+	events, spans := TracesToEventsAndSpans(nativeFastAPITrace("RuntimeError"), true, time.Now())
+	if len(spans) != 2 {
+		t.Fatalf("spans: %d", len(spans))
+	}
+	if len(events) != 1 {
+		t.Fatalf("one failed-request line, nothing for the child span: %d events %+v", len(events), events)
+	}
+	ev := events[0]
+	if !ev.SkipIssue || ev.Level != "error" || ev.Message != "GET /boom failed: RuntimeError" || ev.HTTP == nil || ev.HTTP.Status != 500 || ev.HTTP.Method != "GET" || ev.HTTP.Route != "/boom" || ev.DurationMS != 2 {
+		t.Fatalf("failed request line: %+v http=%+v", ev, ev.HTTP)
+	}
+	// An HTTP status in error.type (an upstream 503, say) is not an exception anyone else
+	// reports: such failures stay issues, for the request and for a child that failed that way.
+	events, _ = TracesToEventsAndSpans(nativeFastAPITrace("503"), true, time.Now())
+	if len(events) != 2 || events[0].SkipIssue || events[0].Message != "GET /boom failed: 503" || events[1].SkipIssue || events[1].Message != "fastapi.endpoint failed: 503" {
+		t.Fatalf("status-code failures stay issues: %+v", events)
+	}
+	// Through the pipeline: the span-derived line plus the exception log of the same trace make
+	// one occurrence, whichever comes first.
+	for _, order := range []string{"spans-first", "log-first"} {
+		cfg := config.FromEnv()
+		cfg.DefaultProjID = "default"
+		cfg.SampleInfo, cfg.SampleDebug = 1, 1
+		sink := &memSink{}
+		p := ingest.NewPipeline(cfg, sink, nil, nil)
+		h := New(p, cfg)
+		raw, _ := os.ReadFile("testdata/logs_python_exception.json")
+		post := func(path string, body []byte) {
+			req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			if path == "/v1/logs" {
+				h.Logs().ServeHTTP(rec, req)
+			} else {
+				h.Traces().ServeHTTP(rec, req)
+			}
+			if rec.Code != 200 {
+				t.Fatalf("%s: %d %s", path, rec.Code, rec.Body.String())
+			}
+		}
+		tb, _ := protojson.Marshal(nativeFastAPITrace("KeyError"))
+		if order == "spans-first" {
+			post("/v1/traces", tb)
+			post("/v1/logs", raw)
+		} else {
+			post("/v1/logs", raw)
+			post("/v1/traces", tb)
+		}
+		if len(sink.occs) != 1 || sink.occs[0].ExceptionType == "" || sink.occs[0].Source != "otlp" || len(sink.spans) != 2 {
+			t.Fatalf("%s: occs=%d spans=%d", order, len(sink.occs), len(sink.spans))
+		}
+		skipped := 0
+		for _, l := range sink.logs {
+			if l.SkipIssue {
+				skipped++
+			}
+		}
+		if skipped != 1 {
+			t.Fatalf("%s: the failed-request line must be stored without an issue: %d", order, skipped)
+		}
 	}
 }

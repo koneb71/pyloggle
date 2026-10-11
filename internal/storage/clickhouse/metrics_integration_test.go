@@ -113,22 +113,22 @@ func TestIntegrationMetrics(t *testing.T) {
 	if ms.Series[0].Label != "b" || ms.Series[1].Label != "a" || *ms.Series[0].Points[0].Value-*ms.Series[1].Points[0].Value != 100 {
 		t.Fatalf("gauge values: %+v", ms.Series)
 	}
-	// Counter rate: 60/min = 1/s everywhere except the first bucket (no predecessor) and the
-	// reset bucket, which must not go negative.
+	// Counter rate: 60/min = 1/s everywhere, the first bucket included (the series starts inside
+	// the window, so its first sample is all new), and the reset bucket must not go negative.
 	ms, _, err = c.MetricSeries(ctx, clickhouse.MetricQuery{ProjectID: "p1", Name: "reqs.total", From: from, To: to, Bucket: time.Minute})
 	if err != nil || ms.Agg != "rate" || len(ms.Series) != 1 {
 		t.Fatalf("rate series: %+v %v", ms, err)
 	}
 	for i, pt := range ms.Series[0].Points {
-		if i == 0 {
-			if pt.Value != nil {
-				t.Fatalf("first bucket has no rate: %v", *pt.Value)
-			}
-			continue
-		}
 		if pt.Value == nil || *pt.Value < 0 || math.Abs(*pt.Value-1) > 0.01 {
 			t.Fatalf("rate at %d: %v", i, pt.Value)
 		}
+	}
+	// A window that starts after the series began differences against the sample before it:
+	// the first bucket inside the window is still 1/s, not the lifetime count.
+	ms, _, err = c.MetricSeries(ctx, clickhouse.MetricQuery{ProjectID: "p1", Name: "reqs.total", From: from.Add(10 * time.Minute), To: to, Bucket: time.Minute})
+	if err != nil || len(ms.Series) != 1 || ms.Series[0].Points[0].Value == nil || math.Abs(*ms.Series[0].Points[0].Value-1) > 0.01 {
+		t.Fatalf("baseline before the window: %+v %v", ms.Series, err)
 	}
 	// Histogram p95 by route from differenced cumulative buckets.
 	ms, _, err = c.MetricSeries(ctx, clickhouse.MetricQuery{ProjectID: "p1", Name: model.HTTPServerDuration, GroupBy: model.AttrHTTPRoute, From: from, To: to, Bucket: 5 * time.Minute})
@@ -155,26 +155,32 @@ func TestIntegrationMetrics(t *testing.T) {
 		t.Fatalf("unknown metric: found=%v err=%v", found, err)
 	}
 
-	// OTel request stats: 12 requests/min after the first sample, 2 of them failing.
+	// OTel request stats: 12 requests/min from the first sample on (the series start inside the
+	// window, so nothing is dropped), 2 of them failing.
 	st, ok, err := c.RequestStatsFromOTel(ctx, "p1", "", "", from, to, 60, 10)
 	if err != nil || !ok {
 		t.Fatalf("otel stats: ok=%v err=%v", ok, err)
 	}
-	if st.Totals.Requests != 29*12 || st.Totals.Errors != 29*2 || math.Abs(st.Totals.ErrorPct-100.0/6) > 0.01 {
+	if st.Totals.Requests != 30*12 || st.Totals.Errors != 30*2 || math.Abs(st.Totals.ErrorPct-100.0/6) > 0.01 {
 		t.Fatalf("totals: %+v", st.Totals)
 	}
 	if st.Totals.P50MS < 10 || st.Totals.P50MS > 25 || st.Totals.P99MS < 250 || st.Totals.P99MS > 500 {
 		t.Fatalf("latency ms: %+v", st.Totals)
 	}
-	if len(st.Routes) != 2 || st.Routes[0].Route != "/orders" || st.Routes[0].Requests != 290 || st.Routes[1].ErrorPct != 100 || st.Routes[1].P95MS < 250 {
+	if len(st.Routes) != 2 || st.Routes[0].Route != "/orders" || st.Routes[0].Requests != 300 || st.Routes[1].ErrorPct != 100 || st.Routes[1].P95MS < 250 {
 		t.Fatalf("routes: %+v", st.Routes)
 	}
 	var sum uint64
 	for _, pt := range st.Points {
 		sum += pt.Requests
 	}
-	if sum != 29*12 || len(st.Points) != 30 {
+	if sum != 30*12 || len(st.Points) != 30 {
 		t.Fatalf("points: sum=%d n=%d", sum, len(st.Points))
+	}
+	// A window starting mid-series counts only what happened inside it (baseline before it).
+	st, _, err = c.RequestStatsFromOTel(ctx, "p1", "", "", from.Add(10*time.Minute), to, 60, 10)
+	if err != nil || st.Totals.Requests != 20*12 {
+		t.Fatalf("mid-series window: %+v %v", st.Totals, err)
 	}
 	if _, ok, err := c.RequestStatsFromOTel(ctx, "p2", "", "", from, to, 60, 10); err != nil || ok {
 		t.Fatalf("project without the metric: ok=%v err=%v", ok, err)

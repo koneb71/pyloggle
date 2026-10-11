@@ -79,14 +79,15 @@ def init(
     env: Optional[str] = None,
     project_id: Optional[str] = None,
     release: Optional[str] = None,
-    integrations: Sequence[str] = ("logging", "excepthook"),
+    integrations: Sequence[str] = ("logging", "excepthook", "http"),
     **config: Any,
 ) -> Client:
     """Create the global client from arguments and PYLOGGLE_* environment variables.
 
     integrations: "logging" installs the stdlib handler (root + framework loggers);
-    "excepthook" installs the sys/threading/unraisable hooks. Calling init() again replaces
-    the previous client (after flushing it).
+    "excepthook" installs the sys/threading/unraisable hooks; "http" records outgoing
+    requests/httpx/urllib3 calls as breadcrumbs. Calling init() again replaces the previous
+    client (after flushing it).
     """
     global _client
     cfg = ClientConfig(
@@ -111,6 +112,13 @@ def init(
 
         install_pyloggle_logging(client)
         _repoint_logging(client)
+    if "http" in integrations and getattr(cfg, "http_breadcrumbs", True):
+        try:
+            from .integrations import http as _http
+
+            _http.install()
+        except Exception:
+            pass
     _client = client
     if prev is not None:
         try:

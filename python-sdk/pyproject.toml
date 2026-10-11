@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyloggle"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lightweight log + error tracking SDK for Pyloggle (structured tracebacks, breadcrumbs, Flask/FastAPI/Django/Celery/logging integrations)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -22,7 +22,8 @@ flask = ["flask>=2.3"]
 fastapi = ["fastapi>=0.110"]
 django = ["django>=4.2"]
 celery = ["celery>=5.3"]
-test = ["pytest>=8", "flask>=2.3", "fastapi>=0.110", "httpx>=0.27", "django>=4.2", "celery>=5.3"]
+otel = ["opentelemetry-api>=1.27"]
+test = ["pytest>=8", "flask>=2.3", "fastapi>=0.143", "httpx>=0.27", "django>=4.2", "celery>=5.3", "requests>=2.31", "opentelemetry-sdk>=1.30"]
 
 [tool.setuptools.packages.find]
 where = ["."]

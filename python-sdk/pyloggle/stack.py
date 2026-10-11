@@ -291,6 +291,14 @@ _fallback_lock = threading.Lock()
 
 
 def mark_captured(exc: BaseException, event_id: str) -> None:
+    """Remember that exc was reported as event_id (so later log lines carrying it are
+    duplicates) and stamp the active OpenTelemetry span, if any, with the event id."""
+    try:
+        from .otel import annotate_captured
+
+        annotate_captured(event_id)
+    except Exception:
+        pass
     try:
         setattr(exc, _ATTR, event_id)
         return
