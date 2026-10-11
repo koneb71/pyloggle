@@ -26,6 +26,8 @@ from . import scope as _scope
 from ._request import begin_request, client_ip, end_request, headers_for_event
 from .client import Client
 from .context import get_user_id_hash, set_request_id
+from .otel import current_ids as _otel_ids
+from .otel import server_span_active as _otel_server_span_active
 from .stack import captured_event_id, exception_to_payload, mark_captured
 from .user import hash_user_id
 
@@ -84,6 +86,9 @@ def _on_request_exception(sender: Any = None, request: Any = None, **_extra: Any
         pass
     client = get_client()
     if client is None or exc is None or captured_event_id(exc):
+        return
+    if bool(getattr(client.config, "otel_owns_exceptions", False)):
+        mark_captured(exc, "otel")
         return
     try:
         _capture(client, request, exc)
@@ -198,9 +203,14 @@ class PyloggleMiddleware:
         http.pop("headers", None)  # headers are attached on error events only
         token, rid = begin_request(config=client.config, headers=headers, http=http)
         set_request_id(rid)
+        otel_tid, otel_sid = _otel_ids()
+        if otel_tid:
+            sc = _scope.effective_scope()
+            sc.trace_id, sc.span_id = otel_tid, otel_sid
         try:
             request._pyloggle_request_id = rid
             request._pyloggle_start = time.perf_counter()
+            request._pyloggle_otel_server = _otel_server_span_active()
         except Exception:
             pass
         return token
@@ -208,8 +218,8 @@ class PyloggleMiddleware:
     def _finish(self, client: Client, request: Any, response: Any) -> None:
         if not bool(getattr(client.config, "emit_request_latency", False)):
             return
-        if bool(getattr(request, "_pyloggle_had_exception", False)):
-            return
+        if bool(getattr(request, "_pyloggle_had_exception", False)) or bool(getattr(request, "_pyloggle_otel_server", False)):
+            return  # the error event, or the server span, already covers the request
         try:
             start = float(getattr(request, "_pyloggle_start", 0.0) or 0.0)
             ms = _elapsed_ms(start) if start > 0 else None

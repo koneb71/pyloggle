@@ -148,6 +148,42 @@ type cellKey struct {
 	g string
 }
 
+// cumulativeBaselines returns, per series, the last cumulative sample before from (looking
+// back up to lookback), so the first sample inside the window is differenced against what
+// came before it. A series without a baseline started inside the window: its first sample
+// counts in full instead of being thrown away, which matters for short-lived processes and
+// for any window shorter than the export interval.
+func (c *Client) cumulativeBaselines(ctx context.Context, projectID, name, service, env string, from time.Time, lookback time.Duration) (map[uint64]cell, error) {
+	if lookback <= 0 {
+		lookback = time.Hour
+	}
+	sql := "SELECT series_hash, argMax(value, ts), maxForEach(bucket_counts), any(bounds), max(count), max(sum) FROM metrics_points WHERE project_id = ? AND name = ? AND ts >= ? AND ts < ?"
+	args := []any{projectID, name, from.Add(-lookback), from}
+	if service != "" {
+		sql += " AND service = ?"
+		args = append(args, service)
+	}
+	if env != "" {
+		sql += " AND env = ?"
+		args = append(args, env)
+	}
+	rows, err := c.conn.Query(ctx, sql+" GROUP BY series_hash", args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[uint64]cell{}
+	for rows.Next() {
+		var hash uint64
+		var cl cell
+		if err := rows.Scan(&hash, &cl.v, &cl.bc, &cl.bounds, &cl.n, &cl.s); err != nil {
+			return nil, err
+		}
+		out[hash] = cl
+	}
+	return out, rows.Err()
+}
+
 // MetricSeries computes one metric over time, split by a group, with the top series kept and
 // the rest folded into "other". Cumulative counters and histograms are differenced per series
 // in Go (with reset detection) because ClickHouse cannot know where one series' samples end.
@@ -227,6 +263,11 @@ func (c *Client) MetricSeries(ctx context.Context, q MetricQuery) (api.MetricSer
 			if err != nil {
 				return api.MetricSeries{}, true, err
 			}
+			base, err := c.cumulativeBaselines(ctx, q.ProjectID, q.Name, q.Service, q.Env, q.From, time.Hour)
+			if err != nil {
+				rows.Close()
+				return api.MetricSeries{}, true, err
+			}
 			var prevHash uint64
 			var prev cell
 			first := true
@@ -240,8 +281,7 @@ func (c *Client) MetricSeries(ctx context.Context, q MetricQuery) (api.MetricSer
 					return api.MetricSeries{}, true, err
 				}
 				if first || hash != prevHash {
-					first, prevHash, prev = false, hash, cur
-					continue // the first sample of a series has nothing to diff against
+					first, prevHash, prev = false, hash, base[hash] // zero cell: the series is new
 				}
 				d := cell{bounds: cur.bounds, bc: diffCounts(cur.bc, prev.bc)}
 				if cur.n >= prev.n {
@@ -284,6 +324,11 @@ func (c *Client) MetricSeries(ctx context.Context, q MetricQuery) (api.MetricSer
 			if err != nil {
 				return api.MetricSeries{}, true, err
 			}
+			base, err := c.cumulativeBaselines(ctx, q.ProjectID, q.Name, q.Service, q.Env, q.From, time.Hour)
+			if err != nil {
+				rows.Close()
+				return api.MetricSeries{}, true, err
+			}
 			var prevHash uint64
 			var prevV float64
 			first := true
@@ -297,8 +342,7 @@ func (c *Client) MetricSeries(ctx context.Context, q MetricQuery) (api.MetricSer
 					return api.MetricSeries{}, true, err
 				}
 				if first || hash != prevHash {
-					first, prevHash, prevV = false, hash, v
-					continue
+					first, prevHash, prevV = false, hash, base[hash].v // 0 when the series is new
 				}
 				d := v - prevV
 				if d < 0 {
@@ -509,6 +553,12 @@ func (c *Client) RequestStatsFromOTel(ctx context.Context, projectID, service, e
 		args = append(args, env)
 	}
 	sql += " GROUP BY b, series_hash ORDER BY series_hash, b"
+	var base map[uint64]cell
+	if cumulative {
+		if base, err = c.cumulativeBaselines(ctx, projectID, model.HTTPServerDuration, service, env, from, time.Hour); err != nil {
+			return api.RequestStats{}, true, err
+		}
+	}
 	rows, err := c.conn.Query(ctx, sql, args...)
 	if err != nil {
 		return api.RequestStats{}, true, err
@@ -534,8 +584,7 @@ func (c *Client) RequestStatsFromOTel(ctx context.Context, projectID, service, e
 		s.b = s.b.UTC()
 		if cumulative {
 			if first || hash != prevHash {
-				first, prevHash, prev = false, hash, s.cl
-				continue
+				first, prevHash, prev = false, hash, base[hash] // zero cell: the series is new
 			}
 			d := cell{bounds: s.cl.bounds, bc: diffCounts(s.cl.bc, prev.bc)}
 			if s.cl.n >= prev.n {

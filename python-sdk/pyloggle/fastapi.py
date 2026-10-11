@@ -9,8 +9,25 @@ from . import scope as _scope
 from ._request import begin_request, client_ip, end_request, headers_for_event
 from .client import Client
 from .context import get_user_id_hash, set_request_id, set_user_id_hash
+from .otel import current_ids as _otel_ids
+from .otel import server_span_active as _otel_server_span_active
 from .stack import captured_event_id, exception_to_payload, mark_captured
 from .user import hash_user_id
+
+
+def telemetry(**overrides: Any) -> dict:
+    """The ``telemetry=`` dict for ``FastAPI(telemetry=...)`` (0.142+) when the SDK is also
+    installed: FastAPI keeps its request and operation spans and its HTTP metrics, the SDK owns
+    exceptions (``logs=False``, so a crash is one issue with locals and breadcrumbs, linked to
+    the native trace), and exporters still come from the environment
+    (``OTEL_EXPORTER_OTLP_ENDPOINT``, ``FASTAPI_OTEL_AUTO_CONFIGURE=true``).
+
+        app = FastAPI(telemetry=pyloggle.fastapi.telemetry(exclude=lambda s: s["path"] == "/health"))
+        app.add_middleware(PyloggleFastAPIMiddleware, client=client)
+    """
+    cfg: dict = {"logs": False}
+    cfg.update(overrides)
+    return cfg
 
 
 class PyloggleFastAPIMiddleware:
@@ -78,6 +95,15 @@ class PyloggleFastAPIMiddleware:
 
         token, request_id = begin_request(config=self.client.config, headers=headers, http=http_base)
         set_request_id(request_id)
+        otel_tid, otel_sid = _otel_ids()
+        if otel_tid:
+            # FastAPI's native telemetry (and the contrib instrumentation) opened the request
+            # span around the middleware stack: correlate with it, not with the upstream parent.
+            sc = _scope.effective_scope()
+            sc.trace_id, sc.span_id = otel_tid, otel_sid
+        # Decided now, while the span is recording: it ends with the last body chunk, before
+        # this call returns.
+        otel_server_span = _otel_server_span_active()
 
         if self.user_id_getter is not None:
             try:
@@ -136,8 +162,8 @@ class PyloggleFastAPIMiddleware:
                 pass
             raise
         else:
-            if not bool(getattr(self.client.config, "emit_request_latency", False)):
-                return
+            if not bool(getattr(self.client.config, "emit_request_latency", False)) or otel_server_span:
+                return  # the server span already yields the request line
             try:
                 final_status = int(status_code if status_code is not None else 500)
                 level = "info"
@@ -179,6 +205,9 @@ class PyloggleFastAPIMiddleware:
 
     def _capture(self, exc, scope, headers, http_base, status_code, start, body_buf, body_truncated, request_id):
         if captured_event_id(exc):
+            return
+        if bool(getattr(self.client.config, "otel_owns_exceptions", False)):
+            mark_captured(exc, "otel")  # the OTLP path reports it; log lines stay duplicates
             return
         attrs: dict[str, Any] = {}
         duration_ms = None

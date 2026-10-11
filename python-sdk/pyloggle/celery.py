@@ -162,6 +162,9 @@ def _failure(sender: Any = None, task_id: Any = None, exception: Any = None, arg
     client = get_client()
     if client is None or exception is None or captured_event_id(exception):
         return
+    if bool(getattr(client.config, "otel_owns_exceptions", False)):
+        mark_captured(exception, "otel")
+        return
     try:
         task = sender
         name = str(getattr(task, "name", None) or "")

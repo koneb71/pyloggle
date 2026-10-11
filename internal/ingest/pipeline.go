@@ -96,6 +96,7 @@ type Pipeline struct {
 	res    KeyResolver
 	lim    *limiter
 	qt     *usageGuard
+	dd     *traceDedupe
 
 	relMu    sync.Mutex
 	releases map[string]releaseSeen
@@ -120,6 +121,7 @@ func NewPipeline(cfg config.Config, sink Sink, store IssueStateStore, res KeyRes
 		window = cfg.RetentionErrorsDays
 	}
 	p.qt = newUsageGuard(usage, time.Duration(window)*24*time.Hour)
+	p.dd = newTraceDedupe(2*time.Minute, 20000)
 	var loader issue.StateLoader
 	if store != nil {
 		loader = store.GetIssueState
@@ -304,6 +306,19 @@ func (p *Pipeline) process(ctx context.Context, t Tenant, ev model.Event, rawLen
 		return o
 	}
 
+	if isErr && !ev.SkipIssue {
+		occ := issue.FromEvent(ev)
+		if ev.Exception != nil && ev.TraceID != "" {
+			// The same crash can reach us twice: the SDK's report and an OpenTelemetry
+			// exception log or span event for the same trace. The first one is the
+			// occurrence; the second stays a log line pointing at it.
+			if prev, dup := p.dd.first(t.ProjectID, ev.TraceID, ev.Exception.Type, ev.EventID, occ.IssueID, now); dup {
+				ev.SkipIssue = true
+				ev.Attrs = ev.Attrs.Set("pyloggle.issue_id", prev.IssueID)
+				ev.Attrs = ev.Attrs.Set("pyloggle.duplicate_of", prev.EventID)
+			}
+		}
+	}
 	if isErr && !ev.SkipIssue {
 		occ := issue.FromEvent(ev)
 		ev.Attrs = ev.Attrs.Set("pyloggle.issue_id", occ.IssueID)

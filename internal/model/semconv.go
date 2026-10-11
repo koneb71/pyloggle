@@ -14,3 +14,7 @@ const (
 	AttrHTTPStatusCode = "http.response.status_code"
 	AttrErrorType      = "error.type"
 )
+
+// AttrSDKEventID is the span attribute the pyloggle SDK sets on the active OpenTelemetry
+// span when it captures an exception: the span's own failure must not become a second issue.
+const AttrSDKEventID = "pyloggle.event_id"

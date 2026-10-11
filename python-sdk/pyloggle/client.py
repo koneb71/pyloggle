@@ -76,7 +76,11 @@ class ClientConfig:
     in_app_exclude: Sequence[str] = ()
     max_breadcrumbs: int = 50
     db_breadcrumbs: bool = True  # Django: one breadcrumb per SQL statement (statement only, no params)
+    http_breadcrumbs: bool = True  # outgoing requests/httpx/urllib3 calls as breadcrumbs
     install_excepthooks: bool = True  # sys/threading/unraisable (+ asyncio via integrations)
+    # OpenTelemetry: when True the framework integrations leave unhandled exceptions to the OTLP
+    # path (the span event / exception log) and only mark them so log lines stay duplicates.
+    otel_owns_exceptions: bool = False
 
     # resource control
     max_queue_size: int = 10_000
@@ -260,9 +264,15 @@ class Client:
         if not ev.get("request_id") and sc.request_id:
             ev["request_id"] = sc.request_id
         if not ev.get("trace_id"):
-            tid = sc.trace_id or _otel_trace_id()
-            if tid:
-                ev["trace_id"] = tid
+            # The active OpenTelemetry span wins over the ids the scope took from the incoming
+            # traceparent: same trace, but the event then sits on this request's own span.
+            otel_tid, otel_sid = _otel_ids()
+            if otel_tid:
+                ev["trace_id"] = otel_tid
+                if otel_sid and not ev.get("span_id"):
+                    ev["span_id"] = otel_sid
+            elif sc.trace_id:
+                ev["trace_id"] = sc.trace_id
         if not ev.get("span_id") and sc.span_id:
             ev["span_id"] = sc.span_id
         if not ev.get("transaction") and sc.transaction:
@@ -497,10 +507,10 @@ def _hostname() -> str:
         return ""
 
 
-def _otel_trace_id() -> Optional[str]:
+def _otel_ids() -> tuple:
     try:
-        from .otel import current_trace_id
+        from .otel import current_ids
 
-        return current_trace_id()
+        return current_ids()
     except Exception:
-        return None
+        return None, None

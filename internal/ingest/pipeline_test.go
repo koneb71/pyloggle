@@ -436,3 +436,78 @@ func TestSnoozeAndReleaseRules(t *testing.T) {
 		t.Fatalf("plain ignore must stay ignored: %+v", st)
 	}
 }
+
+func TestTraceDedupeAcrossDoors(t *testing.T) {
+	sink := &memSink{}
+	p := NewPipeline(testConfig(), sink, &memStates{}, nil)
+	now := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
+	p.now = func() time.Time { return now }
+	tn := Tenant{ProjectID: "p"}
+	frames := []model.Frame{{Filename: "/srv/app/x.py", Function: "f", Lineno: 1}}
+	sdk := model.Event{Service: "api", Env: "prod", Level: "error", Logger: "pyloggle.fastapi", Message: "boom", TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "00f067aa0ba902b7",
+		Exception: &model.Exception{Type: "ValueError", Message: "boom", Frames: frames}}
+	otel := model.Event{Service: "api", Env: "prod", Level: "error", Logger: "fastapi", Message: "Unhandled exception in FastAPI request", TraceID: "4bf92f3577b34da6a3ce929d0e0e4736", SpanID: "00f067aa0ba902b7", Source: "otlp",
+		Exception: &model.Exception{Type: "builtins.ValueError", Message: "boom", Frames: frames}}
+
+	// SDK first, then the OTel log: one occurrence, the second line points at the first.
+	if o := p.Process(context.Background(), tn, sdk, 100); o != Accepted || len(sink.occs) != 1 {
+		t.Fatalf("sdk: %v occs=%d", o, len(sink.occs))
+	}
+	if o := p.Process(context.Background(), tn, otel, 100); o != Accepted || len(sink.occs) != 1 || len(sink.logs) != 2 {
+		t.Fatalf("otel dup: %v occs=%d logs=%d", o, len(sink.occs), len(sink.logs))
+	}
+	dup := sink.logs[1]
+	if !dup.SkipIssue || dup.Attrs.Get("pyloggle.issue_id") != sink.occs[0].IssueID || dup.Attrs.Get("pyloggle.duplicate_of") != sink.logs[0].EventID {
+		t.Fatalf("duplicate line not linked: skip=%v attrs=%v", dup.SkipIssue, dup.Attrs)
+	}
+
+	// The other order on another trace: the OTel report is the occurrence, the SDK's the duplicate.
+	otel2, sdk2 := otel, sdk
+	otel2.TraceID, sdk2.TraceID = "aaaa2f3577b34da6a3ce929d0e0e4736", "aaaa2f3577b34da6a3ce929d0e0e4736"
+	p.Process(context.Background(), tn, otel2, 100)
+	p.Process(context.Background(), tn, sdk2, 100)
+	if len(sink.occs) != 2 || !sink.logs[3].SkipIssue || sink.logs[3].Logger != "pyloggle.fastapi" {
+		t.Fatalf("reverse order: occs=%d logs=%+v", len(sink.occs), sink.logs[3].Attrs)
+	}
+
+	// A different exception type in the same trace is its own occurrence; so is the same type
+	// without a trace id, and the same type again after the window.
+	other := sdk
+	other.Exception = &model.Exception{Type: "KeyError", Message: "k", Frames: frames}
+	p.Process(context.Background(), tn, other, 100)
+	noTrace := sdk
+	noTrace.TraceID = ""
+	p.Process(context.Background(), tn, noTrace, 100)
+	now = now.Add(3 * time.Minute)
+	p.Process(context.Background(), tn, sdk, 100)
+	if len(sink.occs) != 5 {
+		t.Fatalf("distinct type / no trace / after ttl must each be occurrences: %d", len(sink.occs))
+	}
+	// Another project never shares the memory.
+	p.Process(context.Background(), Tenant{ProjectID: "q"}, sdk, 100)
+	if len(sink.occs) != 6 {
+		t.Fatalf("project isolation: %d", len(sink.occs))
+	}
+}
+
+func TestTraceDedupeBounds(t *testing.T) {
+	d := newTraceDedupe(time.Minute, 3)
+	now := time.Unix(1_700_000_000, 0)
+	for i := 0; i < 5; i++ {
+		if _, dup := d.first("p", "t"+string(rune('a'+i)), "E", "e", "i", now.Add(time.Duration(i)*time.Second)); dup {
+			t.Fatalf("fresh key %d reported as duplicate", i)
+		}
+	}
+	if len(d.seen) > 3 || len(d.fifo) > 3 {
+		t.Fatalf("cap not enforced: seen=%d fifo=%d", len(d.seen), len(d.fifo))
+	}
+	if _, dup := d.first("p", "ta", "E", "e", "i", now.Add(5*time.Second)); dup {
+		t.Fatal("evicted key must read as new")
+	}
+	if _, dup := d.first("p", "te", "app.E", "e", "i", now.Add(6*time.Second)); !dup {
+		t.Fatal("qualified type must match the bare one")
+	}
+	if _, dup := d.first("p", "te", "E", "e", "i", now.Add(2*time.Minute)); dup {
+		t.Fatal("expired key must read as new")
+	}
+}

@@ -339,6 +339,12 @@ func TracesToEventsAndSpans(td *tracev1.TracesData, storeServerSpans bool, now t
 					base.DurationMS = float64(sp.GetEndTimeUnixNano()-sp.GetStartTimeUnixNano()) / 1e6
 				}
 				spans = append(spans, spanRow(ri, scope, sp, base, now))
+				if base.Attrs.Get(model.AttrSDKEventID) != "" {
+					// The pyloggle SDK already reported this span's exception with locals and
+					// breadcrumbs (it stamps the span with the event id): the span row is kept,
+					// no second error and no request line.
+					continue
+				}
 				hadException := false
 				for _, sev := range sp.GetEvents() {
 					if sev.GetName() != "exception" {
@@ -364,6 +370,14 @@ func TracesToEventsAndSpans(td *tracev1.TracesData, storeServerSpans bool, now t
 				}
 				status := sp.GetStatus()
 				if !hadException && status.GetCode() == tracev1.Status_STATUS_CODE_ERROR {
+					et := strings.TrimSpace(base.Attrs.Get(model.AttrErrorType))
+					excClass := et != "" && !looksLikeStatusCode(et)
+					if excClass && !entrySpan(sp) {
+						// A child span failed by an exception (FastAPI's "fastapi.endpoint") is a
+						// consequence of what failed its request; the waterfall shows it red. A
+						// child that failed on its own terms (an upstream 503) stays an issue.
+						continue
+					}
 					ev := base
 					ev.Attrs = cloneAttrs(base.Attrs)
 					ev.Timestamp = unixNano(sp.GetEndTimeUnixNano())
@@ -374,7 +388,17 @@ func TracesToEventsAndSpans(td *tracev1.TracesData, storeServerSpans bool, now t
 					// The span name leads so the issue title says what failed, not only why
 					// ("GET /inventory/{sku} failed: 503" rather than "503").
 					ev.Message = sp.GetName() + " failed"
-					if msg := strings.TrimSpace(status.GetMessage()); msg != "" {
+					msg := strings.TrimSpace(status.GetMessage())
+					if msg == "" {
+						msg = et
+					}
+					if excClass {
+						// error.type names an exception class: the exception itself arrives as a
+						// span event, an exception log or the SDK's report. This line says the
+						// request failed (it feeds request stats) and is not an issue of its own.
+						ev.SkipIssue = true
+					}
+					if msg != "" {
 						ev.Message += ": " + msg
 					}
 					out = append(out, ev)
@@ -401,6 +425,33 @@ func TracesToEventsAndSpans(td *tracev1.TracesData, storeServerSpans bool, now t
 		}
 	}
 	return out, spans
+}
+
+// entrySpan reports whether the span represents a request or a job of its own: a root, a
+// server span or a consumer span. Only those turn a failure into an error line.
+func entrySpan(sp *tracev1.Span) bool {
+	if len(sp.GetParentSpanId()) == 0 {
+		return true
+	}
+	switch sp.GetKind() {
+	case tracev1.Span_SPAN_KIND_SERVER, tracev1.Span_SPAN_KIND_CONSUMER:
+		return true
+	}
+	return false
+}
+
+// looksLikeStatusCode is true for error.type values such as "503" (an HTTP status, per the
+// semantic conventions) as opposed to an exception class name.
+func looksLikeStatusCode(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // spanRow builds the stored span from the decoded span and the event template that already

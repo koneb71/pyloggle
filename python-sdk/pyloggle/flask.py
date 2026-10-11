@@ -9,6 +9,8 @@ from . import scope as _scope
 from ._request import begin_request, client_ip, end_request, headers_for_event
 from .client import Client
 from .context import ensure_request_id, get_user_id_hash, set_request_id, set_user_id_hash
+from .otel import current_ids as _otel_ids
+from .otel import server_span_active as _otel_server_span_active
 from .stack import captured_event_id, exception_to_payload, mark_captured
 from .user import hash_user_id
 
@@ -183,6 +185,9 @@ def init_app(
                 g._pyloggle_had_exception = True
                 if exception is None or captured_event_id(exception):
                     return
+                if bool(getattr(client.config, "otel_owns_exceptions", False)):
+                    mark_captured(exception, "otel")
+                    return
                 attrs: dict = {}
                 duration_ms = None
                 if bool(getattr(client.config, "emit_request_latency", False)):
@@ -236,10 +241,15 @@ def init_app(
         except Exception:
             http = {}
         token, rid = begin_request(config=client.config, headers=headers, http=http)
+        otel_tid, otel_sid = _otel_ids()
+        if otel_tid:
+            sc = _scope.effective_scope()
+            sc.trace_id, sc.span_id = otel_tid, otel_sid
         try:
             g._pyloggle_scope_token = token
             g._pyloggle_request_start = time.perf_counter()
             g._pyloggle_had_exception = False
+            g._pyloggle_otel_server = _otel_server_span_active()
         except Exception:
             pass
         set_request_id(rid)
@@ -257,8 +267,8 @@ def init_app(
         try:
             from flask import g, request
 
-            if bool(getattr(g, "_pyloggle_had_exception", False)):
-                return response
+            if bool(getattr(g, "_pyloggle_had_exception", False)) or bool(getattr(g, "_pyloggle_otel_server", False)):
+                return response  # the error event, or the server span, already covers the request
             start = float(getattr(g, "_pyloggle_request_start", 0.0) or 0.0)
             duration_ms = round((time.perf_counter() - start) * 1000, 2) if start > 0 else None
             latency_ms = str(int(duration_ms)) if duration_ms is not None else None
