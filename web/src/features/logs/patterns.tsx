@@ -1,70 +1,88 @@
-import { useLogPatterns } from "@/api/hooks";
-import { Badge, Button, EmptyState, ErrorState, Skeleton } from "@/components/ui";
-import { fmtNumber } from "@/lib/time";
-import { levelVar } from "@/lib/levels";
 import { Filter } from "lucide-react";
+import { useLogPatterns } from "@/api/hooks";
+import type { LogPattern } from "@/api/types";
+import { Button, DataTable, EmptyState, LevelBadge, MetaLine, type Column } from "@/components/ui";
+import { fmtNumber } from "@/lib/time";
 import { patternPhrase } from "./log-fields";
 
+const PLACEHOLDER: Record<string, string> = { "<n>": "number", "<s>": "text", "<hex>": "id", "<uuid>": "id" };
+
+/** Messages grouped by their shape, so a flood of near-identical lines reads as one row. */
 export function PatternsView({ q, range, onFilter }: { q: string; range: { from: string; to: string }; onFilter: (phrase: string) => void }) {
   const p = useLogPatterns({ q, from: range.from, to: range.to });
-  if (p.isError) return <ErrorState error={p.error} retry={() => p.refetch()} />;
-  if (p.isPending) return <Skeleton rows={8} className="p-3" />;
   const items = p.data?.items ?? [];
-  if (items.length === 0) return <EmptyState title="No patterns" hint="Patterns cluster messages by template: numbers, hex ids, uuids and quoted strings are collapsed." />;
   const total = items.reduce((n, i) => n + i.count, 0) || 1;
+  const columns: Column<LogPattern>[] = [
+    {
+      id: "count",
+      header: "Times",
+      width: "110px",
+      align: "right",
+      cell: (it) => (
+        <div className="w-full">
+          <div className="font-medium text-ink">{fmtNumber(it.count)}</div>
+          <div className="mt-1 h-1 w-full rounded-full bg-surface-3">
+            <div className="h-1 rounded-full bg-accent" style={{ width: `${Math.max(3, (it.count / total) * 100)}%` }} />
+          </div>
+        </div>
+      ),
+      className: "self-start",
+    },
+    { id: "level", header: "Severity", width: "96px", cell: (it) => <LevelBadge level={it.level} />, className: "self-start" },
+    {
+      id: "pattern",
+      header: "Message shape",
+      cell: (it) => (
+        <div className="min-w-0">
+          <div className="whitespace-pre-wrap break-words leading-6 text-ink">{renderPattern(it.pattern)}</div>
+          {it.sample && it.sample !== it.pattern && (
+            <div className="mt-0.5 truncate text-xs text-ink-3" title={it.sample}>
+              For example: {it.sample}
+            </div>
+          )}
+          <MetaLine className="mt-0.5">{it.services.length > 3 ? `${it.services.slice(0, 3).join(", ")} and ${it.services.length - 3} more` : it.services.join(", ")}</MetaLine>
+        </div>
+      ),
+    },
+    {
+      id: "go",
+      header: <span className="sr-only">Show</span>,
+      width: "92px",
+      align: "right",
+      cell: (it) => (
+        <Button size="xs" variant="ghost" icon={<Filter size={13} />} onClick={() => onFilter(patternPhrase(it.pattern))} title="Show only messages with this shape">
+          Show these
+        </Button>
+      ),
+      className: "self-start",
+    },
+  ];
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <table className="w-full border-collapse text-xs">
-        <thead className="sticky top-0 z-10 bg-surface text-[10px] font-medium uppercase tracking-wide text-ink-3 shadow-[0_1px_0_var(--border)]">
-          <tr>
-            <th className="w-24 px-3 py-1.5 text-right">Count</th>
-            <th className="w-16 px-2 py-1.5 text-left">Level</th>
-            <th className="px-2 py-1.5 text-left">Pattern</th>
-            <th className="w-40 px-2 py-1.5 text-left">Services</th>
-            <th className="w-20 px-2 py-1.5" />
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((it, i) => (
-            <tr key={i} className="group border-b border-border hover:bg-surface-2">
-              <td className="px-3 py-1.5 text-right align-top">
-                <div className="font-medium tabular text-ink">{fmtNumber(it.count)}</div>
-                <div className="mt-0.5 h-1 w-full rounded bg-surface-3">
-                  <div className="h-1 rounded bg-accent" style={{ width: `${Math.max(2, (it.count / total) * 100)}%` }} />
-                </div>
-              </td>
-              <td className="px-2 py-1.5 align-top">
-                <span className="inline-flex items-center gap-1.5 font-mono uppercase text-ink-2">
-                  <span className="inline-block h-2 w-2 rounded-sm" style={{ background: levelVar(it.level) }} />
-                  {it.level}
-                </span>
-              </td>
-              <td className="px-2 py-1.5 align-top">
-                <div className="whitespace-pre-wrap break-words font-mono text-ink">{highlightPlaceholders(it.pattern)}</div>
-                {it.sample && it.sample !== it.pattern && <div className="mt-0.5 truncate font-mono text-[11px] text-ink-3" title={it.sample}>{it.sample}</div>}
-              </td>
-              <td className="px-2 py-1.5 align-top">
-                <div className="flex flex-wrap gap-1">
-                  {it.services.slice(0, 4).map((s) => (
-                    <Badge key={s}>{s}</Badge>
-                  ))}
-                  {it.services.length > 4 && <Badge tone="outline">+{it.services.length - 4}</Badge>}
-                </div>
-              </td>
-              <td className="px-2 py-1.5 text-right align-top">
-                <Button size="xs" variant="ghost" className="invisible group-hover:visible" icon={<Filter size={11} />} onClick={() => onFilter(patternPhrase(it.pattern))} title="Filter the list to this pattern">
-                  Filter
-                </Button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="min-h-0 flex-1 overflow-auto bg-surface">
+      <p className="border-b border-border px-4 py-2.5 text-[13px] text-ink-3">Messages grouped by their shape. Numbers, ids and quoted text are blanked out, so lines that differ only in those count as one.</p>
+      <DataTable
+        label="Similar messages"
+        columns={columns}
+        rows={p.data ? items : undefined}
+        rowKey={(it) => it.pattern + it.level}
+        loading={p.isPending}
+        error={p.isError ? p.error : undefined}
+        onRetry={() => p.refetch()}
+        rowClassName={() => "items-start py-3"}
+        empty={<EmptyState title="No messages to group" hint="Widen the time range or remove a filter." />}
+      />
     </div>
   );
 }
 
-function highlightPlaceholders(p: string) {
-  const parts = p.split(/(<(?:n|s|hex|uuid)>)/);
-  return parts.map((x, i) => (/^<(?:n|s|hex|uuid)>$/.test(x) ? <span key={i} className="rounded bg-accent-soft px-0.5 text-accent">{x}</span> : <span key={i}>{x}</span>));
+function renderPattern(p: string) {
+  return p.split(/(<(?:n|s|hex|uuid)>)/).map((x, i) =>
+    PLACEHOLDER[x] ? (
+      <span key={i} className="mx-0.5 rounded bg-accent-soft px-1 py-px text-xs font-medium text-accent" title={`Any ${PLACEHOLDER[x]} (${x})`}>
+        {PLACEHOLDER[x]}
+      </span>
+    ) : (
+      <span key={i}>{x}</span>
+    ),
+  );
 }

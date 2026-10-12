@@ -4,9 +4,8 @@ import clsx from "clsx";
 import { useLogs } from "@/api/hooks";
 import { get } from "@/api/client";
 import type { LogEvent, LogsResponse } from "@/api/types";
-import { Button, EmptyState, ErrorState, Skeleton } from "@/components/ui";
-import { fmtTs } from "@/lib/time";
-import { levelVar } from "@/lib/levels";
+import { EmptyState, LevelBadge, LoadMore, QueryState, Skeleton } from "@/components/ui";
+import { fmtTs, fmtWhen } from "@/lib/time";
 import { columnFor, type ColumnDef } from "./log-fields";
 
 export interface LogTableProps {
@@ -18,18 +17,21 @@ export interface LogTableProps {
   wrap?: boolean;
   dense?: boolean;
   className?: string;
-  /** Rendered after the last row (e.g. "load older"). */
+  /** Rendered after the last row (e.g. "Show earlier"). */
   footer?: React.ReactNode;
   scrollRef?: React.RefObject<HTMLDivElement | null>;
   onScrollTop?: (atTop: boolean) => void;
 }
 
-/** Virtualized log rows. Keyboard: j/k move, Enter opens, when the table has focus. */
+/**
+ * Virtualized message rows. The header and every row share one grid template and one gap, so
+ * columns line up exactly. Keyboard: j / k move, Enter opens, when the page has focus.
+ */
 export function LogTable({ items, columns = [], selectedId, highlightEventId, onSelect, wrap, dense, className, footer, scrollRef, onScrollTop }: LogTableProps) {
   const localRef = useRef<HTMLDivElement>(null);
   const parentRef = scrollRef ?? localRef;
   const cols = useMemo(() => columns.map(columnFor).filter((c): c is ColumnDef => !!c), [columns]);
-  const rowH = dense ? 26 : 30;
+  const rowH = dense ? 28 : 34;
   const v = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
@@ -37,7 +39,8 @@ export function LogTable({ items, columns = [], selectedId, highlightEventId, on
     overscan: 20,
     measureElement: wrap ? (el) => el.getBoundingClientRect().height : undefined,
   });
-  const grid: CSSProperties = { gridTemplateColumns: `150px 64px ${cols.map((c) => c.width).join(" ")} minmax(200px,1fr)` };
+  const grid: CSSProperties = { gridTemplateColumns: `${dense ? 128 : 150}px 84px ${cols.map((c) => c.width).join(" ")} minmax(240px,1fr)` };
+  const rowClass = "grid gap-x-4 px-4";
 
   // keyboard navigation
   useEffect(() => {
@@ -46,7 +49,7 @@ export function LogTable({ items, columns = [], selectedId, highlightEventId, on
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "j" && e.key !== "k" && e.key !== "Enter") return;
       const t = e.target as HTMLElement;
-      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT") return;
       const idx = items.findIndex((i) => i.event_id === selectedId);
       let next = idx;
       if (e.key === "j") next = Math.min(items.length - 1, idx + 1);
@@ -72,21 +75,22 @@ export function LogTable({ items, columns = [], selectedId, highlightEventId, on
   return (
     <div
       ref={parentRef}
-      className={clsx("relative min-h-0 flex-1 overflow-auto font-mono text-xs", className)}
+      className={clsx("relative min-h-0 flex-1 overflow-auto bg-surface text-[13px]", className)}
       onScroll={(e) => onScrollTop?.((e.target as HTMLDivElement).scrollTop < 4)}
       tabIndex={0}
       role="table"
+      aria-label="Messages"
       aria-rowcount={items.length}
     >
-      <div className="sticky top-0 z-10 grid border-b border-border bg-surface px-2 font-sans text-[10px] font-medium uppercase tracking-wide text-ink-3" style={grid} role="row">
-        <div className="py-1">Time</div>
-        <div className="py-1">Level</div>
+      <div className={clsx(rowClass, "sticky top-0 z-10 h-8 items-center border-b border-border bg-surface text-xs font-medium text-ink-3")} style={grid} role="row">
+        <div role="columnheader">Time</div>
+        <div role="columnheader">Severity</div>
         {cols.map((c) => (
-          <div key={c.id} className={clsx("truncate py-1", c.align === "right" && "text-right")}>
+          <div key={c.id} role="columnheader" className={clsx("truncate", c.align === "right" && "text-right")} title={c.technical !== c.label ? `Field: ${c.technical}` : undefined}>
             {c.label}
           </div>
         ))}
-        <div className="py-1">Message</div>
+        <div role="columnheader">Message</div>
       </div>
       <div style={{ height: v.getTotalSize(), position: "relative" }}>
         {v.getVirtualItems().map((vi) => {
@@ -102,29 +106,30 @@ export function LogTable({ items, columns = [], selectedId, highlightEventId, on
               aria-selected={selected}
               onClick={() => onSelect?.(e)}
               className={clsx(
-                "absolute left-0 grid w-full cursor-pointer items-start gap-x-2 border-b border-border/60 px-2 hover:bg-surface-2",
+                rowClass,
+                "absolute left-0 w-full cursor-pointer items-start border-b border-border/70 hover:bg-surface-2",
                 selected && "bg-accent-soft hover:bg-accent-soft",
-                highlighted && !selected && "bg-surface-3",
-                dense ? "leading-[26px]" : "leading-[30px]",
+                highlighted && !selected && "bg-warning/10",
               )}
-              style={{ ...grid, top: 0, transform: `translateY(${vi.start}px)`, minHeight: rowH }}
+              style={{ ...grid, top: 0, transform: `translateY(${vi.start}px)`, minHeight: rowH, lineHeight: `${rowH - 1}px` }}
             >
-              <div className="flex items-center gap-1.5 truncate tabular text-ink-2">
-                <span className="lvl-bar" style={{ background: levelVar(e.level), height: dense ? 16 : 18 }} aria-hidden />
-                {fmtTs(e.ts, { ms: true }).slice(5)}
+              <div role="cell" className="truncate tabular text-ink-2" title={fmtTs(e.ts, { ms: true })}>
+                {fmtWhen(e.ts, { seconds: true })}
               </div>
-              <div className={clsx("truncate uppercase", e.level === "error" || e.level === "fatal" ? "text-ink" : "text-ink-2")}>{e.level}</div>
+              <div role="cell" className="truncate">
+                <LevelBadge level={e.level} />
+              </div>
               {cols.map((c) => {
                 const val = c.value(e);
                 return (
-                  <div key={c.id} className={clsx("truncate", c.mono ? "" : "font-sans", c.align === "right" && "text-right", val ? "text-ink-2" : "text-ink-3")} title={val}>
+                  <div key={c.id} role="cell" className={clsx("truncate", c.mono && "font-mono text-[12px]", c.align === "right" && "text-right tabular", val ? "text-ink-2" : "text-ink-3")} title={val}>
                     {val || "—"}
                   </div>
                 );
               })}
-              <div className={clsx("min-w-0 text-ink", wrap ? "whitespace-pre-wrap break-words py-1 leading-[18px]" : "truncate")} title={wrap ? undefined : e.message}>
+              <div role="cell" className={clsx("min-w-0 text-ink", wrap ? "whitespace-pre-wrap break-words py-1.5 leading-5" : "truncate")} title={wrap ? undefined : e.message}>
                 {e.message}
-                {!wrap && e.exception_type && <span className="ml-2 text-serious">{e.exception_type}</span>}
+                {e.exception_type && <span className="ml-2 text-xs font-medium text-critical-text">{e.exception_type}</span>}
               </div>
             </div>
           );
@@ -135,50 +140,48 @@ export function LogTable({ items, columns = [], selectedId, highlightEventId, on
   );
 }
 
-/** Self-fetching list (used in issue detail and context views). Newest first, "load older" appends. */
+/** Self-fetching list (issue detail, request timeline). Newest first; "Show earlier" appends. */
 export function LogList({ q, from, to, limit = 200, highlightEventId, dense, columns, onSelect, selectedId }: { q: string; from: string; to: string; limit?: number; highlightEventId?: string; dense?: boolean; columns?: string[]; onSelect?: (e: LogEvent) => void; selectedId?: string }) {
   const first = useLogs({ q, from, to, limit });
   const [extra, setExtra] = useState<LogEvent[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<unknown>(null);
   useEffect(() => {
     setExtra([]);
     setCursor(first.data?.next_cursor);
+    setMoreError(null);
   }, [first.data]);
   const items = useMemo(() => [...(first.data?.items ?? []), ...extra], [first.data, extra]);
   const loadMore = async () => {
     if (!cursor) return;
     setLoadingMore(true);
+    setMoreError(null);
     try {
       const r = await get<LogsResponse>("/logs", { q, from, to, limit, cursor });
       setExtra((x) => [...x, ...r.items]);
       setCursor(r.next_cursor);
+    } catch (e) {
+      setMoreError(e);
     } finally {
       setLoadingMore(false);
     }
   };
-  if (first.isError) return <ErrorState error={first.error} retry={() => first.refetch()} />;
-  if (first.isPending) return <Skeleton rows={6} />;
-  if (items.length === 0) return <EmptyState title="No log lines" hint={`Nothing matched ${q} in this range.`} className="py-6" />;
   return (
-    <div className="flex h-96 flex-col overflow-hidden rounded-md border border-border">
-      <LogTable
-        items={items}
-        dense={dense}
-        columns={columns ?? ["service", "logger"]}
-        highlightEventId={highlightEventId}
-        onSelect={onSelect}
-        selectedId={selectedId}
-        footer={
-          cursor ? (
-            <div className="flex justify-center py-2">
-              <Button size="xs" onClick={loadMore} loading={loadingMore}>
-                Load older
-              </Button>
-            </div>
-          ) : null
-        }
-      />
-    </div>
+    <QueryState query={first} isEmpty={(d) => d.items.length === 0} skeleton={<Skeleton rows={6} />} empty={<EmptyState title="No messages" hint="Nothing matched in this time range." className="py-6" />}>
+      {() => (
+        <div className="flex h-96 flex-col overflow-hidden rounded-md border border-border">
+          <LogTable
+            items={items}
+            dense={dense}
+            columns={columns ?? ["service", "logger"]}
+            highlightEventId={highlightEventId}
+            onSelect={onSelect}
+            selectedId={selectedId}
+            footer={<LoadMore shown={items.length} noun="messages shown" hasMore={!!cursor} loading={loadingMore} error={moreError} onMore={loadMore} label="Show earlier" />}
+          />
+        </div>
+      )}
+    </QueryState>
   );
 }

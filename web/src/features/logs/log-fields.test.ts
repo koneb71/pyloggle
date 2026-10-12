@@ -12,9 +12,11 @@ describe("patternPhrase", () => {
 describe("columnFor", () => {
   it("builds attribute and tag columns on the fly", () => {
     const c = columnFor("attrs.user_id")!;
-    expect(c.label).toBe("user_id");
+    expect(c.label).toBe("User ID");
+    expect(c.technical).toBe("attrs.user_id");
     expect(c.value({ attrs: { user_id: "42" } } as never)).toBe("42");
-    expect(columnFor("tags.team")!.label).toBe("#team");
+    expect(columnFor("tags.team")!.label).toBe("Team");
+    expect(columnFor("service")!.label).toBe("App");
     expect(columnFor("nope")).toBeUndefined();
   });
 });

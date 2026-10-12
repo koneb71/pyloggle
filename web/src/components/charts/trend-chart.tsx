@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import clsx from "clsx";
 import type { TimeSeriesPoint } from "@/api/types";
-import { fmtAxisTime, fmtNumber, fmtWhen } from "@/lib/time";
+import { fmtAxisNumber, fmtAxisTime, fmtWhen } from "@/lib/time";
 
 /**
  * One series over time, no legend (the title names it). "bars" suits counts per bucket (how
@@ -16,7 +16,7 @@ export function TrendChart({ points, height = 140, color = "var(--lvl-error)", c
     <>
       <CartesianGrid vertical={false} />
       <XAxis dataKey="ts" tickFormatter={(v: string) => fmtAxisTime(new Date(v), spanMs)} minTickGap={56} tickLine={false} axisLine={{ stroke: "var(--border-strong)" }} height={20} />
-      <YAxis width={40} tickLine={false} axisLine={false} tickFormatter={(v: number) => fmtNumber(v)} allowDecimals={false} />
+      <YAxis width={44} tickLine={false} axisLine={false} tickFormatter={(v: number) => fmtAxisNumber(v)} allowDecimals={false} />
       <Tooltip
         isAnimationActive={false}
         cursor={variant === "bars" ? { fill: "color-mix(in oklab, var(--text) 6%, transparent)" } : { stroke: "var(--border-strong)" }}

@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import clsx from "clsx";
 import type { Histogram } from "@/api/types";
-import { bucketLabel, fmtAxisTime, fmtNumber, fmtTs } from "@/lib/time";
-import { orderSeries, seriesColor } from "./palette";
+import { fmtAxisNumber, fmtAxisTime, fmtWhen } from "@/lib/time";
+import { orderSeries, seriesColor, seriesLabel } from "./palette";
+import { ChartLegend } from "./legend";
 
 export interface TimelineHistogramProps {
   data?: Histogram;
@@ -42,7 +43,6 @@ export function TimelineHistogram({ data, loading, height = 160, onZoom, onBucke
   const bucketMs = (data?.bucket_seconds ?? 60) * 1000;
 
   const [drag, setDrag] = useState<{ a: string; b: string } | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
   const finishDrag = () => {
     if (drag && drag.a !== drag.b && onZoom) {
       const ta = new Date(drag.a).getTime();
@@ -60,59 +60,47 @@ export function TimelineHistogram({ data, loading, height = 160, onZoom, onBucke
   const empty = !loading && (!data || total === 0);
 
   return (
-    <div className={clsx("relative select-none", className)} style={{ height }}>
-      {empty && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-ink-3">No events in this range</div>}
-      {loading && !data && <div className="skeleton absolute inset-x-8 bottom-6 top-2" />}
-      {data && (
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={rows}
-            margin={{ top: 6, right: 8, bottom: 0, left: 0 }}
-            barCategoryGap={1}
-            onMouseDown={(s) => s?.activeLabel !== undefined && setDrag({ a: String(s.activeLabel), b: String(s.activeLabel) })}
-            onMouseMove={(s) => {
-              if (s?.activeLabel !== undefined) {
-                setHover(String(s.activeLabel));
-                if (drag) setDrag({ ...drag, b: String(s.activeLabel) });
-              }
-            }}
-            onMouseUp={finishDrag}
-            onMouseLeave={() => {
-              setHover(null);
-              if (drag) finishDrag();
-            }}
-            style={{ cursor: onZoom ? "crosshair" : "default" }}
-          >
-            <CartesianGrid vertical={false} strokeDasharray="0" />
-            <XAxis dataKey="ts" tickFormatter={(v: string) => fmtAxisTime(new Date(v), spanMs)} minTickGap={48} tickLine={false} axisLine={{ stroke: "var(--border-strong)" }} height={18} />
-            <YAxis width={40} tickLine={false} axisLine={false} tickFormatter={(v: number) => fmtNumber(v)} allowDecimals={false} />
-            <Tooltip
-              cursor={{ fill: "color-mix(in oklab, var(--text) 6%, transparent)" }}
-              isAnimationActive={false}
-              content={({ active, payload }) => {
-                if (!active || !payload?.length) return null;
-                const r = payload[0].payload as Row;
-                return <HistogramTooltip row={r} series={kept} groupBy={groupBy} bucketSeconds={data.bucket_seconds} />;
+    <div className={clsx("select-none", className)}>
+      {!hideLegend && data && <ChartLegend items={kept.map((s, i) => ({ name: seriesLabel(groupBy, s), color: seriesColor(groupBy, s, i) }))} bucketSeconds={data.bucket_seconds} />}
+      <div className="relative" style={{ height }}>
+        {empty && <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-[13px] text-ink-3">Nothing in this time range</div>}
+        {loading && !data && <div className="skeleton absolute inset-x-8 bottom-6 top-2" />}
+        {data && (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={rows}
+              margin={{ top: 6, right: 8, bottom: 0, left: 0 }}
+              barCategoryGap={1}
+              onMouseDown={(s) => s?.activeLabel !== undefined && setDrag({ a: String(s.activeLabel), b: String(s.activeLabel) })}
+              onMouseMove={(s) => {
+                if (s?.activeLabel !== undefined && drag) setDrag({ ...drag, b: String(s.activeLabel) });
               }}
-            />
-            {kept.map((s, i) => (
-              <Bar key={s} dataKey={s} stackId="a" fill={seriesColor(groupBy, s, i)} stroke="var(--surface)" strokeWidth={1} isAnimationActive={false} maxBarSize={28} radius={i === kept.length - 1 ? [2, 2, 0, 0] : 0} />
-            ))}
-            {drag && drag.a !== drag.b && <ReferenceArea x1={drag.a} x2={drag.b} fill="var(--accent)" fillOpacity={0.15} stroke="var(--accent)" strokeOpacity={0.6} />}
-          </BarChart>
-        </ResponsiveContainer>
-      )}
-      {!hideLegend && data && kept.length >= 2 && (
-        <div className="pointer-events-none absolute right-2 top-0 flex flex-wrap justify-end gap-x-3 gap-y-0.5 text-[11px] text-ink-2">
-          {kept.map((s, i) => (
-            <span key={s} className={clsx("inline-flex items-center gap-1", hover && "opacity-90")}>
-              <span className="inline-block h-2 w-2 rounded-sm" style={{ background: seriesColor(groupBy, s, i) }} aria-hidden />
-              {s}
-            </span>
-          ))}
-          <span className="text-ink-3">· {bucketLabel(data.bucket_seconds)} buckets</span>
-        </div>
-      )}
+              onMouseUp={finishDrag}
+              onMouseLeave={() => {
+                if (drag) finishDrag();
+              }}
+              style={{ cursor: onZoom ? "crosshair" : "default" }}
+            >
+              <CartesianGrid vertical={false} strokeDasharray="0" />
+              <XAxis dataKey="ts" tickFormatter={(v: string) => fmtAxisTime(new Date(v), spanMs)} minTickGap={48} tickLine={false} axisLine={{ stroke: "var(--border-strong)" }} height={18} />
+              <YAxis width={44} tickLine={false} axisLine={false} tickFormatter={(v: number) => fmtAxisNumber(v)} allowDecimals={false} />
+              <Tooltip
+                cursor={{ fill: "color-mix(in oklab, var(--text) 6%, transparent)" }}
+                isAnimationActive={false}
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const r = payload[0].payload as Row;
+                  return <HistogramTooltip row={r} series={kept} groupBy={groupBy} bucketSeconds={data.bucket_seconds} />;
+                }}
+              />
+              {kept.map((s, i) => (
+                <Bar key={s} dataKey={s} stackId="a" fill={seriesColor(groupBy, s, i)} stroke="var(--surface)" strokeWidth={1} isAnimationActive={false} maxBarSize={28} radius={i === kept.length - 1 ? [2, 2, 0, 0] : 0} />
+              ))}
+              {drag && drag.a !== drag.b && <ReferenceArea x1={drag.a} x2={drag.b} fill="var(--accent)" fillOpacity={0.15} stroke="var(--accent)" strokeOpacity={0.6} />}
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
     </div>
   );
 }
@@ -122,7 +110,7 @@ function HistogramTooltip({ row, series, groupBy, bucketSeconds }: { row: Row; s
   return (
     <div className="rounded-md border border-border bg-surface px-2.5 py-2 text-xs text-ink shadow-[var(--shadow)]">
       <div className="mb-1 text-ink-3 tabular">
-        {fmtTs(row.ts, { seconds: bucketSeconds < 60 })} → {fmtTs(end, { seconds: bucketSeconds < 60 })}
+        {fmtWhen(row.ts, { seconds: bucketSeconds < 60 })} – {fmtWhen(end, { seconds: bucketSeconds < 60 }).replace(/^(Today|Yesterday) /, "")}
       </div>
       <table className="tabular">
         <tbody>
@@ -132,13 +120,13 @@ function HistogramTooltip({ row, series, groupBy, bucketSeconds }: { row: Row; s
               <tr key={s}>
                 <td className="pr-2">
                   <span className="mr-1.5 inline-block h-2 w-2 rounded-sm align-middle" style={{ background: seriesColor(groupBy, s, series.indexOf(s) >= 0 ? series.indexOf(s) : i) }} />
-                  {s}
+                  {seriesLabel(groupBy, s)}
                 </td>
                 <td className="text-right font-medium">{(row[s] as number).toLocaleString()}</td>
               </tr>
             ))}
           <tr className="border-t border-border">
-            <td className="pr-2 pt-0.5 text-ink-2">total</td>
+            <td className="pr-2 pt-0.5 text-ink-2">Total</td>
             <td className="pt-0.5 text-right font-semibold">{row.total.toLocaleString()}</td>
           </tr>
         </tbody>

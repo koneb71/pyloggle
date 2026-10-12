@@ -3,25 +3,25 @@ import type { LineSeries } from "@/components/charts/multi-line";
 import { MAX_SERIES, SERIES_VARS } from "@/components/charts/palette";
 import { levelVar } from "@/lib/levels";
 import { fmtMs, fmtNumber } from "@/lib/time";
+import { fieldLabel } from "@/lib/fields";
 
 export const METRICS = ["count", "avg", "sum", "min", "max", "p50", "p95", "p99"] as const;
 export type Metric = (typeof METRICS)[number];
 
-/** Group-by choices offered before the attribute keys discovered from facets. */
-export const GROUP_FIELDS: { field: string; label: string }[] = [
-  { field: "service", label: "service" },
-  { field: "env", label: "env" },
-  { field: "level", label: "level" },
-  { field: "logger", label: "logger" },
-  { field: "host", label: "host" },
-  { field: "release", label: "release" },
-  { field: "source", label: "source" },
-  { field: "http.method", label: "http.method" },
-  { field: "http.route", label: "http.route" },
-  { field: "http.status", label: "http.status" },
-  { field: "exception", label: "exception" },
-  { field: "user", label: "user" },
-];
+/** Split-by choices offered before the attribute keys discovered from facets. */
+export const GROUP_FIELDS: string[] = ["service", "env", "level", "logger", "host", "release", "source", "http.method", "http.route", "http.status", "exception", "user"];
+
+/** Each metric in words; the technical name stays in brackets where people know it. */
+export const METRIC_WORDS: Record<Metric, string> = {
+  count: "Number of messages",
+  avg: "Average",
+  sum: "Total",
+  min: "Lowest",
+  max: "Highest",
+  p50: "Typical (p50)",
+  p95: "Slow (p95)",
+  p99: "Slowest (p99)",
+};
 
 /** Numeric fields the non-count metrics can measure (attribute keys are added at runtime). */
 export const OF_FIELDS = ["duration_ms", "http.status"];
@@ -39,9 +39,10 @@ export function isMetric(s: string): s is Metric {
   return (METRICS as readonly string[]).includes(s);
 }
 
-/** Label for a metric over a field, e.g. "p95 duration_ms" or "count". */
+/** Label for a metric over a field, e.g. "Slow (p95) duration" or "Number of messages". */
 export function metricLabel(metric: string, of?: string): string {
-  return metric === "count" ? "count" : `${metric} ${of ?? ""}`.trim();
+  if (metric === "count" || !of) return METRIC_WORDS[metric as Metric] ?? metric;
+  return `${METRIC_WORDS[metric as Metric] ?? metric} ${fieldLabel(of).toLowerCase()}`;
 }
 
 /** Value formatter for a metric: latencies as ms, everything else as plain numbers. */
@@ -64,7 +65,7 @@ export function chartSeries(agg: LogAggregate | undefined): LineSeries[] {
   // "other" is the server's exact remainder of the ranked groups; it only fits when every
   // ranked group is on the chart and a slot is left for it.
   if (agg.other && agg.groups.length < MAX_SERIES) {
-    out.push({ name: "other", values: agg.other.series ?? [], color: "var(--lvl-other)" });
+    out.push({ name: "Other", values: agg.other.series ?? [], color: "var(--lvl-other)" });
   }
   return out;
 }

@@ -213,22 +213,22 @@ kbd {
   background: color-mix(in oklab, var(--lvl-error) 14%, transparent);
 }
 
-/* Query editor chip highlighting */
+/* Search chips: one plain-language filter each. */
 .q-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 6px;
+  height: 26px;
+  padding: 0 4px 0 10px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
   font-size: 12px;
   max-width: 28rem;
 }
 
-.q-chip.neg {
-  text-decoration: line-through;
-  text-decoration-color: var(--lvl-error);
+.q-chip.neg-chip {
+  border-style: dashed;
 }
 
 /* recharts tweaks: hairline grid, recessive axes */
