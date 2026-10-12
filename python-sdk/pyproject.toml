@@ -42,7 +42,8 @@ fastapi = ["fastapi>=0.110"]
 django = ["django>=4.2"]
 celery = ["celery>=5.3"]
 otel = ["opentelemetry-api>=1.27"]
-test = ["pytest>=8", "flask>=2.3", "fastapi>=0.143", "httpx>=0.27", "django>=4.2", "celery>=5.3", "requests>=2.31", "opentelemetry-sdk>=1.30"]
+# FastAPI's native telemetry (0.143+) needs Python 3.10; on 3.9 those tests are skipped.
+test = ["pytest>=8", "flask>=2.3", "fastapi>=0.143; python_version>='3.10'", "httpx>=0.27", "django>=4.2", "celery>=5.3", "requests>=2.31", "opentelemetry-sdk>=1.30"]
 
 [tool.setuptools.dynamic]
 version = {attr = "pyloggle._version.__version__"}
