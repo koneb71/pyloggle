@@ -95,6 +95,11 @@ and where. No migrations.
   recovers on its own when the database is back.
 - Several views showed an error and "nothing here" at the same time; dashboard cards said
   "No errors" when the request had failed.
+- "Most frequent problems" on Dashboards, and the recap's top problems, counted people affected
+  over the issue's whole life instead of the selected range, so a problem could show more
+  people than times it happened.
+- With `INGEST_SHARED_SECRET` set and `PYLOGGLE_DEFAULT_PROJECT_ID` empty, data sent with the
+  shared secret was accepted without a project. It is now refused.
 
 ## 0.3.0
 
