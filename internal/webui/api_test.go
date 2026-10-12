@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/config"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 // fakeStore records the queries it receives and returns canned data.
@@ -42,10 +42,27 @@ type fakeStore struct {
 	created         []clickhouse.ProjectUpsert
 	keys            []api.APIKey
 	revoked         []string
+	issues          []api.IssueSummary // when set, QueryIssues returns these (filtered by IssueIDs)
+	spikes          []clickhouse.IssueSpikeRow
+	spikeWindows    [4]time.Time
+	overviewRanges  [][2]time.Time
+	requestRanges   [][2]time.Time
+	down            error // when set, project lookups fail as if the database were unreachable
 }
 
 func (f *fakeStore) QueryIssues(_ context.Context, q clickhouse.IssueListQuery) ([]api.IssueSummary, error) {
 	f.lastIssueQuery = q
+	if f.issues != nil {
+		var out []api.IssueSummary
+		for _, s := range f.issues {
+			for _, id := range q.IssueIDs {
+				if s.IssueID == id {
+					out = append(out, s)
+				}
+			}
+		}
+		return out, nil
+	}
 	return []api.IssueSummary{{IssueID: "i1", Title: "ValueError: boom", Status: "open", Service: "api", Env: "prod"}}, nil
 }
 func (f *fakeStore) CountIssuesByStatus(context.Context, clickhouse.IssueListQuery) (map[string]uint64, error) {
@@ -169,8 +186,9 @@ func (f *fakeStore) LogAggregate(_ context.Context, q clickhouse.LogQuery, spec 
 	return api.LogAggregate{BucketSeconds: int(spec.Bucket / time.Second), GroupBy: spec.GroupBy, Metric: spec.Metric, Of: spec.Of,
 		Total: api.AggregateGroup{Key: "total", Rows: 3, Value: &v}, Groups: []api.AggregateGroup{{Key: "/orders", Rows: 3, Value: &v}}}, nil
 }
-func (f *fakeStore) RequestStats(_ context.Context, _, service, _ string, _, _ time.Time, bucket, limit int) (api.RequestStats, error) {
+func (f *fakeStore) RequestStats(_ context.Context, _, service, _ string, from, to time.Time, bucket, limit int) (api.RequestStats, error) {
 	f.lastService = service
+	f.requestRanges = append(f.requestRanges, [2]time.Time{from, to})
 	return api.RequestStats{BucketSeconds: bucket, Totals: api.RouteStats{Requests: 10, Errors: 1, ErrorPct: 10}, Routes: make([]api.RouteStats, limit)}, nil
 }
 func (f *fakeStore) TraceList(_ context.Context, q clickhouse.SpanQuery) ([]api.TraceSummary, error) {
@@ -290,8 +308,19 @@ func (f *fakeStore) GlobalLogVolume(_ context.Context, from, to time.Time, bucke
 func (f *fakeStore) Stats() clickhouse.Stats {
 	return clickhouse.Stats{Queues: []clickhouse.BatcherStats{{Kind: "logs", Depth: 3, Capacity: 100, Written: 50}}}
 }
-func (f *fakeStore) Overview(context.Context, string, string, string, time.Time, time.Time) (api.Overview, error) {
-	return api.Overview{Events: 10}, nil
+func (f *fakeStore) Overview(_ context.Context, _, _, _ string, from, to time.Time) (api.Overview, error) {
+	f.overviewRanges = append(f.overviewRanges, [2]time.Time{from, to})
+	return api.Overview{Events: uint64(10 * len(f.overviewRanges))}, nil
+}
+func (f *fakeStore) ServiceHealth(_ context.Context, _, env string, _, _ time.Time, _ int) ([]api.ServiceHealth, error) {
+	return []api.ServiceHealth{{Service: "api", Envs: []string{"prod"}, Status: "failing", Requests: 100, Failed: 9, FailedPct: 9}}, nil
+}
+func (f *fakeStore) ListReleases(context.Context, string, time.Time, time.Time, int) ([]api.Release, error) {
+	return []api.Release{{Release: "1.4.0", Errors: 3, Issues: 1}}, nil
+}
+func (f *fakeStore) IssueSpikeCounts(_ context.Context, _ api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, _ int) ([]clickhouse.IssueSpikeRow, error) {
+	f.spikeWindows = [4]time.Time{prevFrom, prevTo, curFrom, curTo}
+	return f.spikes, nil
 }
 func (f *fakeStore) ErrorTrend(context.Context, string, string, string, string, string, time.Time, time.Time, int) ([]api.TimeSeriesPoint, error) {
 	return nil, nil
@@ -311,9 +340,15 @@ func (f *fakeStore) UpsertSavedSearch(_ context.Context, s api.SavedSearch) (api
 }
 func (f *fakeStore) SoftDeleteSavedSearch(context.Context, string, string, string) error { return nil }
 func (f *fakeStore) ListProjects(context.Context, int) ([]clickhouse.ProjectView, error) {
+	if f.down != nil {
+		return nil, f.down
+	}
 	return f.projects, nil
 }
 func (f *fakeStore) GetProjectByID(_ context.Context, id string) (clickhouse.ProjectView, bool, error) {
+	if f.down != nil {
+		return clickhouse.ProjectView{}, false, f.down
+	}
 	for _, p := range f.projects {
 		if p.ID == id {
 			return p, true, nil
@@ -420,6 +455,33 @@ func TestMeAndDefaultProject(t *testing.T) {
 	}
 	if out["project"].(map[string]any)["id"] != "default" || len(out["projects"].([]any)) != 2 || out["auth_mode"] != "disabled" {
 		t.Fatalf("me: %s", rec.Body.String())
+	}
+	// The Help page shows the version and links to the docs, unless the docs address is empty.
+	if out["version"] == "" || out["features"].(map[string]any)["docs_url"] != "https://koneb71.github.io/pyloggle/" {
+		t.Fatalf("me version/docs: %s", rec.Body.String())
+	}
+	u.cfg.DocsURL = ""
+	_, out = do(t, u, "GET", "/ui/api/me", nil, nil)
+	if _, ok := out["features"].(map[string]any)["docs_url"]; ok {
+		t.Fatalf("an empty PYLOGGLE_DOCS_URL hides the docs links")
+	}
+}
+
+func TestDatabaseOutageIsNotNoProject(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	store.down = errors.New("dial tcp 127.0.0.1:9000: connect: connection refused")
+	rec, out := do(t, u, "GET", "/ui/api/issues", nil, nil)
+	if rec.Code != http.StatusServiceUnavailable || out["error"] != "unavailable" {
+		t.Fatalf("issues during an outage: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/me", nil, nil)
+	if rec.Code != http.StatusServiceUnavailable || out["error"] != "unavailable" {
+		t.Fatalf("me during an outage: %d %s", rec.Code, rec.Body.String())
+	}
+	store.down = nil
+	store.projects = nil
+	if rec, out = do(t, u, "GET", "/ui/api/issues", nil, nil); rec.Code != http.StatusUnauthorized || out["error"] != "no_project" {
+		t.Fatalf("no project at all must stay 401 no_project: %d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -578,12 +640,20 @@ func TestAPIKeyMirror(t *testing.T) {
 	if rec.Code != 401 {
 		t.Fatalf("unknown bearer key: %d", rec.Code)
 	}
-	// Without a key the default project applies to reads.
+	// With sign-in on, reads need a key too (1.0; 0.3 served the default project).
 	req = httptest.NewRequest("GET", "/v1/q/logs?q=service:api", nil)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 || store.lastLogQuery.ProjectID != "default" {
-		t.Fatalf("mirror: %d %s (%+v)", rec.Code, rec.Body.String(), store.lastLogQuery)
+	if rec.Code != 401 || !strings.Contains(rec.Body.String(), "api_key_required") {
+		t.Fatalf("keyless read with sign-in on: %d %s", rec.Code, rec.Body.String())
+	}
+	// Without sign-in, a keyless read uses the default project.
+	open, openStore, _ := newTestUI("disabled")
+	req = httptest.NewRequest("GET", "/v1/q/logs?q=service:api", nil)
+	rec = httptest.NewRecorder()
+	open.APIKeyAPIHandler().ServeHTTP(rec, req)
+	if rec.Code != 200 || openStore.lastLogQuery.ProjectID != "default" {
+		t.Fatalf("keyless read without sign-in: %d %s (%+v)", rec.Code, rec.Body.String(), openStore.lastLogQuery)
 	}
 	req = httptest.NewRequest("POST", "/v1/q/issues/i1/state", strings.NewReader(`{"status":"resolved"}`))
 	rec = httptest.NewRecorder()
@@ -1051,5 +1121,35 @@ func TestProjectKeysAPI(t *testing.T) {
 	rec, _ = do(t, u, "GET", "/ui/api/projects/p2/keys", nil, nil)
 	if rec.Code != 401 {
 		t.Fatalf("anonymous in azure mode: %d", rec.Code)
+	}
+}
+
+func TestRecapRuleValidation(t *testing.T) {
+	u, _, _ := newTestUI("disabled")
+	h := map[string]string{"X-Pyloggle-Request": "1"}
+	rule := func(extra map[string]any) map[string]any {
+		r := map[string]any{"name": "Morning recap", "condition_type": "daily_recap", "send_hour": 8, "enabled": true, "telegram_chat_ids": []string{"1"}}
+		for k, v := range extra {
+			r[k] = v
+		}
+		return map[string]any{"rule": r}
+	}
+	rec, out := do(t, u, "POST", "/ui/api/alerts/rules", rule(map[string]any{"timezone": "Asia/Manila"}), h)
+	saved, _ := out["rule"].(map[string]any)
+	if rec.Code != 200 || saved["timezone"] != "Asia/Manila" || saved["send_hour"] != float64(8) || saved["time_window_seconds"] != float64(86400) {
+		t.Fatalf("recap rule: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "POST", "/ui/api/alerts/rules", rule(nil), h)
+	if saved, _ := out["rule"].(map[string]any); rec.Code != 200 || saved["timezone"] != "UTC" {
+		t.Fatalf("time zone defaults to UTC: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, out := do(t, u, "POST", "/ui/api/alerts/rules", rule(map[string]any{"timezone": "Mars/Olympus"}), h); rec.Code != 400 || out["error"] != "bad_timezone" {
+		t.Fatalf("unknown time zone: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, out := do(t, u, "POST", "/ui/api/alerts/rules", rule(map[string]any{"send_hour": 24}), h); rec.Code != 400 || out["error"] != "bad_send_hour" {
+		t.Fatalf("hour 24: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, out := do(t, u, "GET", "/ui/api/alerts/rules/recap-preview?timezone=Nope/Nope", nil, nil); rec.Code != 400 || out["error"] != "bad_timezone" {
+		t.Fatalf("preview checks the time zone: %d %s", rec.Code, rec.Body.String())
 	}
 }

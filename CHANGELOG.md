@@ -1,11 +1,196 @@
 # Changelog
 
+## 1.0.0
+
+The first open-source release. Pyloggle is now licensed under the Apache License 2.0, has a
+documentation site, and is released as a Docker image, binaries and a Python package on PyPI.
+It also brings a redesigned app for the whole team, not only engineers, alerts that say what
+went wrong and where, each alert sent only once, and a recap of yesterday. One migration (016)
+adds a table and two columns.
+
+Read [upgrading to 1.0](https://koneb71.github.io/pyloggle/self-hosting/upgrading) before you
+upgrade: a server that relied on the old sign-in default no longer starts until the mode is set.
+
+### Open source
+
+- Apache License 2.0 for the server, the web app and the Python package (which was marked MIT
+  but never published). `NOTICE` and `THIRD_PARTY_LICENSES.md` list the Go and web
+  dependencies the program includes; the app serves the same list at `/ui/licenses.txt`, and
+  the Docker image carries the license files.
+- A documentation site, [koneb71.github.io/pyloggle](https://koneb71.github.io/pyloggle/),
+  built from `docs/`: an introduction, a guide to every page of the app with screenshots in
+  light and dark, the Python package and its frameworks, OpenTelemetry, deployment, sign-in,
+  alerting, security, upgrading, and references for the configuration, the HTTP API and the
+  webhook payload. Tests fail when a setting, an API route, a webhook field, a Python package
+  option or a word of the app's glossary is missing from them, or when the app links to a page
+  that does not exist.
+- Releases on version tags: the image `ghcr.io/koneb71/pyloggle` for amd64 and arm64 with
+  provenance and an SBOM, binaries for Linux and macOS (amd64 and arm64) with checksums, and
+  the Python package on PyPI through trusted publishing.
+- Continuous integration on every push and pull request: Go tests with the race detector, the
+  ClickHouse integration tests, the web app, the Python package on 3.9 and 3.13, a dry run of
+  the release, and checks that the tree holds no caches or private paths and that the versions
+  agree. Dependabot keeps dependencies current.
+- A contributing guide, a code of conduct (Contributor Covenant 2.1), a security policy with
+  private reporting, and issue and pull request templates.
+- `make dev-db` starts ClickHouse for development, `make demo-data` fills a server with two days
+  of realistic data, and `make docs-dev` and `make docs-screenshots` work on the documentation.
+- Version 1.0.0 for the server, the Python package and the web app. `ingestd -version` prints
+  it, and the server logs it when it starts.
+
+### Breaking
+
+See [upgrading to 1.0](https://koneb71.github.io/pyloggle/self-hosting/upgrading) for what to do
+about each.
+
+- **The sign-in mode must be chosen.** Without `PYLOGGLE_UI_AUTH`, 0.3 sent everyone to a
+  Microsoft sign-in, and an unknown value did the same. 1.0 infers `azure` from
+  `PYLOGGLE_AZURE_TENANT_ID` or `oidc` from `PYLOGGLE_OIDC_ISSUER`; with neither, both, or an
+  unknown value, the server does not start and says what to set. Missing sign-in settings and
+  a bad session secret are reported at start, all at once, instead of at the first sign-in.
+- **Reading data needs a key while sign-in is on.** `/v1/q` and the 0.1 read endpoints answer
+  `401 api_key_required` to a request without an access key. Sending data without a key is
+  unchanged.
+- **An empty `PYLOGGLE_DEFAULT_PROJECT_ID` means no default project**, so every request needs a
+  key. 0.3 ignored the empty value and used `default`.
+- **Docker Compose publishes the port on `127.0.0.1` only** and runs the published image
+  (`PYLOGGLE_VERSION` pins one), building from source only when the image is not available.
+- `PYLOGGLE_UI_POLL_SECONDS` is removed; it had no effect since 0.2.
+- The Go module is `github.com/koneb71/pyloggle`.
+
+### Look and language
+
+- Calm product look: Inter, white cards on a warm gray page, one blue accent, sentence-case
+  labels, roomier rows, and monospace only for code, ids and queries. Text and accent colors
+  meet WCAG AA (4.5:1) in light and dark.
+- Plain words first, the technical name second, from one glossary (`web/src/lib/glossary.ts`):
+  "Came back (regressed)", "Slow (p95)", "Request timeline (trace)", "Steps before the error
+  (breadcrumbs)". Field names read as words ("Response code", not `http.status`). A test
+  fails if internal names such as `request_stats_minutely` reach the UI again.
+- Every page has a one-line description; tables share one column grid so headers line up;
+  each view shows exactly one of loading, error, empty or data; failed actions show a toast.
+- The sidebar groups pages (Investigate, Monitor, Settings) and shrinks to icons below
+  1200 px; `?` lists the keyboard shortcuts; logs, filters and details fit at 1024 px.
+- **Works on a phone.** No page scrolls sideways, from a 360 px phone to a wide screen:
+  - Below 768 px a top bar names the project, and its menu holds the sidebar.
+  - Tables drop their less important columns and move the key numbers into the row.
+  - Messages and a request's steps become two-line rows wherever the columns don't fit, which
+    includes a tablet with the Logs filters open.
+  - Details cover the screen, and the Logs filters open as a sheet.
+  - Popovers stay inside the window.
+  - On touch screens, buttons and fields grow a little, fields no longer make iOS zoom in, and
+    hover-only actions are always shown.
+
+### New
+
+- **Overview** home page (`/ui/` opens it): a status line, five headline numbers with the
+  change against the previous period, issues that are new, came back or jumped, each app's
+  health (OK, degraded, failing or silent), recent versions and recent alerts. Backed by
+  `GET metrics/services`, `metrics/attention` and `releases`, and `compare=previous` on
+  `metrics/overview` and `metrics/requests`.
+- Logs: an *Add filter* picker, plain-language search chips and help with examples, a
+  filters sidebar, a chart legend above the plot with the bar width spelled out.
+- Alerts: rules read and are edited as sentences, with a *Test this alert* button.
+- Projects: a *Connect your app* guide (Python, Django, FastAPI, OpenTelemetry) with the
+  server's address filled in; settings, keys and storage in a side drawer.
+- **Help** page (`g h`, at the bottom of the sidebar): guides from the documentation, the
+  *Connect your app* steps, search examples you can click, every keyboard shortcut, the words
+  the app uses and what engineers call them, and this server's version and sign-in. Alerts,
+  Projects, System and the search help link to the matching documentation page.
+  `PYLOGGLE_DOCS_URL` points those links at an internal copy of the docs, or hides them when
+  empty; `/me` now reports `version` and `features.docs_url`.
+
+### Alerts with context
+
+- Every notification (e-mail, Telegram, Slack) is written from one message in plain words: what
+  happened ("PaymentDeclined happened 60 times in 5 minutes, up from 3"), where ("api · prod",
+  or "all apps · all environments") and when ("Oct 11, 11:13–11:18 UTC (5 minutes), compared
+  with the 5 minutes before").
+- For the first three problems: how many times and how many people, the file, line and code
+  that failed, version and route, the last three steps before the error (URLs without their
+  query strings), and links to that exact time, the request's messages and the request
+  timeline (only when its spans were stored). Error-rate alerts name the top problems; log
+  monitors include three matching lines.
+- Looking this up gets at most 5 seconds (less near the end of an evaluation pass) and never
+  blocks or fails the alert; `pyloggle_alert_enrich_failures_total` counts the times it gave up.
+- Telegram: HTML by default with link previews off, fitted to Telegram's 4096-character limit by
+  dropping detail rather than cutting text, and resent once as plain text if Telegram refuses
+  the markup. Errors no longer include the bot token. `ALERT_TELEGRAM_API_URL` points at a
+  self-hosted Bot API server.
+- E-mail subjects are encoded for non-ASCII text and cannot carry line breaks; bodies are
+  quoted-printable.
+- The webhook payload and the stored firing gain `context` (title, summary, scope, window),
+  `top_issues` and `samples`, with counts of people but never who they are, request URLs or
+  the steps. *Alerts sent* in the UI shows the same summary sentence.
+
+### Alerts only once, and a recap of yesterday
+
+- Each thing alerts a rule once, recorded in a new `alert_notified` table (migration 016):
+  - a new problem alerts once;
+  - a problem that came back alerts once per comeback;
+  - a problem that jumps alerts at most once a day;
+  - too-many-errors and message-search rules alert when an incident starts, stay quiet while it
+    lasts, and alert again only after a check finds things back to normal.
+
+  "Wait before alerting again" still sets the shortest gap between two messages from a rule.
+  Nothing is recorded when every notifier failed, so the alert is retried.
+- **Fixed:** a "came back" rule alerted again every time someone assigned, commented on or
+  snoozed a problem that had come back, because it read every saved change. It now reads the
+  comebacks themselves from the activity log.
+- **New rule kind, "a recap of yesterday, every day":**
+  - Sent at a chosen hour in a chosen time zone, by e-mail, Slack, Telegram or webhook.
+  - Covers errors compared with the day before, new problems, problems that came back, the ones
+    that happened most, apps that need a look (failing, struggling or silent), incidents still
+    going on, and the alerts sent.
+  - It goes out once per local day, also after a restart, and on quiet days too.
+  - *Test this alert* shows the recap without sending it.
+  - Webhooks get it as `kind: "daily_recap"` with a `recap` object.
+- **Upgrade note:** problems already inside a rule's window when you upgrade may alert one last
+  time.
+
+### Fixed
+
+- The alert dialog's Slack field said "Empty uses the server's default", but an empty field
+  turned Slack off, so the default webhook (`ALERT_SLACK_WEBHOOK_URL`) could not be chosen.
+  When the server has one, the dialog now offers it as a checkbox, and rule cards that use it
+  say "Slack".
+- Sign-in allow-lists trusted an e-mail address the sign-in provider marked as unverified
+  (`email_verified: false`), so on a provider where people can register any address, someone
+  could pass `PYLOGGLE_OIDC_ALLOWED_DOMAINS` with an address that is not theirs. Unverified
+  addresses, and user names in their place, no longer count. The refusal page now says why.
+
+- The Requests search showed the logs search help.
+- The filter buttons in a request's log panel did nothing.
+- The top-issues sparkline on Dashboards was always empty.
+- Issue detail kept loading forever when an issue had no stored occurrence.
+- Company sign-in dropped the `?err=` message; an expired company session showed the
+  access-key form.
+- Choosing a project could spin forever when the selection failed.
+- A signed-out browser could refetch `/me` in a loop.
+- With ClickHouse down, the UI reloaded in a loop or offered to "create your first project".
+  The API now answers `503 unavailable`, the UI says the database isn't answering, and it
+  recovers on its own when the database is back.
+- Several views showed an error and "nothing here" at the same time; dashboard cards said
+  "No errors" when the request had failed.
+- "Most frequent problems" on Dashboards, and the recap's top problems, counted people affected
+  over the issue's whole life instead of the selected range, so a problem could show more
+  people than times it happened. The recap's new and came-back problems are now counted for
+  yesterday too, like the rest of the recap.
+- The recap gave "last heard from" and "since" times in UTC while its day was in the rule's
+  time zone. They now use the rule's time zone too.
+- With `INGEST_SHARED_SECRET` set and `PYLOGGLE_DEFAULT_PROJECT_ID` empty, data sent with the
+  shared secret was accepted without a project. It is now refused.
+- The first database migration created a database named `pyloggle` whatever `CLICKHOUSE_DSN`
+  named, so a ClickHouse user allowed only its own database could not start the server, and
+  everyone else got a stray empty `pyloggle` database. Migrations now only touch the DSN's
+  database.
+
 ## 0.3.0
 
 Issue workflow, log-query monitors, traces, OpenTelemetry metrics, analytics and export,
 storage accounting with per-project retention and deletion, Prometheus metrics and a System
 page, generic OIDC login, scoped API keys, Django and Celery in the SDK. Migrations are
-additive; see `docs/upgrading-0.3.md`.
+additive; see `docs/self-hosting/upgrading-0.3.md`.
 
 ### Issues
 
@@ -86,7 +271,7 @@ additive; see `docs/upgrading-0.3.md`.
 ### OpenTelemetry
 
 - Three doors (`/v1/logs`, `/v1/traces`, `/v1/metrics`), a Collector example, a guide
-  (`docs/opentelemetry.md`) and support for FastAPI 0.142+ native telemetry: spans with
+  (`docs/send-data/opentelemetry.md`) and support for FastAPI 0.142+ native telemetry: spans with
   operation spans, HTTP metrics for the dashboards, exception logs as issues.
 - One issue per crash: the first error occurrence per project, trace and exception class is
   the occurrence, a second report through another door within two minutes is a linked log
@@ -118,7 +303,7 @@ additive; see `docs/upgrading-0.3.md`.
 ## 0.2.0
 
 A redesign of the server, the UI and the Python SDK. Projects already sending data need no
-change; see `docs/upgrading-0.2.md`.
+change; see `docs/self-hosting/upgrading-0.2.md`.
 
 ### Error reports
 
@@ -153,7 +338,7 @@ change; see `docs/upgrading-0.2.md`.
   bloom and token indexes. Expired data is dropped as whole parts (`ttl_only_drop_parts`).
 - 30-day default retention for logs and errors, 365 days for the tiny aggregate tables.
 - Tuned ClickHouse configuration mounted by compose and memory/CPU limits for both containers
-  (`docs/footprint.md`).
+  (`docs/self-hosting/retention-and-footprint.md`).
 
 ### UI
 

@@ -1,10 +1,9 @@
 import { useState } from "react";
-import clsx from "clsx";
 import { Ban, Check, CheckCircle2, ChevronDown, Clock, MessageSquare, RotateCcw, Tag, UserCircle2, UserMinus } from "lucide-react";
 import { useAddComment, useAssignIssue, useAssignees, useIssueActivity, useIssueState } from "@/api/hooks";
 import type { IssueActivity, IssueSummary } from "@/api/types";
-import { Badge, Button, Dialog, EmptyState, Field, Input, MenuItem, Popover, Skeleton, Textarea, TimeAgo } from "@/components/ui";
-import { fmtTs } from "@/lib/time";
+import { Badge, Button, Dialog, EmptyState, Field, Input, MenuItem, Popover, QueryState, Skeleton, Textarea, TimeAgo } from "@/components/ui";
+import { fmtTs, fmtWhen } from "@/lib/time";
 
 /** Resolve / ignore menus and the assignee picker for one issue. */
 export function WorkflowActions({ issue }: { issue: IssueSummary }) {
@@ -13,31 +12,34 @@ export function WorkflowActions({ issue }: { issue: IssueSummary }) {
   const [countDialog, setCountDialog] = useState(false);
   const go = (change: Parameters<typeof m.mutate>[0]) => m.mutate(change);
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex flex-wrap items-center gap-1">
       <AssigneePicker issue={issue} />
       {issue.status !== "resolved" && (
         <Popover
           align="end"
           width={260}
           trigger={({ toggle, open }) => (
-            <Button variant="primary" active={open} icon={<CheckCircle2 size={13} />} onClick={toggle} loading={m.isPending}>
-              Resolve <ChevronDown size={12} className="opacity-70" />
+            <Button variant="primary" active={open} icon={<CheckCircle2 size={14} />} onClick={toggle} loading={m.isPending}>
+              Resolve <ChevronDown size={13} className="opacity-70" />
             </Button>
           )}
         >
           {(close) => (
             <div>
-              <MenuItem icon={<Check size={13} />} onClick={() => (close(), go({ id: issue.issue_id, status: "resolved" }))}>
-                Resolve
-              </MenuItem>
-              <MenuItem icon={<Tag size={13} />} disabled={!issue.last_release} onClick={() => (close(), go({ id: issue.issue_id, status: "resolved", resolved_in_release: "next" }))}>
+              <MenuItem icon={<Check size={14} />} onClick={() => (close(), go({ id: issue.issue_id, status: "resolved" }))}>
                 <span className="min-w-0 flex-1">
-                  Resolve in the next release
-                  <span className="block truncate text-[11px] text-ink-3">{issue.last_release ? `newer than ${issue.last_release} reopens it` : "no release on this issue"}</span>
+                  Resolve now
+                  <span className="block text-xs text-ink-3">It reopens if it happens again</span>
                 </span>
               </MenuItem>
-              <MenuItem icon={<Tag size={13} />} onClick={() => (close(), setReleaseDialog(true))}>
-                Resolve in release…
+              <MenuItem icon={<Tag size={14} />} disabled={!issue.last_release} onClick={() => (close(), go({ id: issue.issue_id, status: "resolved", resolved_in_release: "next" }))}>
+                <span className="min-w-0 flex-1">
+                  Fixed in the next version
+                  <span className="block truncate text-xs text-ink-3">{issue.last_release ? `Reopens only if a version after ${issue.last_release} has it` : "No version recorded on this issue"}</span>
+                </span>
+              </MenuItem>
+              <MenuItem icon={<Tag size={14} />} onClick={() => (close(), setReleaseDialog(true))}>
+                Fixed in a specific version…
               </MenuItem>
             </div>
           )}
@@ -48,42 +50,46 @@ export function WorkflowActions({ issue }: { issue: IssueSummary }) {
           align="end"
           width={240}
           trigger={({ toggle, open }) => (
-            <Button active={open} icon={<Ban size={13} />} onClick={toggle}>
-              Ignore <ChevronDown size={12} className="text-ink-3" />
+            <Button active={open} icon={<Ban size={14} />} onClick={toggle}>
+              Ignore <ChevronDown size={13} className="text-ink-3" />
             </Button>
           )}
         >
           {(close) => (
             <div>
-              <MenuItem icon={<Ban size={13} />} onClick={() => (close(), go({ id: issue.issue_id, status: "ignored" }))}>
-                Ignore forever
-              </MenuItem>
               {[
                 ["for 1 hour", 3600],
                 ["for 24 hours", 86400],
                 ["for 7 days", 7 * 86400],
               ].map(([label, secs]) => (
-                <MenuItem key={label} icon={<Clock size={13} />} onClick={() => (close(), go({ id: issue.issue_id, status: "ignored", snooze_for_seconds: Number(secs) }))}>
+                <MenuItem key={label} icon={<Clock size={14} />} onClick={() => (close(), go({ id: issue.issue_id, status: "ignored", snooze_for_seconds: Number(secs) }))}>
                   Ignore {label}
                 </MenuItem>
               ))}
-              <MenuItem icon={<Clock size={13} />} onClick={() => (close(), setCountDialog(true))}>
-                Ignore until N more occurrences…
+              <MenuItem icon={<Clock size={14} />} onClick={() => (close(), setCountDialog(true))}>
+                Ignore until it happens more…
+              </MenuItem>
+              <div className="my-1 h-px bg-border" />
+              <MenuItem icon={<Ban size={14} />} onClick={() => (close(), go({ id: issue.issue_id, status: "ignored" }))}>
+                <span className="min-w-0 flex-1">
+                  Ignore forever
+                  <span className="block text-xs text-ink-3">Still recorded, never reopens</span>
+                </span>
               </MenuItem>
             </div>
           )}
         </Popover>
       )}
       {issue.status !== "open" && (
-        <Button icon={<RotateCcw size={13} />} onClick={() => go({ id: issue.issue_id, status: "open" })} loading={m.isPending}>
+        <Button icon={<RotateCcw size={14} />} onClick={() => go({ id: issue.issue_id, status: "open" })} loading={m.isPending}>
           Reopen
         </Button>
       )}
       {releaseDialog && (
         <PromptDialog
-          title="Resolve in release"
-          label="Release"
-          hint="The issue regresses only when a newer release reports it (semantic versions compare numerically, other names by first-seen time)."
+          title="Fixed in a specific version"
+          label="Version"
+          hint="The issue reopens only if a newer version has it. Version numbers compare numerically (1.10 is newer than 1.9); other names by when they were first seen."
           initial={issue.last_release ?? ""}
           onClose={() => setReleaseDialog(false)}
           onSubmit={(v) => go({ id: issue.issue_id, status: "resolved", resolved_in_release: v })}
@@ -91,9 +97,9 @@ export function WorkflowActions({ issue }: { issue: IssueSummary }) {
       )}
       {countDialog && (
         <PromptDialog
-          title="Ignore until more occurrences"
-          label="Occurrences"
-          hint="The issue reopens once this many more events arrive."
+          title="Ignore until it happens more"
+          label="Number of times"
+          hint="The issue reopens once it has happened this many more times."
           initial="100"
           type="number"
           onClose={() => setCountDialog(false)}
@@ -142,9 +148,9 @@ export function AssigneePicker({ issue, compact }: { issue: IssueSummary; compac
       align="end"
       width={260}
       trigger={({ toggle, open }) => (
-        <Button active={open} onClick={toggle} icon={<UserCircle2 size={13} className={current ? "text-accent" : "text-ink-3"} />} title={current ? `Assigned to ${current}` : "Unassigned"} className={clsx(compact && "px-1.5")}>
+        <Button active={open} onClick={toggle} square={compact} icon={<UserCircle2 size={14} className={current ? "text-accent" : "text-ink-3"} />} title={current ? `Assigned to ${current}` : "Not assigned"}>
           {!compact && <span className="max-w-32 truncate">{current || "Assign"}</span>}
-          {!compact && <ChevronDown size={12} className="text-ink-3" />}
+          {!compact && <ChevronDown size={13} className="text-ink-3" />}
         </Button>
       )}
     >
@@ -160,23 +166,23 @@ export function AssigneePicker({ issue, compact }: { issue: IssueSummary; compac
               close();
             }}
           >
-            <Input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="name or e-mail…" className="h-7 text-xs" />
+            <Input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Name or e-mail, then Enter" aria-label="Assign to" />
           </form>
           {people.data?.me && people.data.me !== current && (
-            <MenuItem icon={<UserCircle2 size={13} />} onClick={() => (assign.mutate({ id: issue.issue_id, assignee: "me" }), close())}>
+            <MenuItem icon={<UserCircle2 size={14} />} onClick={() => (assign.mutate({ id: issue.issue_id, assignee: "me" }), close())}>
               Assign to me ({people.data.me})
             </MenuItem>
           )}
           {suggestions.slice(0, 8).map((p) => (
-            <MenuItem key={p} icon={<span className="inline-block w-[13px]" />} onClick={() => (assign.mutate({ id: issue.issue_id, assignee: p }), close())}>
+            <MenuItem key={p} icon={<span className="inline-block w-[14px]" />} onClick={() => (assign.mutate({ id: issue.issue_id, assignee: p }), close())}>
               {p}
             </MenuItem>
           ))}
           {current && (
             <>
               <div className="my-1 h-px bg-border" />
-              <MenuItem icon={<UserMinus size={13} />} onClick={() => (assign.mutate({ id: issue.issue_id, assignee: "" }), close())}>
-                Unassign {current}
+              <MenuItem icon={<UserMinus size={14} />} onClick={() => (assign.mutate({ id: issue.issue_id, assignee: "" }), close())}>
+                Remove {current}
               </MenuItem>
             </>
           )}
@@ -186,32 +192,69 @@ export function AssigneePicker({ issue, compact }: { issue: IssueSummary; compac
   );
 }
 
-/** Badges that explain a snoozed or release-resolved state. */
+/** Badges that explain a snoozed or version-resolved state, in plain words. */
 export function StateQualifiers({ issue }: { issue: IssueSummary }) {
   const parts: React.ReactNode[] = [];
-  if (issue.status === "ignored" && issue.snooze_until) parts.push(<Badge key="until" tone="outline">snoozed until {fmtTs(issue.snooze_until)}</Badge>);
-  if (issue.status === "ignored" && issue.snooze_count) parts.push(<Badge key="count" tone="outline">snoozed until {issue.snooze_count.toLocaleString()} events</Badge>);
-  if (issue.status === "resolved" && issue.resolved_in_release) parts.push(<Badge key="rel" tone="outline">resolved in {issue.resolved_in_release}</Badge>);
+  if (issue.status === "ignored" && issue.snooze_until) parts.push(<Badge key="until" tone="outline">Ignored until {fmtWhen(issue.snooze_until)}</Badge>);
+  if (issue.status === "ignored" && issue.snooze_count) {
+    // snooze_count is the total the issue must reach, not the number still to come.
+    const left = Math.max(0, issue.snooze_count - issue.occurrence_count);
+    parts.push(
+      <Badge key="count" tone="outline" title={`Reopens when it reaches ${issue.snooze_count.toLocaleString()} times in total`}>
+        Ignored for {left.toLocaleString()} more {left === 1 ? "time" : "times"}
+      </Badge>,
+    );
+  }
+  if (issue.status === "resolved" && issue.resolved_in_release) parts.push(<Badge key="rel" tone="outline">Fixed in version {issue.resolved_in_release}</Badge>);
   if (parts.length === 0) return null;
   return <>{parts}</>;
 }
 
-const KIND_LABEL: Record<string, string> = {
-  status: "changed status",
-  assign: "assigned",
-  comment: "commented",
-  snooze: "snoozed",
-  unsnooze: "reopened",
-  regression: "regressed",
-  resolve_in_release: "resolved in release",
-};
+/** The server's "until 2026-10-12T14:00:00Z or 140 occurrences" in words. */
+export function snoozeWords(s: string): string {
+  return s
+    .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, (m) => fmtWhen(m))
+    .replace(/(\d+) occurrences/, (_, n: string) => `it has happened ${Number(n).toLocaleString()} times`);
+}
+
+/** "ui" is the actor when sign-in is off, "system" is Pyloggle itself. */
+export function actorName(actor: string): string {
+  if (!actor) return "Someone";
+  if (actor === "ui") return "Local user";
+  if (actor === "system") return "Pyloggle";
+  return actor;
+}
+
+const STATUS_VERB: Record<string, string> = { resolved: "resolved it", ignored: "ignored it", open: "reopened it" };
+
+/** One activity entry as a sentence: "Ana resolved it", "It came back in version 1.4.1". */
+export function activitySentence(a: IssueActivity): { who: string; what: string } {
+  const who = actorName(a.actor);
+  switch (a.kind) {
+    case "status":
+      return { who, what: STATUS_VERB[a.to ?? ""] ?? `changed the status to ${a.to}` };
+    case "assign":
+      return { who, what: a.to ? `assigned it to ${a.to}` : `removed ${a.from || "the assignee"}` };
+    case "comment":
+      return { who, what: "commented" };
+    case "snooze":
+      return { who, what: a.to ? `ignored it ${snoozeWords(a.to)}` : "ignored it for a while" };
+    case "unsnooze":
+      return { who: "Pyloggle", what: "reopened it: the ignore period ended" };
+    case "regression":
+      return { who: "Pyloggle", what: a.release ? `reopened it: it came back in version ${a.release}` : "reopened it: it came back after being resolved" };
+    case "resolve_in_release":
+      return { who, what: a.release ? `marked it fixed in version ${a.release}` : "marked it fixed in the next version" };
+  }
+  return { who, what: a.kind.replace(/_/g, " ") };
+}
 
 export function ActivityTab({ issueId }: { issueId: string }) {
   const q = useIssueActivity(issueId);
   const add = useAddComment();
   const [body, setBody] = useState("");
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <form
         className="flex flex-col gap-2"
         onSubmit={(e) => {
@@ -220,49 +263,45 @@ export function ActivityTab({ issueId }: { issueId: string }) {
           add.mutate({ id: issueId, body: body.trim() }, { onSuccess: () => setBody("") });
         }}
       >
-        <Textarea rows={2} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Leave a note for the team…" />
+        <Textarea rows={2} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Leave a note for the team…" aria-label="Comment" />
         <div className="flex justify-end">
-          <Button type="submit" size="sm" variant="primary" icon={<MessageSquare size={12} />} loading={add.isPending} disabled={!body.trim()}>
+          <Button type="submit" variant="primary" icon={<MessageSquare size={14} />} loading={add.isPending} disabled={!body.trim()}>
             Comment
           </Button>
         </div>
       </form>
-      {q.isPending ? (
-        <Skeleton rows={4} />
-      ) : (q.data?.items.length ?? 0) === 0 ? (
-        <EmptyState title="No activity yet" hint="Status changes, assignments, snoozes, regressions and comments show up here." className="py-6" />
-      ) : (
-        <ol className="relative ml-2 border-l border-border pl-4">
-          {q.data!.items.map((a) => (
-            <ActivityRow key={a.id} a={a} />
-          ))}
-        </ol>
-      )}
+      <QueryState
+        query={q}
+        isEmpty={(d) => d.items.length === 0}
+        skeleton={<Skeleton rows={4} />}
+        empty={<EmptyState title="No activity yet" hint="Status changes, assignments, comments and returns after a fix show up here." className="py-6" />}
+      >
+        {(d) => (
+          <ol className="relative ml-2 border-l border-border pl-5">
+            {d.items.map((a) => (
+              <ActivityRow key={a.id} a={a} />
+            ))}
+          </ol>
+        )}
+      </QueryState>
     </div>
   );
 }
 
 function ActivityRow({ a }: { a: IssueActivity }) {
   const tone = a.kind === "regression" ? "var(--st-critical)" : a.kind === "comment" ? "var(--accent)" : a.kind === "status" && a.to === "resolved" ? "var(--st-good)" : "var(--text-3)";
+  const { who, what } = activitySentence(a);
   return (
-    <li className="relative py-1.5">
-      <span className="absolute -left-[21px] top-[11px] h-2.5 w-2.5 rounded-full border-2 border-surface" style={{ background: tone }} aria-hidden />
-      <div className="flex flex-wrap items-baseline gap-x-2 text-xs">
-        <span className="font-medium text-ink">{a.actor || "someone"}</span>
-        <span className="text-ink-2">{KIND_LABEL[a.kind] ?? a.kind}</span>
-        {a.kind === "status" && a.from !== a.to && (
-          <span className="font-mono text-ink-2">
-            {a.from || "open"} → {a.to}
-          </span>
-        )}
-        {a.kind === "assign" && <span className="font-mono text-ink-2">{a.to ? `to ${a.to}` : `(unassigned${a.from ? ` from ${a.from}` : ""})`}</span>}
-        {a.kind === "snooze" && <span className="text-ink-2">{a.to}</span>}
-        {(a.kind === "regression" || a.kind === "resolve_in_release") && a.release && <span className="font-mono text-ink-2">{a.release}</span>}
-        <span className="ml-auto text-ink-3" title={fmtTs(a.ts, { ms: true })}>
+    <li className="relative py-2">
+      <span className="absolute -left-[25px] top-[13px] h-2.5 w-2.5 rounded-full border-2 border-surface" style={{ background: tone }} aria-hidden />
+      <div className="flex flex-wrap items-baseline gap-x-1.5 text-[13px]">
+        <span className="font-medium text-ink">{who}</span>
+        <span className="text-ink-2">{what}</span>
+        <span className="ml-auto text-xs text-ink-3" title={fmtTs(a.ts)}>
           <TimeAgo iso={a.ts} />
         </span>
       </div>
-      {a.comment && <div className="mt-0.5 whitespace-pre-wrap break-words text-[13px] text-ink">{a.comment}</div>}
+      {a.comment && a.kind !== "regression" && <div className="mt-1 whitespace-pre-wrap break-words rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink">{a.comment}</div>}
     </li>
   );
 }

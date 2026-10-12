@@ -6,7 +6,7 @@ import (
 	"path"
 	"strings"
 
-	"pyloggle/web"
+	"github.com/koneb71/pyloggle/web"
 )
 
 // spaHandler serves the built React app: hashed assets with long cache headers, index.html for

@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/config"
-	"pyloggle/internal/ingest"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/model"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/ingest"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 func TestIntegrationIssueWorkflowState(t *testing.T) {
@@ -132,6 +132,44 @@ func TestIntegrationIssueWorkflowState(t *testing.T) {
 		if a.Kind == "resolve_in_release" && a.Release != "build-2" {
 			t.Fatalf("resolve activity should carry the release: %+v", a)
 		}
+	}
+
+	// Alert bookkeeping: the snooze and the comment after the comeback are not comebacks, so a
+	// "came back" rule sees exactly one event (the 0.3 query matched every later state row).
+	evs, err := c.RegressionEvents(ctx, api.AlertRule{ProjectID: "p1", Service: "web"}, now.Add(-time.Hour), time.Now().Add(time.Minute), 10)
+	if err != nil || len(evs) != 1 || evs[0].IssueID != id || evs[0].Issue.IssueID != id || evs[0].ID == "" {
+		t.Fatalf("RegressionEvents: %+v %v", evs, err)
+	}
+	if evs, err := c.RegressionEvents(ctx, api.AlertRule{ProjectID: "p1", Service: "other"}, now.Add(-time.Hour), time.Now().Add(time.Minute), 10); err != nil || len(evs) != 0 {
+		t.Fatalf("RegressionEvents must honor the rule's app: %+v %v", evs, err)
+	}
+	subj := []string{"came_back:" + evs[0].ID, "issue:" + id}
+	if err := c.MarkNotified(ctx, "p1", "rule-1", subj[:1], true); err != nil {
+		t.Fatalf("MarkNotified: %v", err)
+	}
+	if sent, err := c.NotifiedSubjects(ctx, "p1", "rule-1", subj, time.Time{}); err != nil || !sent[subj[0]] || sent[subj[1]] {
+		t.Fatalf("NotifiedSubjects: %v %v", sent, err)
+	}
+	if sent, err := c.NotifiedSubjects(ctx, "p1", "rule-1", subj, time.Now().Add(time.Hour)); err != nil || len(sent) != 0 {
+		t.Fatalf("NotifiedSubjects since: %v %v", sent, err)
+	}
+	if open, err := c.IncidentOpen(ctx, "p1", "rule-2"); err != nil || open {
+		t.Fatalf("no incident yet: %v %v", open, err)
+	}
+	_ = c.MarkNotified(ctx, "p1", "rule-2", []string{"incident"}, true)
+	if open, err := c.IncidentOpen(ctx, "p1", "rule-2"); err != nil || !open {
+		t.Fatalf("incident open: %v %v", open, err)
+	}
+	if inc, err := c.OpenIncidents(ctx, "p1"); err != nil || len(inc) != 1 || inc[0].RuleID != "rule-2" || inc[0].Since.IsZero() {
+		t.Fatalf("OpenIncidents: %+v %v", inc, err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	_ = c.MarkNotified(ctx, "p1", "rule-2", []string{"incident"}, false)
+	if open, err := c.IncidentOpen(ctx, "p1", "rule-2"); err != nil || open {
+		t.Fatalf("incident closed: %v %v", open, err)
+	}
+	if inc, err := c.OpenIncidents(ctx, "p1"); err != nil || len(inc) != 0 {
+		t.Fatalf("OpenIncidents after close: %+v %v", inc, err)
 	}
 
 	// Assignee suggestions: actors and assignees, never "system".

@@ -1,0 +1,7 @@
+# Local development on top of docker-compose.yml: publishes ClickHouse on 127.0.0.1:9000 so
+# `make dev-api` and the integration tests can reach it.
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.dev.yml up -d clickhouse
+services:
+  clickhouse:
+    ports:
+      - "127.0.0.1:9000:9000"

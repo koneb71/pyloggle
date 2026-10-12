@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/auth"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/auth"
 )
 
 // exportChunk is the page size of the keyset loop; QueryLogs caps a page at 1000 rows.

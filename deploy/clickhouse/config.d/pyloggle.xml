@@ -3,7 +3,7 @@
   Pyloggle server overrides for ClickHouse 24.3 (merged over the image's config.xml).
   Goal: a small, predictable footprint for a logs + errors workload on a single node.
   Mounted by deploy/docker-compose.yml at /etc/clickhouse-server/config.d/pyloggle.xml.
-  See docs/footprint.md for what each knob costs and how to change it.
+  See docs/self-hosting/retention-and-footprint.md for what each knob costs and how to change it.
 -->
 <clickhouse>
     <!-- Only warnings and errors in the server log; the UI reads nothing from it. -->

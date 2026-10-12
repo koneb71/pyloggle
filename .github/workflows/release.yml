@@ -1,0 +1,142 @@
+# Runs when a version tag is pushed (git tag -a v1.0.0 -m "Pyloggle 1.0.0" && git push origin v1.0.0):
+# GitHub release with binaries, multi-arch image on ghcr.io, Python SDK on PyPI. See RELEASING.md.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Versions and release notes
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      commit: ${{ steps.v.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "commit=${GITHUB_SHA::7}" >>"$GITHUB_OUTPUT"
+          if [[ "$version" == *-* ]]; then echo "prerelease=true" >>"$GITHUB_OUTPUT"; else echo "prerelease=false" >>"$GITHUB_OUTPUT"; fi
+      - name: SDK, web app, CHANGELOG and tag agree
+        run: scripts/check-versions.sh "$GITHUB_REF_NAME"
+      - name: Release notes from the CHANGELOG section
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '$0 == "## " v {on=1; next} on && /^## / {exit} on {print}' CHANGELOG.md >notes.md
+          test -s notes.md || { echo "CHANGELOG.md has no '## $VERSION' section"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: notes.md
+
+  binaries:
+    name: GitHub release with binaries
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: scripts/build-release.sh "${{ needs.verify.outputs.version }}" dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Pyloggle $VERSION" --notes-file notes.md --verify-tag "${flags[@]}"
+
+  docker:
+    name: Image on ghcr.io
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # 1.0.0 and 1.0, plus "latest" for releases that are not pre-releases.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.ingestd
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.verify.outputs.version }}
+            COMMIT=${{ needs.verify.outputs.commit }}
+          provenance: mode=max
+          sbom: true
+
+  pypi-build:
+    name: Build the Python SDK
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: |
+          pip install build twine
+          python -m build python-sdk
+          twine check python-sdk/dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-sdk-dist
+          path: python-sdk/dist/
+
+  pypi-publish:
+    name: Publish the Python SDK to PyPI
+    needs: [pypi-build, binaries]
+    runs-on: ubuntu-latest
+    # Trusted publishing: no token is stored; PyPI trusts this workflow and environment.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/pyloggle
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-sdk-dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

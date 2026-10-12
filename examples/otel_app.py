@@ -12,8 +12,8 @@ an exception log per crash, all sent to pyloggle's OTLP doors by three environme
 
     curl -sS http://127.0.0.1:5052/hello/ada ; curl -sS http://127.0.0.1:5052/boom
 
-In pyloggle: Traces lists GET /boom with its operation spans, the exception log becomes an
-issue with parsed frames, and the Dashboards request tiles can read the OTEL HTTP metrics.
+In Pyloggle: Requests lists GET /boom with its operation spans, the exception log becomes an
+issue with parsed frames, and the Dashboards request tiles read the OpenTelemetry HTTP metrics.
 """
 import logging
 

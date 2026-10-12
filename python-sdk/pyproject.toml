@@ -1,21 +1,40 @@
 [build-system]
-requires = ["setuptools>=69.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyloggle"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Lightweight log + error tracking SDK for Pyloggle (structured tracebacks, breadcrumbs, Flask/FastAPI/Django/Celery/logging integrations)"
 readme = "README.md"
 requires-python = ">=3.9"
-authors = [{name = "Pyloggle"}]
-license = {text = "MIT"}
+authors = [{name = "koneb71"}]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["logging", "error tracking", "exceptions", "observability", "flask", "fastapi", "django", "celery", "opentelemetry"]
 dependencies = []
 classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: System :: Logging",
   "Topic :: Software Development :: Debuggers",
+  "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://github.com/koneb71/pyloggle"
+Documentation = "https://koneb71.github.io/pyloggle/"
+Source = "https://github.com/koneb71/pyloggle"
+Issues = "https://github.com/koneb71/pyloggle/issues"
+Changelog = "https://github.com/koneb71/pyloggle/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 flask = ["flask>=2.3"]
@@ -23,7 +42,11 @@ fastapi = ["fastapi>=0.110"]
 django = ["django>=4.2"]
 celery = ["celery>=5.3"]
 otel = ["opentelemetry-api>=1.27"]
-test = ["pytest>=8", "flask>=2.3", "fastapi>=0.143", "httpx>=0.27", "django>=4.2", "celery>=5.3", "requests>=2.31", "opentelemetry-sdk>=1.30"]
+# FastAPI's native telemetry (0.143+) needs Python 3.10; on 3.9 those tests are skipped.
+test = ["pytest>=8", "flask>=2.3", "fastapi>=0.143; python_version>='3.10'", "httpx>=0.27", "django>=4.2", "celery>=5.3", "requests>=2.31", "opentelemetry-sdk>=1.30"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pyloggle._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]

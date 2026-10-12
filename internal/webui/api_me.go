@@ -4,11 +4,13 @@ import (
 	"net/http"
 	"strings"
 
-	"pyloggle/internal/auth"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/auth"
+	"github.com/koneb71/pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/version"
 )
 
 type meResponse struct {
+	Version  string      `json:"version"`
 	AuthMode string      `json:"auth_mode"`
 	User     *meUser     `json:"user,omitempty"`
 	IsAdmin  bool        `json:"is_admin"`
@@ -33,12 +35,18 @@ type meFeatures struct {
 	Traces       bool   `json:"traces"`
 	PublicURL    string `json:"public_url,omitempty"`
 	AuthProvider string `json:"auth_provider,omitempty"`
+	// SlackDefault: ALERT_SLACK_WEBHOOK_URL is set, so a rule may send to Slack without its
+	// own webhook address.
+	SlackDefault bool `json:"slack_default,omitempty"`
+	// DocsURL is the documentation the Help page links to; empty hides the links.
+	DocsURL string `json:"docs_url,omitempty"`
 }
 
 func (u *UI) apiMe(w http.ResponseWriter, r *http.Request) {
 	oidc := u.cfg.OIDC()
-	resp := meResponse{AuthMode: oidc.Mode, IsAdmin: u.isUIAdmin(r), Projects: []meProject{},
-		Features: meFeatures{Alerting: u.cfg.AlertingEnabled, Traces: u.cfg.OTLPStoreSpans, PublicURL: u.cfg.PublicURL}}
+	resp := meResponse{Version: version.Get(), AuthMode: oidc.Mode, IsAdmin: u.isUIAdmin(r), Projects: []meProject{},
+		Features: meFeatures{Alerting: u.cfg.AlertingEnabled, Traces: u.cfg.OTLPStoreSpans, PublicURL: u.cfg.PublicURL,
+			SlackDefault: u.cfg.AlertSlackWebhookURL != "", DocsURL: u.cfg.DocsURL}}
 	if oidc.Enabled() {
 		resp.Features.AuthProvider = oidc.DisplayName
 	}
@@ -51,10 +59,15 @@ func (u *UI) apiMe(w http.ResponseWriter, r *http.Request) {
 	if p, ok := auth.ProjectFromContext(r.Context()); ok && p.ID != "" {
 		resp.Project = &meProject{ID: p.ID, Name: p.Name}
 	}
-	if items, err := u.store.ListProjects(r.Context(), 200); err == nil {
-		for _, it := range items {
-			resp.Projects = append(resp.Projects, meProject{ID: it.ID, Name: it.Name})
-		}
+	items, err := u.store.ListProjects(r.Context(), 200)
+	if err != nil {
+		// Without the project list the app cannot do anything useful; an empty list would send
+		// people to "create your first project" instead of telling them what is wrong.
+		writeErr(w, http.StatusServiceUnavailable, "unavailable", "the database is not answering: "+err.Error())
+		return
+	}
+	for _, it := range items {
+		resp.Projects = append(resp.Projects, meProject{ID: it.ID, Name: it.Name})
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

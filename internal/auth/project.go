@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 type ctxKey int
@@ -45,8 +45,9 @@ func RequireProject(cfg config.Config, res *tenant.Resolver, next http.Handler) 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		apiKey := r.Header.Get("X-API-Key")
 		if apiKey == "" {
-			if cfg.DefaultProjID == "" {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+			// No key: only single-tenant servers without sign-in serve the default project.
+			if cfg.DefaultProjID == "" || cfg.OIDC().Mode != "disabled" {
+				http.Error(w, "unauthorized: X-API-Key required", http.StatusUnauthorized)
 				return
 			}
 			ctx := WithProject(r.Context(), tenant.Trusted(tenant.Project{ID: cfg.DefaultProjID}))

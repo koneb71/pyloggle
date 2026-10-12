@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/auth"
-	"pyloggle/internal/logquery"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/timeparse"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/auth"
+	"github.com/koneb71/pyloggle/internal/logquery"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/timeparse"
 )
 
 // spanQueryFromRequest parses q (span schema), from/to and the keyset cursor.

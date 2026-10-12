@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 type alertRuleRow struct {
@@ -29,6 +29,8 @@ type alertRuleRow struct {
 	Threshold         float64 `ch:"threshold"`
 	TimeWindowSeconds uint32  `ch:"time_window_seconds"`
 	CooldownSeconds   uint32  `ch:"cooldown_seconds"`
+	SendHour          uint8   `ch:"send_hour"`
+	Timezone          string  `ch:"timezone"`
 
 	Enabled uint8 `ch:"enabled"`
 
@@ -58,6 +60,8 @@ func (r alertRuleRow) toAPI() api.AlertRule {
 		Threshold:            r.Threshold,
 		TimeWindowSeconds:    r.TimeWindowSeconds,
 		CooldownSeconds:      r.CooldownSeconds,
+		SendHour:             r.SendHour,
+		Timezone:             r.Timezone,
 		Enabled:              r.Enabled == 1,
 		NotificationChannels: r.NotificationChannels,
 		NotificationEmails:   r.NotificationEmails,
@@ -89,6 +93,8 @@ func (c *Client) ListAlertRules(ctx context.Context, projectID string) ([]api.Al
 			argMax(threshold, a.updated_at) as threshold,
 			argMax(time_window_seconds, a.updated_at) as time_window_seconds,
 			argMax(cooldown_seconds, a.updated_at) as cooldown_seconds,
+			argMax(send_hour, a.updated_at) as send_hour,
+			argMax(timezone, a.updated_at) as timezone,
 			argMax(enabled, a.updated_at) as enabled,
 			argMax(notification_channels, a.updated_at) as notification_channels,
 			argMax(notification_emails, a.updated_at) as notification_emails,
@@ -131,6 +137,8 @@ func (c *Client) ListEnabledAlertRules(ctx context.Context) ([]api.AlertRule, er
 			argMax(threshold, a.updated_at) as threshold,
 			argMax(time_window_seconds, a.updated_at) as time_window_seconds,
 			argMax(cooldown_seconds, a.updated_at) as cooldown_seconds,
+			argMax(send_hour, a.updated_at) as send_hour,
+			argMax(timezone, a.updated_at) as timezone,
 			argMax(enabled, a.updated_at) as enabled,
 			argMax(notification_channels, a.updated_at) as notification_channels,
 			argMax(notification_emails, a.updated_at) as notification_emails,
@@ -175,7 +183,7 @@ func (c *Client) UpsertAlertRule(ctx context.Context, rule api.AlertRule) (api.A
 		INSERT INTO alert_rules (
 			id, project_id, name, description,
 			service, env, http_route, http_method, query, comparison,
-			condition_type, threshold, time_window_seconds, cooldown_seconds,
+			condition_type, threshold, time_window_seconds, cooldown_seconds, send_hour, timezone,
 			enabled, notification_channels, notification_emails, webhook_urls, telegram_chat_ids, slack_webhook_urls,
 			created_at, updated_at
 		)
@@ -205,6 +213,8 @@ func (c *Client) UpsertAlertRule(ctx context.Context, rule api.AlertRule) (api.A
 		rule.Threshold,
 		rule.TimeWindowSeconds,
 		rule.CooldownSeconds,
+		rule.SendHour,
+		rule.Timezone,
 		boolToU8(rule.Enabled),
 		rule.NotificationChannels,
 		rule.NotificationEmails,
@@ -245,6 +255,7 @@ type IssueSpikeRow struct {
 	Title     string `ch:"title"`
 	CurCount  uint64 `ch:"cur_count"`
 	PrevCount uint64 `ch:"prev_count"`
+	CurUsers  uint64 `ch:"cur_users"` // distinct people (hashed ids) in the current window
 }
 
 // ruleFilter renders the optional per-rule scope filters as positional " AND col = ?" clauses.
@@ -303,7 +314,8 @@ func issueSpikeCountsQuery(rule api.AlertRule, prevFrom, prevTo, curFrom, curTo 
 			issue_id,
 			any(title) as title,
 			countIf(ts >= ? AND ts < ?) as cur_count,
-			countIf(ts >= ? AND ts < ?) as prev_count
+			countIf(ts >= ? AND ts < ?) as prev_count,
+			uniqIf(user_id_hash, ts >= ? AND ts < ? AND user_id_hash != '') as cur_users
 		FROM error_occurrences
 		WHERE project_id = ? AND ts >= ? AND ts < ?` + where + `
 		GROUP BY issue_id
@@ -313,6 +325,7 @@ func issueSpikeCountsQuery(rule api.AlertRule, prevFrom, prevTo, curFrom, curTo 
 	args := []any{
 		curFrom.UTC(), curTo.UTC(),
 		prevFrom.UTC(), prevTo.UTC(),
+		curFrom.UTC(), curTo.UTC(),
 		rule.ProjectID,
 		prevFrom.UTC(), curTo.UTC(),
 	}
@@ -424,30 +437,6 @@ func (c *Client) NewIssues(ctx context.Context, rule api.AlertRule, from, to tim
 	}
 	q += ` GROUP BY project_id, service, env, issue_id) WHERE first_seen >= ? AND first_seen < ? ORDER BY first_seen DESC LIMIT ?`
 	args = append(args, from.UTC(), to.UTC(), limit)
-	ids, err := c.selectIDs(ctx, q, args...)
-	if err != nil || len(ids) == 0 {
-		return nil, err
-	}
-	return c.QueryIssues(ctx, IssueListQuery{ProjectID: rule.ProjectID, IssueIDs: ids, Limit: len(ids)})
-}
-
-// RegressedIssues lists issues that regressed inside the window (for regression rules).
-func (c *Client) RegressedIssues(ctx context.Context, rule api.AlertRule, from, to time.Time, limit int) ([]api.IssueSummary, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	q := `SELECT issue_id FROM issues_state WHERE project_id = ? AND is_regressed = 1 AND updated_at >= ? AND updated_at < ?`
-	args := []any{rule.ProjectID, from.UTC(), to.UTC()}
-	if rule.Service != "" {
-		q += " AND service = ?"
-		args = append(args, rule.Service)
-	}
-	if rule.Env != "" {
-		q += " AND env = ?"
-		args = append(args, rule.Env)
-	}
-	q += " GROUP BY issue_id ORDER BY max(updated_at) DESC LIMIT ?"
-	args = append(args, limit)
 	ids, err := c.selectIDs(ctx, q, args...)
 	if err != nil || len(ids) == 0 {
 		return nil, err

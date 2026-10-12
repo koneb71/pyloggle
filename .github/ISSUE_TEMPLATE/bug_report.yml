@@ -1,0 +1,64 @@
+name: Bug report
+description: Something in Pyloggle does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. For a security problem, do not use this
+        form: report it privately as described in SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect to see instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we see it ourselves?
+      description: The steps, a small piece of code, or a query that shows the problem.
+      placeholder: |
+        1. Send this error from a Flask app: …
+        2. Open Issues and click it
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Server version
+      description: The output of `ingestd -version`, or the version shown on the app's Help page.
+      placeholder: pyloggle ingestd 1.0.0 (abc1234)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run the server?
+      options:
+        - Docker Compose (the published image)
+        - Docker Compose (built from source)
+        - Release binary
+        - Built from source
+        - Other (describe below)
+    validations:
+      required: true
+  - type: input
+    id: sdk
+    attributes:
+      label: Python package and Python version
+      description: If the problem involves sending data, the output of `pip show pyloggle` and `python --version`, and the framework (Flask, FastAPI, Django, Celery, …).
+      placeholder: pyloggle 1.0.0, Python 3.12, FastAPI 0.115
+  - type: textarea
+    id: environment
+    attributes:
+      label: Anything else about your setup?
+      description: ClickHouse version, sign-in mode (off, Microsoft Entra ID, another provider), browser, operating system.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server log
+      description: Lines from the server log around the problem. Remove keys, passwords and personal data first.
+      render: text

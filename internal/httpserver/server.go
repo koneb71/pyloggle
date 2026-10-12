@@ -10,17 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/auth"
-	"pyloggle/internal/config"
-	"pyloggle/internal/ingest"
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/otlp"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/sysinfo"
-	"pyloggle/internal/tenant"
-	"pyloggle/internal/timeparse"
-	"pyloggle/internal/webui"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/auth"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/ingest"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/otlp"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/sysinfo"
+	"github.com/koneb71/pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/timeparse"
+	"github.com/koneb71/pyloggle/internal/webui"
 )
 
 // MetricsHandler serves the Prometheus text exposition; with a token it requires

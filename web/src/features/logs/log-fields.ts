@@ -1,4 +1,5 @@
 import type { LogEvent } from "@/api/types";
+import { fieldLabel, isCodeLike, sourceLabel } from "@/lib/fields";
 
 /** Facet (ClickHouse column) → query-language field. */
 export const FACET_TO_FIELD: Record<string, string> = {
@@ -15,50 +16,39 @@ export const FACET_TO_FIELD: Record<string, string> = {
   exception_type: "exception",
 };
 
-export const FACET_GROUPS: { title: string; facets: { key: string; label: string }[] }[] = [
-  {
-    title: "Core",
-    facets: [
-      { key: "level", label: "Level" },
-      { key: "service", label: "Service" },
-      { key: "env", label: "Env" },
-      { key: "logger", label: "Logger" },
-      { key: "hostname", label: "Host" },
-      { key: "release", label: "Release" },
-    ],
-  },
-  {
-    title: "HTTP",
-    facets: [
-      { key: "http_method", label: "Method" },
-      { key: "http_status", label: "Status" },
-      { key: "http_route", label: "Route" },
-    ],
-  },
+/** Filter groups in the sidebar, by what people look for. Labels come from fieldLabel. */
+export const FACET_GROUPS: { title: string; facets: string[] }[] = [
+  { title: "General", facets: ["level", "service", "env", "logger", "hostname", "release"] },
+  { title: "Web requests", facets: ["http_method", "http_status", "http_route"] },
 ];
 
+/** Filters open by default; the rest start collapsed to keep the sidebar calm. */
+export const OPEN_FACETS = new Set(["level", "service"]);
+
 export interface ColumnDef {
-  id: string; // "time" | "level" | ... | "attrs.<key>" | "tags.<key>"
+  id: string; // "service" | ... | "attrs.<key>" | "tags.<key>"
   label: string;
+  /** The field name engineers know (tooltip on the header). */
+  technical: string;
   width: string; // CSS grid track
   value: (e: LogEvent) => string;
   mono?: boolean;
   align?: "right";
 }
 
-const col = (id: string, label: string, width: string, value: (e: LogEvent) => string, extra: Partial<ColumnDef> = {}): ColumnDef => ({ id, label, width, value, ...extra });
+const col = (id: string, technical: string, width: string, value: (e: LogEvent) => string, extra: Partial<ColumnDef> = {}): ColumnDef => ({ id, technical, label: fieldLabel(technical), width, value, ...extra });
 
 export const BUILTIN_COLUMNS: ColumnDef[] = [
-  col("service", "Service", "minmax(90px,140px)", (e) => e.service),
-  col("env", "Env", "80px", (e) => e.env),
-  col("logger", "Logger", "minmax(100px,160px)", (e) => e.logger, { mono: true }),
-  col("host", "Host", "minmax(90px,140px)", (e) => e.hostname ?? "", { mono: true }),
-  col("http", "HTTP", "minmax(120px,220px)", (e) => (e.http_method || e.http_route ? `${e.http_method ?? ""} ${e.http_route ?? ""} ${e.http_status ? e.http_status : ""}`.trim() : ""), { mono: true }),
-  col("duration", "Duration", "70px", (e) => (e.duration_ms ? `${e.duration_ms.toFixed(e.duration_ms < 10 ? 2 : 0)}ms` : ""), { align: "right", mono: true }),
-  col("request_id", "Request", "110px", (e) => e.request_id, { mono: true }),
-  col("trace_id", "Trace", "110px", (e) => e.trace_id, { mono: true }),
-  col("release", "Release", "90px", (e) => e.release ?? ""),
-  col("source", "Source", "80px", (e) => e.source ?? ""),
+  col("service", "service", "minmax(90px,150px)", (e) => e.service),
+  col("env", "env", "100px", (e) => e.env),
+  col("logger", "logger", "minmax(100px,170px)", (e) => e.logger, { mono: true }),
+  col("host", "host", "minmax(90px,140px)", (e) => e.hostname ?? ""),
+  col("http", "http.route", "minmax(140px,240px)", (e) => (e.http_method || e.http_route ? `${e.http_method ?? ""} ${e.http_route ?? ""} ${e.http_status ? e.http_status : ""}`.trim() : ""), { mono: true, label: "Request" }),
+  col("duration", "duration_ms", "80px", (e) => (e.duration_ms ? `${e.duration_ms.toFixed(e.duration_ms < 10 ? 1 : 0)} ms` : ""), { align: "right" }),
+  col("request_id", "request_id", "120px", (e) => e.request_id, { mono: true }),
+  col("trace_id", "trace_id", "120px", (e) => e.trace_id, { mono: true }),
+  col("release", "release", "100px", (e) => e.release ?? ""),
+  col("source", "source", "100px", (e) => sourceLabel(e.source)),
 ];
 
 export function columnFor(id: string): ColumnDef | undefined {
@@ -66,11 +56,11 @@ export function columnFor(id: string): ColumnDef | undefined {
   if (b) return b;
   if (id.startsWith("attrs.")) {
     const k = id.slice(6);
-    return col(id, k, "minmax(90px,160px)", (e) => e.attrs?.[k] ?? "", { mono: true });
+    return col(id, id, "minmax(90px,160px)", (e) => e.attrs?.[k] ?? "", { mono: isCodeLike(k) });
   }
   if (id.startsWith("tags.")) {
     const k = id.slice(5);
-    return col(id, `#${k}`, "minmax(80px,140px)", (e) => e.tags?.[k] ?? "", { mono: true });
+    return col(id, id, "minmax(80px,140px)", (e) => e.tags?.[k] ?? "", { mono: isCodeLike(k) });
   }
   return undefined;
 }

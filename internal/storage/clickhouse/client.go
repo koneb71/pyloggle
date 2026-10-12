@@ -7,8 +7,8 @@ import (
 
 	ch "github.com/ClickHouse/clickhouse-go/v2"
 
-	"pyloggle/internal/issue"
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 // Client is a thin wrapper around ClickHouse operations we need.

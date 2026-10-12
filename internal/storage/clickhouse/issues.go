@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 // IssueListQuery filters the issues list. Status: "" | all | open | regressed | resolved | ignored.

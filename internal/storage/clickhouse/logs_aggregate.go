@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/logquery"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/logquery"
 )
 
 // AggregateSpec is an analytics query over the explorer selection: a metric over a field,

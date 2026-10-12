@@ -77,6 +77,7 @@ var migrations = []migration{
 	{Name: "013_metrics", Fn: createMetrics},
 	{Name: "014_usage", Fn: createUsage},
 	{Name: "015_api_keys", Fn: createAPIKeys},
+	{Name: "016_alert_once_and_recap", SQL: "016_alert_once_and_recap.sql"},
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations, in order.
@@ -192,7 +193,9 @@ func expandPlaceholders(sql string, opts MigrateOptions) string {
 	return r.Replace(sql)
 }
 
-// splitStatements strips "--" comments, splits on ";" and drops USE / empty statements.
+// splitStatements strips "--" comments, splits on ";" and drops USE, CREATE DATABASE and empty
+// statements: the tables go into the DSN's database, which must exist before the server can
+// connect at all, and creating another one would need rights the server's user may not have.
 // Our DDL never carries ";" or "--" inside string literals, which keeps this simple.
 func splitStatements(sql string) []string {
 	var cleaned strings.Builder
@@ -210,7 +213,7 @@ func splitStatements(sql string) []string {
 			continue
 		}
 		upper := strings.ToUpper(stmt)
-		if strings.HasPrefix(upper, "USE ") {
+		if strings.HasPrefix(upper, "USE ") || strings.HasPrefix(upper, "CREATE DATABASE") {
 			continue
 		}
 		out = append(out, stmt)

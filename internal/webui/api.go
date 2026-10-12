@@ -3,15 +3,16 @@ package webui
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"pyloggle/internal/auth"
-	"pyloggle/internal/logquery"
-	"pyloggle/internal/tenant"
-	"pyloggle/internal/timeparse"
+	"github.com/koneb71/pyloggle/internal/auth"
+	"github.com/koneb71/pyloggle/internal/logquery"
+	"github.com/koneb71/pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/timeparse"
 )
 
 // The JSON API consumed by the SPA lives under /ui/api/ (session cookies) and is mirrored under
@@ -137,6 +138,9 @@ func (u *UI) newAPIMux(prefix string) *http.ServeMux {
 	reg("GET", "/metrics/logs", u.apiLogVolume)
 	reg("GET", "/metrics/top-issues", u.apiTopIssues)
 	reg("GET", "/metrics/requests", u.apiRequestStats)
+	reg("GET", "/metrics/services", u.apiServiceHealth)
+	reg("GET", "/metrics/attention", u.apiAttention)
+	reg("GET", "/releases", u.apiReleases)
 	reg("GET", "/metrics/names", u.apiMetricNames)
 	reg("GET", "/metrics/series", u.apiMetricSeries)
 	// projects
@@ -157,6 +161,7 @@ func (u *UI) newAPIMux(prefix string) *http.ServeMux {
 	reg("GET", "/alerts/rules", u.apiAlertRules)
 	reg("POST", "/alerts/rules", u.apiAlertRuleUpsert)
 	reg("GET", "/alerts/rules/preview", u.apiAlertRulePreview)
+	reg("GET", "/alerts/rules/recap-preview", u.apiAlertRecapPreview)
 	reg("GET", "/alerts/firings", u.apiAlertFirings)
 	return mux
 }
@@ -211,8 +216,17 @@ func (u *UI) APIKeyAPIHandler() http.Handler {
 				writeErr(w, http.StatusUnauthorized, "unauthorized", "X-API-Key required")
 				return
 			}
+			// With sign-in on, reading data needs an access key, like the UI needs a session.
+			if u.loginRequired() {
+				writeErr(w, http.StatusUnauthorized, "api_key_required", "X-API-Key required: this server has sign-in turned on")
+				return
+			}
 			pv, ok, err := u.store.GetProjectByID(r.Context(), def)
-			if err != nil || !ok {
+			if err != nil {
+				writeErr(w, http.StatusServiceUnavailable, "unavailable", "the database is not answering: "+err.Error())
+				return
+			}
+			if !ok {
 				writeErr(w, http.StatusUnauthorized, "unauthorized", "default project unavailable")
 				return
 			}
@@ -283,7 +297,11 @@ func (u *UI) withProjectAPI(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			writeErr(w, status, "no_project", err.Error())
+			code := "no_project"
+			if status == http.StatusServiceUnavailable {
+				code = "unavailable"
+			}
+			writeErr(w, status, code, err.Error())
 			return
 		}
 		if pid := strings.TrimSpace(r.URL.Query().Get("project_id")); pid != "" {
@@ -309,10 +327,17 @@ var errNoProject = errors.New("no project selected")
 
 func (u *UI) resolveProject(r *http.Request) (tenant.Project, int, error) {
 	ctx := r.Context()
+	// A failed lookup is not the same as "no project": if the store could not answer, say
+	// so (503) instead of sending the browser back to project selection or sign-in.
+	var lookupErr error
 	lookup := func(id string) (tenant.Project, bool, error) {
 		pv, ok, err := u.store.GetProjectByID(ctx, id)
-		if err != nil || !ok || pv.ID == "" {
+		if err != nil {
+			lookupErr = err
 			return tenant.Project{}, false, err
+		}
+		if !ok || pv.ID == "" {
+			return tenant.Project{}, false, nil
 		}
 		return tenant.Trusted(tenant.Project{ID: pv.ID, Name: pv.Name, MaxEventsPerSec: pv.MaxEventsPerSec, MaxStorageGB: pv.MaxStorageGB}), true, nil
 	}
@@ -338,14 +363,21 @@ func (u *UI) resolveProject(r *http.Request) (tenant.Project, int, error) {
 		}
 	}
 	if apiKey != "" && u.keys != nil {
-		if p, ok, err := u.keys.ResolveByAPIKey(ctx, apiKey); err == nil && ok {
+		p, ok, err := u.keys.ResolveByAPIKey(ctx, apiKey)
+		if err == nil && ok {
 			return p, 0, nil
+		}
+		if err != nil {
+			lookupErr = err
 		}
 	}
 	if def := strings.TrimSpace(u.cfg.DefaultProjID); def != "" {
 		if p, ok, err := lookup(def); err == nil && ok {
 			return p, 0, nil
 		}
+	}
+	if lookupErr != nil {
+		return tenant.Project{}, http.StatusServiceUnavailable, fmt.Errorf("the database is not answering: %w", lookupErr)
 	}
 	return tenant.Project{}, http.StatusUnauthorized, errNoProject
 }

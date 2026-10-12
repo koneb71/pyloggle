@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/config"
-	"pyloggle/internal/logquery"
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/logquery"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 type IssueSpike struct {
@@ -22,6 +22,7 @@ type IssueSpike struct {
 	CurCount  uint64 `json:"cur_count"`
 	PrevCount uint64 `json:"prev_count"`
 	Delta     int64  `json:"delta"`
+	Users     uint64 `json:"users,omitempty"` // how many people, never who
 	URL       string `json:"url,omitempty"`
 }
 
@@ -31,6 +32,7 @@ type IssueRef struct {
 	Title   string `json:"title"`
 	Culprit string `json:"culprit,omitempty"`
 	Count   uint64 `json:"count,omitempty"`
+	Users   uint64 `json:"users,omitempty"`
 	URL     string `json:"url,omitempty"`
 }
 
@@ -68,6 +70,16 @@ type AlertEvent struct {
 
 	Spikes []IssueSpike
 	Issues []IssueRef
+
+	// Filled by enrich() just before notifying; best effort, so either may be empty.
+	TopIssues []IssueContext // the first few issues with the latest time each happened
+	Samples   []LogSample    // log_query: a few of the matching lines
+
+	Recap *Recap // daily_recap only
+
+	// What to record as sent once at least one notifier delivered (see once.go).
+	mark     []string
+	markOpen bool
 }
 
 // PublicAlert is the wire shape of a firing.
@@ -83,6 +95,19 @@ type PublicAlert struct {
 	URL         string       `json:"url,omitempty"`
 	Spikes      []IssueSpike `json:"spikes,omitempty"`
 	Issues      []IssueRef   `json:"issues,omitempty"`
+
+	Context   AlertContext   `json:"context"`
+	TopIssues []IssueContext `json:"top_issues,omitempty"`
+	Samples   []LogSample    `json:"samples,omitempty"`
+	Recap     *Recap         `json:"recap,omitempty"`
+}
+
+// AlertContext is the alert in words, as the notifications say it.
+type AlertContext struct {
+	Title   string `json:"title"`   // "Too many errors"
+	Summary string `json:"summary"` // "42 errors in 5 minutes, 8.4 a minute. The limit is 6 a minute."
+	Scope   string `json:"scope"`   // "api · prod" or "all apps · all environments"
+	Window  string `json:"window"`  // "Oct 11, 11:13–11:18 UTC (5 minutes)"
 }
 
 func (ev AlertEvent) Public() PublicAlert {
@@ -92,6 +117,8 @@ func (ev AlertEvent) Public() PublicAlert {
 			ConditionType: r.ConditionType, Query: r.Query, Comparison: r.Comparison, Threshold: r.Threshold, TimeWindowSeconds: r.TimeWindowSeconds},
 		FiredAt: ev.FiredAt, WindowStart: ev.WindowStart, WindowEnd: ev.WindowEnd, Kind: ev.Kind,
 		ErrorCount: ev.ErrorCount, ErrorRate: ev.ErrorRate, Count: ev.Count, URL: ev.URL, Spikes: ev.Spikes, Issues: ev.Issues,
+		Context:   AlertContext{Title: kindTitle(ev), Summary: headline(ev), Scope: scopeWords(r), Window: windowWords(ev)},
+		TopIssues: ev.TopIssues, Samples: ev.Samples, Recap: ev.Recap,
 	}
 }
 
@@ -106,16 +133,36 @@ type Store interface {
 	CountErrorOccurrences(ctx context.Context, rule api.AlertRule, from, to time.Time) (uint64, error)
 	IssueSpikeCounts(ctx context.Context, rule api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, limit int) ([]clickhouse.IssueSpikeRow, error)
 	NewIssues(ctx context.Context, rule api.AlertRule, from, to time.Time, limit int) ([]api.IssueSummary, error)
-	RegressedIssues(ctx context.Context, rule api.AlertRule, from, to time.Time, limit int) ([]api.IssueSummary, error)
+	RegressionEvents(ctx context.Context, rule api.AlertRule, from, to time.Time, limit int) ([]clickhouse.RegressionEvent, error)
 	CountLogs(ctx context.Context, q clickhouse.LogQuery) (uint64, error)
+
+	// What each rule already sent (once.go).
+	NotifiedSubjects(ctx context.Context, projectID, ruleID string, subjects []string, since time.Time) (map[string]bool, error)
+	MarkNotified(ctx context.Context, projectID, ruleID string, subjects []string, open bool) error
+	IncidentOpen(ctx context.Context, projectID, ruleID string) (bool, error)
+
+	// Recap of yesterday (recap.go).
+	GetProjectByID(ctx context.Context, id string) (clickhouse.ProjectView, bool, error)
+	Overview(ctx context.Context, projectID, service, env string, from, to time.Time) (api.Overview, error)
+	ServiceHealth(ctx context.Context, projectID, env string, from, to time.Time, limit int) ([]api.ServiceHealth, error)
+	TopIssues(ctx context.Context, projectID, service, env string, from, to time.Time, limit int) ([]api.IssueSummary, error)
+	ListAlertRules(ctx context.Context, projectID string) ([]api.AlertRule, error)
+	ListAlertFirings(ctx context.Context, projectID string, limit int) ([]api.AlertFiring, error)
+	OpenIncidents(ctx context.Context, projectID string) ([]clickhouse.OpenIncident, error)
+
+	// Used to add context to a firing (enrich.go).
+	QueryLogs(ctx context.Context, q clickhouse.LogQuery) ([]api.LogEvent, error)
+	QueryOccurrences(ctx context.Context, projectID, issueID string, from, to, before time.Time, limit int) ([]api.ErrorOccurrence, error)
+	TracesWithSpans(ctx context.Context, projectID string, traceIDs []string, from, to time.Time) (map[string]bool, error)
 }
 
 type Runner struct {
-	cfg       config.Config
-	store     Store
-	notifiers []Notifier
-	badRules  map[string]string // rule id -> last logged parse error (logged once)
-	now       func() time.Time
+	cfg          config.Config
+	store        Store
+	notifiers    []Notifier
+	badRules     map[string]string // rule id -> last logged parse error (logged once)
+	now          func() time.Time
+	enrichBudget time.Duration // how long adding context to one firing may take
 }
 
 func NewRunner(cfg config.Config, ch *clickhouse.Client) *Runner {
@@ -132,7 +179,8 @@ func NewRunner(cfg config.Config, ch *clickhouse.Client) *Runner {
 
 // NewRunnerWith builds a runner around any store and notifier set (tests).
 func NewRunnerWith(cfg config.Config, store Store, notifiers []Notifier) *Runner {
-	return &Runner{cfg: cfg, store: store, notifiers: notifiers, badRules: map[string]string{}, now: func() time.Time { return time.Now().UTC() }}
+	return &Runner{cfg: cfg, store: store, notifiers: notifiers, badRules: map[string]string{}, now: func() time.Time { return time.Now().UTC() },
+		enrichBudget: 5 * time.Second}
 }
 
 func (r *Runner) Run(ctx context.Context) {
@@ -185,8 +233,8 @@ func (r *Runner) RunOnce(ctx context.Context) {
 		kind := strings.ToLower(strings.TrimSpace(rule.ConditionType))
 		metrics.AlertEvaluations.Inc(kind)
 
-		// Cooldown check (persisted)
-		if rule.CooldownSeconds > 0 {
+		// Cooldown check (persisted). A recap goes out once per local day instead.
+		if rule.CooldownSeconds > 0 && kind != "daily_recap" {
 			if last, ok, err := r.store.GetLastAlertFiredAt(ctx, rule.ID); err == nil && ok {
 				if now.Sub(last) < time.Duration(rule.CooldownSeconds)*time.Second {
 					continue
@@ -205,6 +253,8 @@ func (r *Runner) RunOnce(ctx context.Context) {
 			r.evalRegressions(ctx, rule, now)
 		case "log_query":
 			r.evalLogQuery(ctx, rule, now)
+		case "daily_recap":
+			r.evalDailyRecap(ctx, rule, now)
 		default:
 			// ignore unknown rule types
 		}
@@ -228,11 +278,11 @@ func (r *Runner) evalErrorRate(ctx context.Context, rule api.AlertRule, now time
 		return
 	}
 	rate := float64(n) / w.Seconds()
-	if rule.Threshold <= 0 || rate < rule.Threshold {
+	if !r.incidentStarts(ctx, rule, rule.Threshold > 0 && rate >= rule.Threshold) {
 		return
 	}
 	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: from, WindowEnd: to, Kind: "error_rate", ErrorCount: n, ErrorRate: rate,
-		URL: r.logsURL(scopeQuery(rule)+" level:error", from, to)})
+		URL: r.logsURL(scopeQuery(rule)+" level:error", from, to), mark: []string{incidentSubject}, markOpen: true})
 }
 
 func (r *Runner) evalIssueSpike(ctx context.Context, rule api.AlertRule, now time.Time) {
@@ -247,13 +297,20 @@ func (r *Runner) evalIssueSpike(ctx context.Context, rule api.AlertRule, now tim
 	if rule.Threshold <= 0 {
 		return
 	}
-	spikes := make([]IssueSpike, 0, 5)
+	var jumped []clickhouse.IssueSpikeRow
 	for _, row := range rows {
-		delta := int64(row.CurCount) - int64(row.PrevCount)
-		if float64(delta) < rule.Threshold {
-			continue
+		if delta := int64(row.CurCount) - int64(row.PrevCount); float64(delta) >= rule.Threshold {
+			jumped = append(jumped, row)
 		}
-		spikes = append(spikes, IssueSpike{IssueID: row.IssueID, Title: row.Title, CurCount: row.CurCount, PrevCount: row.PrevCount, Delta: delta, URL: r.issueURL(row.IssueID)})
+	}
+	// A problem alerts a jump rule at most once a day.
+	jumped = unsent(ctx, r, rule, now.Add(-24*time.Hour), jumped, func(row clickhouse.IssueSpikeRow) string { return jumpSubject(row.IssueID) })
+	spikes := make([]IssueSpike, 0, 5)
+	var mark []string
+	for _, row := range jumped {
+		spikes = append(spikes, IssueSpike{IssueID: row.IssueID, Title: row.Title, CurCount: row.CurCount, PrevCount: row.PrevCount,
+			Delta: int64(row.CurCount) - int64(row.PrevCount), Users: row.CurUsers, URL: r.issueURL(row.IssueID)})
+		mark = append(mark, jumpSubject(row.IssueID))
 		if len(spikes) >= 5 {
 			break
 		}
@@ -261,7 +318,7 @@ func (r *Runner) evalIssueSpike(ctx context.Context, rule api.AlertRule, now tim
 	if len(spikes) == 0 {
 		return
 	}
-	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: curFrom, WindowEnd: curTo, Kind: "issue_spike", Spikes: spikes, URL: r.issuesURL("open", curFrom)})
+	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: curFrom, WindowEnd: curTo, Kind: "issue_spike", Spikes: spikes, URL: r.issuesURL("open", curFrom), mark: mark})
 }
 
 // evalNewIssues fires when at least `threshold` (default 1) issues were first seen in the window.
@@ -273,25 +330,43 @@ func (r *Runner) evalNewIssues(ctx context.Context, rule api.AlertRule, now time
 		log.Printf("alerting: rule=%s new_issue query: %v", rule.ID, err)
 		return
 	}
+	// Each new problem alerts a rule once.
+	rows = unsent(ctx, r, rule, time.Time{}, rows, func(s api.IssueSummary) string { return issueSubject(s.IssueID) })
 	if len(rows) < minCount(rule.Threshold) {
 		return
 	}
-	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: from, WindowEnd: to, Kind: "new_issue", Issues: r.refs(rows), URL: r.issuesURL("open", from)})
+	mark := make([]string, 0, len(rows))
+	for _, s := range rows {
+		mark = append(mark, issueSubject(s.IssueID))
+	}
+	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: from, WindowEnd: to, Kind: "new_issue", Issues: r.refs(rows), URL: r.issuesURL("open", from), mark: mark})
 }
 
 // evalRegressions fires when resolved issues came back in the window.
 func (r *Runner) evalRegressions(ctx context.Context, rule api.AlertRule, now time.Time) {
 	w := window(rule)
 	from, to := now.Add(-w), now
-	rows, err := r.store.RegressedIssues(ctx, rule, from, to, 20)
+	events, err := r.store.RegressionEvents(ctx, rule, from, to, 20)
 	if err != nil {
 		log.Printf("alerting: rule=%s regression query: %v", rule.ID, err)
 		return
 	}
+	// Each comeback alerts a rule once; editing the problem afterwards is not a comeback.
+	events = unsent(ctx, r, rule, time.Time{}, events, func(e clickhouse.RegressionEvent) string { return cameBackSubject(e.ID) })
+	var rows []api.IssueSummary
+	var mark []string
+	listed := map[string]bool{}
+	for _, e := range events {
+		mark = append(mark, cameBackSubject(e.ID))
+		if !listed[e.IssueID] {
+			listed[e.IssueID] = true
+			rows = append(rows, e.Issue)
+		}
+	}
 	if len(rows) < minCount(rule.Threshold) {
 		return
 	}
-	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: from, WindowEnd: to, Kind: "regression", Issues: r.refs(rows), URL: r.issuesURL("regressed", from)})
+	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: from, WindowEnd: to, Kind: "regression", Issues: r.refs(rows), URL: r.issuesURL("regressed", from), mark: mark})
 }
 
 // evalLogQuery counts the lines matching the rule's query in the window (ending eval-delay ago so
@@ -317,10 +392,11 @@ func (r *Runner) evalLogQuery(ctx context.Context, rule api.AlertRule, now time.
 		log.Printf("alerting: rule=%s log_query: %v", rule.ID, err)
 		return
 	}
-	if !Compare(rule.Comparison, float64(n), rule.Threshold) {
+	if !r.incidentStarts(ctx, rule, Compare(rule.Comparison, float64(n), rule.Threshold)) {
 		return
 	}
-	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: from, WindowEnd: to, Kind: "log_query", Count: n, URL: r.logsURL(rule.Query, from, to)})
+	r.fire(ctx, AlertEvent{Rule: rule, FiredAt: now, WindowStart: from, WindowEnd: to, Kind: "log_query", Count: n, URL: r.logsURL(rule.Query, from, to),
+		mark: []string{incidentSubject}, markOpen: true})
 }
 
 // Compare applies a rule comparison (gt by default) to a measured value.
@@ -409,12 +485,13 @@ func scopeQuery(rule api.AlertRule) string {
 func (r *Runner) refs(rows []api.IssueSummary) []IssueRef {
 	out := make([]IssueRef, 0, len(rows))
 	for _, s := range rows {
-		out = append(out, IssueRef{IssueID: s.IssueID, Title: s.Title, Culprit: s.Culprit, Count: s.OccurrenceCount, URL: r.issueURL(s.IssueID)})
+		out = append(out, IssueRef{IssueID: s.IssueID, Title: s.Title, Culprit: s.Culprit, Count: s.OccurrenceCount, Users: s.AffectedUsers, URL: r.issueURL(s.IssueID)})
 	}
 	return out
 }
 
 func (r *Runner) fire(ctx context.Context, ev AlertEvent) {
+	r.enrich(ctx, &ev)
 	ok := false
 	for _, n := range r.notifiers {
 		if err := n.Notify(ctx, ev); err != nil {
@@ -426,6 +503,11 @@ func (r *Runner) fire(ctx context.Context, ev AlertEvent) {
 	}
 	if !ok {
 		return
+	}
+	if len(ev.mark) > 0 {
+		if err := r.store.MarkNotified(ctx, ev.Rule.ProjectID, ev.Rule.ID, ev.mark, ev.markOpen); err != nil {
+			log.Printf("alerting: rule=%s: could not record what was sent (it may be sent again): %v", ev.Rule.ID, err)
+		}
 	}
 	metrics.AlertFirings.Inc(ev.Kind)
 	_ = r.store.InsertAlertFiring(ctx, clickhouse.AlertFiring{

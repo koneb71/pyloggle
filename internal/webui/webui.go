@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/sysinfo"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/sysinfo"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 const apiKeyCookie = "pyloggle_api_key"
@@ -65,7 +65,8 @@ func NewForTest(cfg config.Config, store Store, keys KeyResolver, states *issue.
 }
 
 // loginRequired reports whether the UI is behind an OIDC login (azure preset or generic).
-func (u *UI) loginRequired() bool { return u.cfg.OIDC().Enabled() }
+// loginRequired fails closed: only an explicit "disabled" turns sign-in off.
+func (u *UI) loginRequired() bool { return u.cfg.OIDC().Mode != "disabled" }
 
 func (u *UI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/ui" {
@@ -127,7 +128,7 @@ func (u *UI) logout(w http.ResponseWriter, r *http.Request) {
 	u.clearUIProjectID(w)
 	u.clearOAuthState(w, r)
 	if !u.loginRequired() {
-		http.Redirect(w, r, "/ui/issues", http.StatusFound)
+		http.Redirect(w, r, "/ui/", http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/ui/login", http.StatusFound)

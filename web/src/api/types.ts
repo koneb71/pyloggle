@@ -4,12 +4,14 @@ export type Level = "debug" | "info" | "warn" | "error" | "fatal" | string;
 export type Status = "open" | "resolved" | "ignored";
 
 export interface Me {
+  /** The server's version, such as 1.0.0. */
+  version?: string;
   auth_mode: "disabled" | "azure" | "oidc" | string;
   user?: { sub: string; name?: string; email?: string };
   is_admin: boolean;
   project?: { id: string; name: string };
   projects: { id: string; name: string }[];
-  features: { alerting: boolean; traces?: boolean; public_url?: string; auth_provider?: string };
+  features: { alerting: boolean; traces?: boolean; public_url?: string; auth_provider?: string; slack_default?: boolean; docs_url?: string };
 }
 
 export interface IssueSummary {
@@ -292,6 +294,10 @@ export interface AlertRule {
   slack_webhook_urls?: string[];
   created_at: string;
   updated_at: string;
+  /** daily_recap: the local hour (0-23) to send at. */
+  send_hour?: number;
+  /** daily_recap: the IANA time zone that defines "yesterday". */
+  timezone?: string;
 }
 
 export interface AlertFiring {
@@ -480,6 +486,42 @@ export interface MetricSeries {
 export interface RequestStatsResponse extends RequestStats {
   source: "logs" | "otel" | string;
   available: boolean;
+  /** The same-length range just before (with compare=previous). */
+  previous_totals?: RouteStats;
+}
+
+export type HealthStatus = "failing" | "degraded" | "silent" | "ok";
+
+/** One app's picture over a range (Overview "Apps"). */
+export interface ServiceHealth {
+  service: string;
+  envs: string[];
+  status: HealthStatus;
+  requests: number;
+  failed: number;
+  failed_pct: number;
+  rpm: number;
+  p50_ms: number;
+  p95_ms: number;
+  errors: number;
+  logs: number;
+  last_seen: string;
+}
+
+export interface Release {
+  release: string;
+  first_seen: string;
+  errors: number;
+  issues: number;
+}
+
+export type AttentionReason = "regressed" | "new" | "spike";
+
+export interface AttentionItem {
+  issue: IssueSummary;
+  reasons: AttentionReason[];
+  count: number;
+  previous_count: number;
 }
 
 export interface UsageDay {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/issue"
 )
 
 // epoch is the "unset" sentinel for DateTime64 columns (ClickHouse cannot store year 1).
@@ -249,4 +249,66 @@ func (c *Client) ReleaseFirstSeen(ctx context.Context, projectID, release string
 		return time.Time{}, false, nil
 	}
 	return t.UTC(), true, nil
+}
+
+// ListReleases returns the project's most recently first-seen releases, newest first, with
+// how many errors (and distinct issues) each produced between from and to.
+func (c *Client) ListReleases(ctx context.Context, projectID string, from, to time.Time, limit int) ([]api.Release, error) {
+	if strings.TrimSpace(projectID) == "" {
+		return nil, errors.New("missing project_id")
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
+	from, to = defaultRange(from, to, 24*time.Hour)
+	rows, err := c.conn.Query(ctx, `
+		SELECT release, min(first_seen) AS fs
+		FROM releases
+		WHERE project_id = ? AND release != ''
+		GROUP BY release
+		ORDER BY fs DESC, release DESC
+		LIMIT ?`, projectID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := []api.Release{}
+	names := []string{}
+	for rows.Next() {
+		var r api.Release
+		if err := rows.Scan(&r.Release, &r.FirstSeen); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		r.FirstSeen = r.FirstSeen.UTC()
+		out = append(out, r)
+		names = append(names, r.Release)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(out) == 0 {
+		return out, err
+	}
+	rows, err = c.conn.Query(ctx, `
+		SELECT release, count() AS n, uniq(issue_id) AS issues
+		FROM error_occurrences
+		WHERE project_id = ? AND ts >= ? AND ts < ? AND release IN (?)
+		GROUP BY release`, projectID, from, to, names)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	idx := map[string]int{}
+	for i, r := range out {
+		idx[r.Release] = i
+	}
+	for rows.Next() {
+		var name string
+		var n, issues uint64
+		if err := rows.Scan(&name, &n, &issues); err != nil {
+			return nil, err
+		}
+		if i, ok := idx[name]; ok {
+			out[i].Errors, out[i].Issues = n, issues
+		}
+	}
+	return out, rows.Err()
 }
