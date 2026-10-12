@@ -101,6 +101,10 @@ and where. No migrations.
   yesterday too, like the rest of the recap.
 - With `INGEST_SHARED_SECRET` set and `PYLOGGLE_DEFAULT_PROJECT_ID` empty, data sent with the
   shared secret was accepted without a project. It is now refused.
+- The first database migration created a database named `pyloggle` whatever `CLICKHOUSE_DSN`
+  named, so a ClickHouse user allowed only its own database could not start the server, and
+  everyone else got a stray empty `pyloggle` database. Migrations now only touch the DSN's
+  database.
 
 ## 0.3.0
 
