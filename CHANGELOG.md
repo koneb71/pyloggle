@@ -1,9 +1,61 @@
 # Changelog
 
-## Unreleased
+## 1.0.0
 
-A redesigned UI for the whole team, not only engineers, and alerts that say what went wrong
-and where. No migrations.
+The first open-source release. Pyloggle is now licensed under the Apache License 2.0, has a
+documentation site, and is released as a Docker image, binaries and a Python package on PyPI.
+It also brings a redesigned app for the whole team, not only engineers, alerts that say what
+went wrong and where, each alert sent only once, and a recap of yesterday. One migration (016)
+adds a table and two columns.
+
+Read [upgrading to 1.0](docs/self-hosting/upgrading.md) before you upgrade: a server that
+relied on the old sign-in default no longer starts until the mode is set.
+
+### Open source
+
+- Apache License 2.0 for the server, the web app and the Python package (which was marked MIT
+  but never published). `NOTICE` and `THIRD_PARTY_LICENSES.md` list the Go and web
+  dependencies the program includes; the app serves the same list at `/ui/licenses.txt`, and
+  the Docker image carries the license files.
+- A documentation site, [koneb71.github.io/pyloggle](https://koneb71.github.io/pyloggle/),
+  built from `docs/`: an introduction, a guide to every page of the app with screenshots in
+  light and dark, the Python package and its frameworks, OpenTelemetry, deployment, sign-in,
+  alerting, security, upgrading, and references for the configuration, the HTTP API and the
+  webhook payload. Tests fail when a setting, an API route, a webhook field, a Python package
+  option or a word of the app's glossary is missing from them, or when the app links to a page
+  that does not exist.
+- Releases on version tags: the image `ghcr.io/koneb71/pyloggle` for amd64 and arm64 with
+  provenance and an SBOM, binaries for Linux and macOS (amd64 and arm64) with checksums, and
+  the Python package on PyPI through trusted publishing.
+- Continuous integration on every push and pull request: Go tests with the race detector, the
+  ClickHouse integration tests, the web app, the Python package on 3.9 and 3.13, a dry run of
+  the release, and checks that the tree holds no caches or private paths and that the versions
+  agree. Dependabot keeps dependencies current.
+- A contributing guide, a code of conduct (Contributor Covenant 2.1), a security policy with
+  private reporting, and issue and pull request templates.
+- `make dev-db` starts ClickHouse for development, `make demo-data` fills a server with two days
+  of realistic data, and `make docs-dev` and `make docs-screenshots` work on the documentation.
+- Version 1.0.0 for the server, the Python package and the web app. `ingestd -version` prints
+  it, and the server logs it when it starts.
+
+### Breaking
+
+See [upgrading to 1.0](docs/self-hosting/upgrading.md) for what to do about each.
+
+- **The sign-in mode must be chosen.** Without `PYLOGGLE_UI_AUTH`, 0.3 sent everyone to a
+  Microsoft sign-in, and an unknown value did the same. 1.0 infers `azure` from
+  `PYLOGGLE_AZURE_TENANT_ID` or `oidc` from `PYLOGGLE_OIDC_ISSUER`; with neither, both, or an
+  unknown value, the server does not start and says what to set. Missing sign-in settings and
+  a bad session secret are reported at start, all at once, instead of at the first sign-in.
+- **Reading data needs a key while sign-in is on.** `/v1/q` and the 0.1 read endpoints answer
+  `401 api_key_required` to a request without an access key. Sending data without a key is
+  unchanged.
+- **An empty `PYLOGGLE_DEFAULT_PROJECT_ID` means no default project**, so every request needs a
+  key. 0.3 ignored the empty value and used `default`.
+- **Docker Compose publishes the port on `127.0.0.1` only** and runs the published image
+  (`PYLOGGLE_VERSION` pins one), building from source only when the image is not available.
+- `PYLOGGLE_UI_POLL_SECONDS` is removed; it had no effect since 0.2.
+- The Go module is `github.com/koneb71/pyloggle`.
 
 ### Look and language
 

@@ -110,12 +110,14 @@ next, in full sentences.
 1. Fork the repository and create a branch from `main`.
 2. Keep the change focused: one fix or feature per pull request.
 3. Add or update tests for what you changed.
-4. Add a line to the `Unreleased` section of [CHANGELOG.md](CHANGELOG.md) when users will notice
-   the change.
+4. Add a line under `## Unreleased` at the top of [CHANGELOG.md](CHANGELOG.md) when users will
+   notice the change. If the newest release is still on top, add that heading above it.
 5. Run `make test` and the checks above, then open the pull request and fill in the template.
 
 Small, well-described pull requests are reviewed fastest. A maintainer may push small fixes to
 your branch before merging.
+
+Maintainers publish releases as [RELEASING.md](RELEASING.md) describes.
 
 ## License
 
