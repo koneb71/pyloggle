@@ -28,7 +28,7 @@ Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 You need:
 
-- Go 1.24
+- Go 1.26
 - Node.js 22
 - Python 3.9 or newer
 - Docker, for the local ClickHouse

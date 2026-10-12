@@ -199,7 +199,7 @@ also send to port 8080 directly.
 
 ## From source
 
-You need Go 1.24 and Node.js 22.
+You need Go 1.26 and Node.js 22 or newer.
 
 ```bash
 git clone https://github.com/koneb71/pyloggle.git

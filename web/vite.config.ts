@@ -9,7 +9,7 @@ const api = process.env.PYLOGGLE_API ?? "http://127.0.0.1:8080";
 export default defineConfig({
   base: "/ui/",
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { "@": path.resolve(__dirname, "src") } },
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
   server: {
     port: 5173,
     proxy: {
