@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyloggle"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Lightweight log + error tracking SDK for Pyloggle (structured tracebacks, breadcrumbs, Flask/FastAPI/Django/Celery/logging integrations)"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -14,6 +14,7 @@ license-files = ["LICENSE"]
 keywords = ["logging", "error tracking", "exceptions", "observability", "flask", "fastapi", "django", "celery", "opentelemetry"]
 dependencies = []
 classifiers = [
+  "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
@@ -42,6 +43,9 @@ django = ["django>=4.2"]
 celery = ["celery>=5.3"]
 otel = ["opentelemetry-api>=1.27"]
 test = ["pytest>=8", "flask>=2.3", "fastapi>=0.143", "httpx>=0.27", "django>=4.2", "celery>=5.3", "requests>=2.31", "opentelemetry-sdk>=1.30"]
+
+[tool.setuptools.dynamic]
+version = {attr = "pyloggle._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]

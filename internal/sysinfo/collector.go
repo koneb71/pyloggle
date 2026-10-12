@@ -92,7 +92,7 @@ func (c *Collector) Collect(ctx context.Context) {
 		}
 	}
 	metrics.BuildInfo.Reset()
-	metrics.BuildInfo.Set(1, version.Version, runtime.Version(), info.Version)
+	metrics.BuildInfo.Set(1, version.Get(), runtime.Version(), info.Version)
 }
 
 // Snapshot returns the last sample.

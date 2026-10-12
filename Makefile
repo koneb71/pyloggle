@@ -12,7 +12,7 @@ help: ## Show this help
 
 build: web go-build ## Build the web UI and the ingestd binary (UI embedded)
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
 LDFLAGS := -X github.com/koneb71/pyloggle/internal/version.Version=$(VERSION) -X github.com/koneb71/pyloggle/internal/version.Commit=$(COMMIT)
 

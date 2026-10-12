@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -14,10 +15,22 @@ import (
 	"github.com/koneb71/pyloggle/internal/config"
 	"github.com/koneb71/pyloggle/internal/httpserver"
 	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/version"
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-version", "--version", "version":
+			fmt.Println("pyloggle ingestd " + version.String())
+			return
+		case "-h", "-help", "--help", "help":
+			fmt.Println("pyloggle ingestd " + version.String() + "\n\nConfigured through environment variables; see https://koneb71.github.io/pyloggle/reference/configuration")
+			return
+		}
+	}
 	cfg := config.FromEnv()
+	log.Printf("pyloggle ingestd %s", version.String())
 
 	ch := connectWithRetry(cfg, 2*time.Minute)
 	defer func() {
