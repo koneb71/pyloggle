@@ -1,20 +1,19 @@
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
-import { AlertTriangle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useTraceFields, useTraces } from "@/api/hooks";
 import { get, ApiRequestError } from "@/api/client";
-import type { TraceSummary, TracesResponse } from "@/api/types";
-import { PageHeader } from "@/components/shell/app-shell";
+import type { SpanNameStats, TraceSummary, TracesResponse } from "@/api/types";
 import { TimeRangePicker } from "@/components/shell/time-range-picker";
 import { LatencyHistogram } from "@/components/charts/latency-histogram";
-import { Badge, Button, Card, CardHeader, EmptyState, ErrorState, Skeleton, TimeAgo } from "@/components/ui";
+import { Badge, DataTable, EmptyState, LoadMore, MetaLine, Page, Section, Skeleton, Swatch, Term, type Column } from "@/components/ui";
 import { useRange } from "@/lib/use-range";
 import { useUrlState } from "@/lib/url";
 import { addTerm } from "@/lib/query";
-import { fmtNumber, fmtPct, fmtTs } from "@/lib/time";
+import { fmtNumber, fmtPct, fmtTs, fmtWhen } from "@/lib/time";
+import { pluralize } from "@/lib/format";
 import { SearchBar } from "@/features/logs/search-bar";
 import { fmtUs } from "./waterfall-layout";
 import { serviceColor } from "./waterfall";
+import { TRACE_SEARCH_EXAMPLES, requestLabel, requestResult } from "./trace-words";
 
 const PAGE = 50;
 
@@ -22,12 +21,17 @@ export function TracesPage() {
   const { range, setRange } = useRange();
   const { get: g, set } = useUrlState();
   const q = g("q");
-  const nav = useNavigate();
   const fields = useTraceFields();
   const traces = useTraces({ q, from: range.from, to: range.to, limit: PAGE, include: "stats" });
   const [older, setOlder] = useState<TraceSummary[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
   const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<unknown>(null);
+  useEffect(() => {
+    setOlder([]);
+    setCursor(undefined);
+    setMoreError(null);
+  }, [traces.data]);
   const queryError = useMemo(() => {
     const e = traces.error;
     if (e instanceof ApiRequestError && e.status === 400) return { message: e.body.message || e.message, pos: e.body.pos };
@@ -37,158 +41,159 @@ export function TracesPage() {
   const next = cursor ?? traces.data?.next_cursor;
   const services = useMemo(() => Array.from(new Set(items.flatMap((t) => t.services))).sort(), [items]);
   const stats = traces.data?.stats;
-  const setQuery = (nq: string) => {
-    setOlder([]);
-    setCursor(undefined);
-    set({ q: nq || undefined });
-  };
+  const setQuery = (nq: string) => set({ q: nq || undefined });
   const loadMore = async () => {
     if (!next || loadingMore) return;
     setLoadingMore(true);
+    setMoreError(null);
     try {
       const r = await get<TracesResponse>("/traces", { q, from: range.from, to: range.to, limit: PAGE, cursor: next });
       setOlder((o) => [...o, ...r.items]);
       setCursor(r.next_cursor ?? "");
+    } catch (e) {
+      setMoreError(e);
     } finally {
       setLoadingMore(false);
     }
   };
-  const open = (t: TraceSummary) => nav(`/traces/${t.trace_id}?at=${encodeURIComponent(t.start_ts)}`);
+
+  const opColumns: Column<SpanNameStats>[] = [
+    {
+      id: "name",
+      header: "Operation",
+      cell: (s) => (
+        <button type="button" className="block w-full truncate text-left font-mono text-[12px] text-ink hover:text-accent" title={`Show only ${s.name}`} onClick={() => setQuery(addTerm(q, "name", s.name))}>
+          {s.name}
+        </button>
+      ),
+    },
+    { id: "count", header: <Term k="span">Steps</Term>, width: "64px", align: "right", cell: (s) => <span className="text-ink-2">{fmtNumber(s.count)}</span> },
+    { id: "p50", header: <Term k="p50">Typical</Term>, width: "72px", align: "right", cell: (s) => <span className="text-ink-2">{fmtUs(s.p50_us)}</span> },
+    { id: "p95", header: <Term k="p95">Slow</Term>, width: "72px", align: "right", cell: (s) => <span className="text-ink">{fmtUs(s.p95_us)}</span> },
+    { id: "failed", header: "Failed", width: "64px", align: "right", cell: (s) => <span className={s.error_pct >= 1 ? "font-medium text-critical-text" : "text-ink-3"}>{fmtPct(s.error_pct)}</span> },
+  ];
+
+  const columns: Column<TraceSummary>[] = [
+    { id: "start", header: "Started", width: "150px", cell: (t) => <span className="tabular text-ink-2" title={fmtTs(t.start_ts, { ms: true })}>{fmtWhen(t.start_ts, { seconds: true })}</span> },
+    {
+      id: "app",
+      header: <Term k="service">App</Term>,
+      width: "minmax(100px,160px)",
+      cell: (t) => (
+        <span className="flex min-w-0 items-center gap-2">
+          <Swatch color={serviceColor(services, t.service)} />
+          <span className="truncate text-ink">{t.service}</span>
+        </span>
+      ),
+    },
+    {
+      id: "request",
+      header: "Request",
+      cell: (t) => (
+        <div className="min-w-0">
+          <div className="truncate font-mono text-[12px] text-ink">{requestLabel(t)}</div>
+          <MetaLine>
+            {t.http_status ? `response ${t.http_status}` : ""}
+            {t.services.length > 1 ? `also ${t.services.filter((s) => s !== t.service).join(", ")}` : ""}
+            <span className="font-mono text-[11px]" title="Request timeline ID">
+              {t.trace_id.slice(0, 12)}
+            </span>
+          </MetaLine>
+        </div>
+      ),
+    },
+    { id: "duration", header: "Duration", width: "90px", align: "right", cell: (t) => <span className="font-medium text-ink">{fmtUs(t.duration_us)}</span> },
+    {
+      id: "steps",
+      header: <Term k="span">Steps</Term>,
+      width: "90px",
+      align: "right",
+      cell: (t) => (
+        <span className="text-ink-2">
+          {t.span_count}
+          {t.errors > 0 && <span className="ml-1 text-critical-text">({t.errors} failed)</span>}
+        </span>
+      ),
+    },
+    {
+      id: "result",
+      header: "Result",
+      width: "84px",
+      cell: (t) => {
+        const r = requestResult(t);
+        return r === "failed" ? (
+          <Badge tone="critical">Failed</Badge>
+        ) : r === "ok" ? (
+          <span className="text-good-text">OK</span>
+        ) : (
+          <span className="text-ink-3" title="The app didn't report whether this request succeeded">
+            —
+          </span>
+        );
+      },
+    },
+  ];
 
   return (
-    <>
-      <PageHeader title="Traces" sub={traces.data ? `${fmtNumber(items.length)}${next ? "+" : ""} traces in range` : undefined}>
-        <TimeRangePicker value={range} onChange={setRange} onRefresh={() => traces.refetch()} refreshing={traces.isFetching} />
-      </PageHeader>
-      <div className="flex-none border-b border-border bg-surface px-4 py-2">
-        <SearchBar value={q} onChange={setQuery} error={queryError} range={range} fields={fields.data?.fields} placeholder='Search spans… e.g. service:api status:error duration:>250 "GET /orders"' ariaLabel="Trace query" />
-      </div>
+    <Page
+      width="full"
+      title="Requests"
+      description="Each request your apps handled, step by step (traces). Open one to see where the time went."
+      actions={<TimeRangePicker value={range} onChange={setRange} onRefresh={() => traces.refetch()} refreshing={traces.isFetching} />}
+      toolbar={
+        <SearchBar
+          value={q}
+          onChange={setQuery}
+          error={queryError}
+          range={range}
+          fields={fields.data?.fields ?? []}
+          examples={TRACE_SEARCH_EXAMPLES}
+          placeholder="Search requests, e.g. GET /orders — or filter with service:api status:error duration:>250"
+          ariaLabel="Search requests"
+        />
+      }
+    >
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-[1400px] flex-col gap-3 p-4">
-          <div className="grid gap-3 lg:grid-cols-[2fr_3fr]">
-            <Card>
-              <CardHeader title="Latency distribution" sub="entry spans, power-of-two buckets" />
-              <div className="p-2">
-                <LatencyHistogram buckets={stats?.latency} loading={traces.isPending} height={160} />
-              </div>
-            </Card>
-            <Card>
-              <CardHeader title="By span name" sub="busiest operations · click to filter" />
-              {traces.isPending ? (
-                <Skeleton rows={4} className="p-3" />
-              ) : (stats?.by_name.length ?? 0) === 0 ? (
-                <EmptyState title="No spans" className="py-6" />
-              ) : (
-                <div className="max-h-44 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead className="text-left text-[10px] uppercase tracking-wide text-ink-3">
-                      <tr className="border-b border-border">
-                        <th className="px-3 py-1 font-medium">name</th>
-                        <th className="px-2 py-1 text-right font-medium">spans</th>
-                        <th className="px-2 py-1 text-right font-medium">p50</th>
-                        <th className="px-2 py-1 text-right font-medium">p95</th>
-                        <th className="px-3 py-1 text-right font-medium">errors</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stats!.by_name.map((s) => (
-                        <tr key={s.name} className="border-b border-border hover:bg-surface-2">
-                          <td className="max-w-0 px-3 py-1">
-                            <button type="button" className="block w-full truncate text-left font-mono text-ink hover:text-accent" title={s.name} onClick={() => setQuery(addTerm(q, "name", s.name))}>
-                              {s.name}
-                            </button>
-                          </td>
-                          <td className="px-2 py-1 text-right tabular text-ink-2">{fmtNumber(s.count)}</td>
-                          <td className="px-2 py-1 text-right tabular text-ink-2">{fmtUs(s.p50_us)}</td>
-                          <td className="px-2 py-1 text-right tabular text-ink">{fmtUs(s.p95_us)}</td>
-                          <td className={`px-3 py-1 text-right tabular ${s.error_pct >= 1 ? "text-critical" : "text-ink-3"}`}>{fmtPct(s.error_pct)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+        <div className="flex flex-col gap-4 px-5 py-4">
+          {!queryError && (
+            <div className="grid gap-4 lg:grid-cols-[2fr_3fr]">
+              <Section title="How long requests take" description="How many requests finished within each duration range.">
+                <LatencyHistogram buckets={stats?.latency} loading={traces.isPending} height={170} />
+              </Section>
+              <Section title="Busiest operations" description="The most frequent steps. Click one to show only it." flush>
+                <div className="max-h-[214px] overflow-y-auto">
+                  <DataTable label="Busiest operations" columns={opColumns} rows={stats?.by_name} rowKey={(s) => s.name} loading={traces.isPending} skeletonRows={4} empty={<EmptyState title="No steps in this time range" className="py-6" />} />
                 </div>
-              )}
-            </Card>
-          </div>
-          <Card>
-            {traces.isError && !queryError ? (
-              <ErrorState error={traces.error} retry={() => traces.refetch()} />
+              </Section>
+            </div>
+          )}
+          <Section title="Requests" description={traces.data ? `${pluralize(items.length, "request")}${next ? " so far, newest first" : ", newest first"}` : undefined} flush>
+            {queryError ? (
+              <EmptyState title="Fix the search above to see requests" hint="Click the ? in the search box for examples of what you can type." />
             ) : traces.isPending ? (
               <Skeleton rows={10} className="p-4" />
-            ) : items.length === 0 ? (
-              <EmptyState title="No traces" hint={q ? "Try widening the time range or removing a filter." : "Send OTLP traces to /v1/traces with your project's API key; spans are kept for a week by default."} />
             ) : (
-              <table className="w-full text-[13px]">
-                <thead className="text-left text-[11px] uppercase tracking-wide text-ink-3">
-                  <tr className="border-b border-border">
-                    <th className="px-3 py-1.5 font-medium">started</th>
-                    <th className="px-3 py-1.5 font-medium">service</th>
-                    <th className="w-full px-3 py-1.5 font-medium">trace</th>
-                    <th className="px-3 py-1.5 text-right font-medium">duration</th>
-                    <th className="px-3 py-1.5 text-right font-medium">spans</th>
-                    <th className="px-3 py-1.5 font-medium">status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {items.map((t) => {
-                    const label = t.http_method && t.http_route ? `${t.http_method} ${t.http_route}` : t.name;
-                    const failed = t.status === "error" || t.errors > 0;
-                    return (
-                      <tr key={t.trace_id} className="cursor-pointer border-b border-border hover:bg-surface-2" onClick={() => open(t)}>
-                        <td className="whitespace-nowrap px-3 py-1.5 tabular text-ink-2" title={fmtTs(t.start_ts, { ms: true })}>
-                          <TimeAgo iso={t.start_ts} />
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-1.5">
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: serviceColor(services, t.service) }} aria-hidden />
-                            {t.service}
-                          </span>
-                        </td>
-                        <td className="max-w-0 px-3 py-1.5">
-                          <Link to={`/traces/${t.trace_id}?at=${encodeURIComponent(t.start_ts)}`} className="block truncate font-mono text-ink hover:text-accent" onClick={(e) => e.stopPropagation()}>
-                            {label}
-                          </Link>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-ink-3">
-                            <span className="font-mono">{t.trace_id.slice(0, 16)}</span>
-                            {t.services.filter((s) => s !== t.service).map((s) => (
-                              <Badge key={s}>{s}</Badge>
-                            ))}
-                            {t.http_status ? <Badge tone="outline">{t.http_status}</Badge> : null}
-                          </div>
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-1.5 text-right font-medium tabular text-ink">{fmtUs(t.duration_us)}</td>
-                        <td className="whitespace-nowrap px-3 py-1.5 text-right tabular text-ink-2">
-                          {t.span_count}
-                          {t.errors > 0 && <span className="ml-1 text-critical">({t.errors} failed)</span>}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-1.5">
-                          {failed ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-critical">
-                              <AlertTriangle size={12} /> error
-                            </span>
-                          ) : (
-                            <span className="text-xs text-ink-3">{t.status}</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <DataTable
+                label="Requests"
+                columns={columns}
+                rows={items}
+                rowKey={(t) => t.trace_id}
+                rowHref={(t) => `/traces/${t.trace_id}?at=${encodeURIComponent(t.start_ts)}`}
+                error={traces.isError ? traces.error : undefined}
+                onRetry={() => traces.refetch()}
+                stickyHeader={false}
+                empty={
+                  <EmptyState
+                    title="No requests in this time range"
+                    hint={q ? "Nothing matches this search. Try a wider time range or remove a filter." : "Requests appear when your apps send traces (OpenTelemetry, or the SDK's FastAPI and Django integrations)."}
+                  />
+                }
+                footer={items.length > 0 ? <LoadMore shown={items.length} noun="requests shown" hasMore={!!next} loading={loadingMore} error={moreError} onMore={loadMore} label="Show earlier" /> : undefined}
+              />
             )}
-            {items.length > 0 && (
-              <div className="flex items-center justify-center gap-2 py-2 text-[11px] text-ink-3">
-                {items.length.toLocaleString()} loaded
-                {next && (
-                  <Button size="xs" onClick={loadMore} loading={loadingMore}>
-                    Load older
-                  </Button>
-                )}
-              </div>
-            )}
-          </Card>
+          </Section>
         </div>
       </div>
-    </>
+    </Page>
   );
 }
