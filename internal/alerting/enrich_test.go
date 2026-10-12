@@ -195,7 +195,7 @@ func TestErrorRateNamesTheTopIssues(t *testing.T) {
 	if len(ev.TopIssues) != 2 || ev.TopIssues[0].Reason != "most_frequent" || ev.TopIssues[0].Where == "" {
 		t.Fatalf("top issues: %+v", ev.TopIssues)
 	}
-	if h := headline(ev); h != "42 errors in 5 minutes: 8.4 a minute, above the limit of 6 a minute." {
+	if h := headline(ev); h != "42 errors in 5 minutes, 8.4 a minute. The limit is 6 a minute." {
 		t.Fatalf("headline: %q", h)
 	}
 }

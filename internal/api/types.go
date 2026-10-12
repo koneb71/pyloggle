@@ -298,6 +298,11 @@ type AlertRule struct {
 	CooldownSeconds   uint32  `json:"cooldown_seconds"`
 	Enabled           bool    `json:"enabled"`
 
+	// daily_recap rules: the local hour (0-23) to send at, and the IANA time zone that
+	// defines "yesterday".
+	SendHour uint8  `json:"send_hour"`
+	Timezone string `json:"timezone,omitempty"`
+
 	NotificationChannels []string `json:"notification_channels"` // email, webhook, telegram, slack
 	NotificationEmails   []string `json:"notification_emails"`
 	WebhookURLs          []string `json:"webhook_urls"`

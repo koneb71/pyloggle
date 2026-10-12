@@ -276,6 +276,9 @@ export const useAlertFirings = (limit = 50, enabled = true) => useQuery({ queryK
 export const previewAlertRule = (p: { query: string; window_seconds: number; service?: string; env?: string; http_route?: string; http_method?: string }) =>
   get<{ count: number; window_start: string; window_end: string }>("/alerts/rules/preview", p);
 
+/** The recap a daily_recap rule would send now, for yesterday. */
+export const previewRecap = (p: { name?: string; service?: string; env?: string; timezone?: string }) => get<{ text: string }>("/alerts/rules/recap-preview", p);
+
 export function useSaveAlertRule() {
   const qc = useQueryClient();
   return useMutation({ meta: { inlineError: true }, mutationFn: (rule: Partial<AlertRule>) => post<{ rule: AlertRule }>("/alerts/rules", { rule }), onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-rules"] }) });

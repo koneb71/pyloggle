@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AlertRule } from "@/api/types";
 import type { AlertFiring } from "@/api/types";
-import { firingSentence, formFromRule, ruleCondition, ruleFromForm, ruleRecipients, ruleScope, secondsWords } from "./alert-words";
+import { firingSentence, formFromRule, hourWords, ruleRepeat, ruleSentence, timeZones, ruleCondition, ruleFromForm, ruleRecipients, ruleScope, secondsWords } from "./alert-words";
 
 const rule = (over: Partial<AlertRule>): AlertRule => ({ id: "r", project_id: "p", name: "n", description: "", service: "", env: "", http_route: "", http_method: "", condition_type: "error_rate", threshold: 0.05, time_window_seconds: 300, cooldown_seconds: 900, enabled: true, notification_channels: [], notification_emails: [], webhook_urls: [], telegram_chat_ids: [], created_at: "", updated_at: "", ...over });
 
@@ -35,5 +35,32 @@ describe("alerts sent", () => {
     const f = { condition_type: "error_rate", payload: { context: { summary: " 42 errors in 5 minutes. " } } } as unknown as AlertFiring;
     expect(firingSentence(f)).toBe("42 errors in 5 minutes.");
     expect(firingSentence({ condition_type: "error_rate", payload: {} } as unknown as AlertFiring)).toBeUndefined();
+  });
+});
+
+describe("how often a rule alerts", () => {
+  it("says each kind's once-only behavior in words", () => {
+    expect(ruleRepeat("new_issue")).toBe("each problem alerts once");
+    expect(ruleRepeat("regression")).toBe("each comeback alerts once");
+    expect(ruleRepeat("issue_spike")).toBe("each problem alerts at most once a day");
+    expect(ruleRepeat("error_rate")).toBe("alerts when it starts, again only after it recovers");
+    expect(ruleRepeat("log_query")).toBe(ruleRepeat("error_rate"));
+  });
+});
+
+describe("recap of yesterday", () => {
+  const base = { threshold: 0, query: "", comparison: "", time_window_seconds: 86400, http_route: "/x", http_method: "GET" };
+  it("reads as a schedule, not a condition", () => {
+    expect(ruleSentence({ ...base, condition_type: "daily_recap", send_hour: 8, timezone: "Asia/Manila", service: "", env: "" })).toBe(
+      "Sends a recap of yesterday every day at 08:00 (Asia/Manila), for all apps.",
+    );
+    expect(ruleSentence({ ...base, condition_type: "daily_recap", send_hour: 0, timezone: "", service: "api", env: "prod" })).toBe("Sends a recap of yesterday every day at 00:00 (UTC), for api / prod.");
+    expect(ruleSentence({ ...base, condition_type: "new_issue", service: "", env: "", http_route: "", http_method: "" })).toBe("Alert when a new problem appears in all apps.");
+    expect(ruleRepeat("daily_recap")).toBe("");
+  });
+  it("formats hours and lists UTC first", () => {
+    expect(hourWords(7)).toBe("07:00");
+    expect(hourWords(23)).toBe("23:00");
+    expect(timeZones()[0]).toBe("UTC");
   });
 });

@@ -2,18 +2,20 @@ package webui
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"pyloggle/internal/alerting"
 	"pyloggle/internal/api"
 	"pyloggle/internal/auth"
 	"pyloggle/internal/logquery"
 	"pyloggle/internal/storage/clickhouse"
 )
 
-var alertConditions = map[string]bool{"error_rate": true, "issue_spike": true, "new_issue": true, "regression": true, "log_query": true}
+var alertConditions = map[string]bool{"error_rate": true, "issue_spike": true, "new_issue": true, "regression": true, "log_query": true, "daily_recap": true}
 var alertComparisons = map[string]bool{"gt": true, "gte": true, "lt": true, "lte": true, "eq": true}
-var alertConditionList = []string{"error_rate", "issue_spike", "new_issue", "regression", "log_query"}
+var alertConditionList = []string{"error_rate", "issue_spike", "new_issue", "regression", "log_query", "daily_recap"}
 
 func (u *UI) apiAlertRules(w http.ResponseWriter, r *http.Request) {
 	rules, err := u.store.ListAlertRules(r.Context(), auth.ProjectIDFromContext(r.Context()))
@@ -76,6 +78,12 @@ func (u *UI) apiAlertRuleUpsert(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if rule.ConditionType == "daily_recap" {
+		if code, msg := normalizeRecapRule(&rule); code != "" {
+			writeErr(w, http.StatusBadRequest, code, msg)
+			return
+		}
+	}
 	saved, err := u.store.UpsertAlertRule(r.Context(), rule)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "save_failed", err.Error())
@@ -126,4 +134,42 @@ func (u *UI) apiAlertRulePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"count": n, "window_start": from, "window_end": to})
+}
+
+// normalizeRecapRule checks a recap rule's send hour and time zone and fills the fields recaps
+// don't use. It returns an error code and message, or "" when the rule is fine.
+func normalizeRecapRule(rule *api.AlertRule) (string, string) {
+	if rule.SendHour > 23 {
+		return "bad_send_hour", "send_hour must be 0-23"
+	}
+	rule.Timezone = strings.TrimSpace(rule.Timezone)
+	if rule.Timezone == "" {
+		rule.Timezone = "UTC"
+	}
+	if _, err := time.LoadLocation(rule.Timezone); err != nil {
+		return "bad_timezone", "unknown time zone " + strconv.Quote(rule.Timezone)
+	}
+	rule.TimeWindowSeconds, rule.CooldownSeconds, rule.Threshold = 86400, 86400, 0
+	return "", ""
+}
+
+// apiAlertRecapPreview builds the recap a rule would send now, for yesterday ("Test this alert").
+func (u *UI) apiAlertRecapPreview(w http.ResponseWriter, r *http.Request) {
+	qs := r.URL.Query()
+	rule := api.AlertRule{ProjectID: auth.ProjectIDFromContext(r.Context()), Name: strings.TrimSpace(qs.Get("name")), ConditionType: "daily_recap",
+		Service: qs.Get("service"), Env: qs.Get("env"), Timezone: qs.Get("timezone")}
+	if code, msg := normalizeRecapRule(&rule); code != "" {
+		writeErr(w, http.StatusBadRequest, code, msg)
+		return
+	}
+	if u.ch == nil {
+		writeErr(w, http.StatusServiceUnavailable, "unavailable", "recap preview needs the database")
+		return
+	}
+	text, err := alerting.PreviewRecap(r.Context(), u.cfg, u.ch, rule, time.Now().UTC())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"text": text})
 }

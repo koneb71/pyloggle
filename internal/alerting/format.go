@@ -27,7 +27,21 @@ type Message struct {
 	Issues   []MessageIssue
 	More     int // problems in the firing that are not listed
 	Samples  []LogSample
-	URL      string // "Open in Pyloggle"
+	Sections []MessageSection // recaps: titled lists
+	URL      string           // "Open in Pyloggle"
+}
+
+// MessageSection is a titled list of lines (the recap of yesterday).
+type MessageSection struct {
+	Title string
+	Lines []MessageLine
+}
+
+// MessageLine is one line of a section: Lead (linked to URL when set) followed by Text.
+type MessageLine struct {
+	Lead string
+	Text string
+	URL  string
 }
 
 // MessageIssue is one problem in a message. Only Title is always set.
@@ -52,6 +66,12 @@ func buildMessage(ev AlertEvent) Message {
 		Window: windowWords(ev), Samples: ev.Samples, URL: ev.URL}
 	if ev.Kind == "log_query" {
 		m.Query = ev.Rule.Query
+	}
+	if ev.Kind == "daily_recap" {
+		if ev.Recap != nil {
+			m.Sections = recapSections(*ev.Recap)
+		}
+		return m
 	}
 	detailed := map[string]IssueContext{}
 	for _, ic := range ev.TopIssues {
@@ -160,6 +180,11 @@ func kindTitle(ev AlertEvent) string {
 			return "Fewer messages than expected"
 		}
 		return "Messages matched a search"
+	case "daily_recap":
+		if ev.Recap != nil && ev.Recap.Project != "" {
+			return "Yesterday in " + ev.Recap.Project
+		}
+		return "Recap of yesterday"
 	}
 	return strings.ReplaceAll(ev.Kind, "_", " ")
 }
@@ -168,9 +193,14 @@ func kindTitle(ev AlertEvent) string {
 func headline(ev AlertEvent) string {
 	span := durationWords(ev.WindowEnd.Sub(ev.WindowStart))
 	switch ev.Kind {
+	case "daily_recap":
+		if ev.Recap != nil {
+			return recapHeadline(*ev.Recap)
+		}
+		return ""
 	case "error_rate":
 		unit, per := rateUnit(ev.Rule.Threshold)
-		return fmt.Sprintf("%s in %s: %s %s, above the limit of %s %s.", plural(ev.ErrorCount, "error", "errors"), span,
+		return fmt.Sprintf("%s in %s, %s %s. The limit is %s %s.", plural(ev.ErrorCount, "error", "errors"), span,
 			num(ev.ErrorRate*per), unit, num(ev.Rule.Threshold*per), unit)
 	case "issue_spike":
 		if len(ev.Spikes) == 0 {
@@ -221,6 +251,11 @@ func windowWords(ev AlertEvent) string {
 	a, b := ev.WindowStart.UTC(), ev.WindowEnd.UTC()
 	if a.IsZero() || b.IsZero() {
 		return ""
+	}
+	if ev.Kind == "daily_recap" && ev.Recap != nil {
+		if d, err := time.Parse("2006-01-02", ev.Recap.Date); err == nil {
+			return d.Format("Monday, Jan 2") + " (" + ev.Recap.Timezone + ")"
+		}
 	}
 	var s string
 	if a.Format("2006-01-02") == b.Format("2006-01-02") {
@@ -404,6 +439,17 @@ func renderPlain(m Message) string {
 			line(fmt.Sprintf("   …and %s", plural(uint64(m.More), "more problem", "more problems")))
 		}
 	}
+	for _, sec := range m.Sections {
+		line("")
+		line(sec.Title + ":")
+		for _, l := range sec.Lines {
+			t := "  • " + l.Lead + l.Text
+			if l.URL != "" {
+				t += "  " + l.URL
+			}
+			line(t)
+		}
+	}
 	if len(m.Samples) > 0 {
 		line("")
 		line("Latest matching messages:")
@@ -422,7 +468,7 @@ func renderPlain(m Message) string {
 
 const telegramLimit = 4096 // UTF-16 code units
 
-var telegramMarker = map[string]string{"error_rate": "🔴", "issue_spike": "📈", "new_issue": "🆕", "regression": "🔁", "log_query": "🔎"}
+var telegramMarker = map[string]string{"error_rate": "🔴", "issue_spike": "📈", "new_issue": "🆕", "regression": "🔁", "log_query": "🔎", "daily_recap": "📋"}
 
 func renderTelegramHTML(m Message) string {
 	e := html.EscapeString
@@ -495,6 +541,13 @@ func renderTelegramHTML(m Message) string {
 	if m.More > 0 {
 		line("…and " + plural(uint64(m.More), "more problem", "more problems"))
 	}
+	for _, sec := range m.Sections {
+		line("")
+		line("<b>" + e(sec.Title) + "</b>")
+		for _, l := range sec.Lines {
+			line("• " + link(l.URL, l.Lead) + e(l.Text))
+		}
+	}
 	if len(m.Samples) > 0 {
 		line("")
 		line("<b>Latest matching messages</b>")
@@ -547,9 +600,19 @@ func shrinkSteps(m Message) []Message {
 			}
 		})
 	}
+	for _, keep := range []int{3, 1} {
+		k := keep
+		step(func(n *Message) {
+			secs := make([]MessageSection, len(n.Sections))
+			for i, s := range n.Sections {
+				secs[i] = MessageSection{Title: s.Title, Lines: firstN(s.Lines, k)}
+			}
+			n.Sections = secs
+		})
+	}
 	step(func(n *Message) {
 		n.More += len(n.Issues)
-		n.Issues, n.Samples = nil, nil
+		n.Issues, n.Samples, n.Sections = nil, nil, nil
 		n.Headline = clip(n.Headline, 300)
 		n.Query = clip(n.Query, 300)
 		n.Rule = clip(n.Rule, 100)
@@ -668,6 +731,13 @@ func renderSlack(m Message) map[string]any {
 	}
 	if m.More > 0 {
 		blocks = append(blocks, map[string]any{"type": "context", "elements": []map[string]any{mrkdwn("…and " + plural(uint64(m.More), "more problem", "more problems"))}})
+	}
+	for _, sec := range m.Sections {
+		lines := []string{"*" + slackEscape(sec.Title) + "*"}
+		for _, l := range sec.Lines {
+			lines = append(lines, "• "+slackLink(l.URL, l.Lead)+slackEscape(l.Text))
+		}
+		blocks = append(blocks, map[string]any{"type": "section", "text": mrkdwn(clip(strings.Join(lines, "\n"), 3000))})
 	}
 	if len(m.Samples) > 0 {
 		var lines []string

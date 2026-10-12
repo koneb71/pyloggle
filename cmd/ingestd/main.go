@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // recap rules name IANA time zones; the Alpine image has no zoneinfo
 
 	"pyloggle/internal/alerting"
 	"pyloggle/internal/config"

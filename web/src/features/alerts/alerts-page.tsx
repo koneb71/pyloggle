@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Bell, BellOff, ExternalLink, FlaskConical, Pencil, Plus } from "lucide-react";
-import { previewAlertRule, useAlertFirings, useAlertRules, useLogFacets, useSaveAlertRule } from "@/api/hooks";
+import { previewAlertRule, previewRecap, useAlertFirings, useAlertRules, useLogFacets, useSaveAlertRule } from "@/api/hooks";
 import type { AlertFiring, AlertRule, Me } from "@/api/types";
 import { Badge, Button, Card, Checkbox, Dialog, EmptyState, Field, Input, JsonView, MetaLine, Page, QueryState, Section, Select, Skeleton, Textarea, TimeAgo, friendlyError, toast } from "@/components/ui";
 import { fmtTs, fmtWhen } from "@/lib/time";
-import { ALERT_KIND, COMPARISON_WORDS, alertKindLabel, firingSentence, firingSummary, formFromRule, ruleCondition, ruleFromForm, ruleRecipients, ruleScope, secondsWords, type RuleForm } from "./alert-words";
+import { ALERT_KIND, COMPARISON_WORDS, alertKindLabel, browserTimeZone, firingSentence, firingSummary, formFromRule, hourWords, ruleFromForm, ruleRecipients, ruleRepeat, ruleSentence, secondsWords, timeZones, type RuleForm } from "./alert-words";
 
 export function Compare(op: string | undefined, value: number, threshold: number): boolean {
   switch (op || "gt") {
@@ -80,11 +80,11 @@ export function AlertsPage({ me }: { me: Me }) {
                         {r.enabled ? <Badge tone="good">On</Badge> : <Badge>Off</Badge>}
                       </div>
                       <div className="mt-0.5 text-[13px] text-ink-2">
-                        Alert when {ruleCondition(r)} {ruleScope(r)}.
+                        {ruleSentence(r)}
                       </div>
                       <MetaLine className="mt-1">
-                        {`checks the last ${secondsWords(r.time_window_seconds)}`}
-                        {r.cooldown_seconds > 0 ? `then waits ${secondsWords(r.cooldown_seconds)}` : ""}
+                        {r.condition_type !== "daily_recap" && `checks the last ${secondsWords(r.time_window_seconds)}`}
+                        {ruleRepeat(r.condition_type) || null}
                         {ruleRecipients(r)}
                         <span>{sent ? <>last sent <TimeAgo iso={sent} /></> : "never sent"}</span>
                       </MetaLine>
@@ -172,6 +172,7 @@ const KIND_OPTIONS: { value: string; label: string }[] = [
   { value: "issue_spike", label: "a problem suddenly happens much more" },
   { value: "error_rate", label: "errors happen too often" },
   { value: "log_query", label: "messages matching a search cross a limit" },
+  { value: "daily_recap", label: "a recap of yesterday, every day" },
 ];
 
 function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; onClose: () => void; conditions: string[] }) {
@@ -184,6 +185,7 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
   const [telegram, setTelegram] = useState((rule.telegram_chat_ids ?? []).join(", "));
   const [slack, setSlack] = useState((rule.slack_webhook_urls ?? []).join("\n"));
   const [preview, setPreview] = useState<{ count: number } | { error: string } | null>(null);
+  const [recapText, setRecapText] = useState<{ text: string } | { error: string } | null>(null);
   const [testing, setTesting] = useState(false);
   const upd = (patch: Partial<AlertRule>) => setR((x) => ({ ...x, ...patch }));
   const updForm = (patch: Partial<RuleForm>) => setForm((x) => ({ ...x, ...patch }));
@@ -194,6 +196,7 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
       .filter(Boolean);
   const kind = r.condition_type ?? "error_rate";
   const isQuery = kind === "log_query";
+  const isRecap = kind === "daily_recap";
   const needsNumber = kind === "error_rate" || kind === "issue_spike" || isQuery;
   const changeKind = (k: string) => {
     upd({ condition_type: k });
@@ -201,6 +204,8 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
     if (k === "error_rate") updForm({ threshold: 3 });
     if (k === "issue_spike") updForm({ threshold: 20 });
     if (k === "log_query") updForm({ threshold: 0 });
+    if (k === "daily_recap") upd({ condition_type: k, send_hour: r.send_hour ?? 8, timezone: r.timezone || browserTimeZone() });
+    setRecapText(null);
   };
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -222,6 +227,17 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
       setTesting(false);
     }
   };
+  const testRecap = async () => {
+    setTesting(true);
+    try {
+      setRecapText(await previewRecap({ name: r.name, service: r.service, env: r.env, timezone: r.timezone }));
+    } catch (err) {
+      setRecapText({ error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setTesting(false);
+    }
+  };
+  const zones = isRecap ? timeZones() : [];
   const num = "w-24";
   return (
     <Dialog open onClose={onClose} title={rule.id ? "Edit alert" : "New alert"} maxWidth={760}>
@@ -230,10 +246,10 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
           <Input required autoFocus={!rule.id} value={r.name ?? ""} onChange={(e) => upd({ name: e.target.value })} placeholder="e.g. Checkout errors" />
         </Field>
 
-        <fieldset className="space-y-3 rounded-lg border border-border p-4 text-[13px] text-ink-2">
+        <fieldset className="min-w-0 space-y-3 rounded-lg border border-border p-4 text-[13px] text-ink-2">
           <legend className="px-1 text-[13px] font-semibold text-ink">When</legend>
           <div className="flex flex-wrap items-center gap-2">
-            <span>Alert me when</span>
+            <span>{isRecap ? "Send me" : "Alert me when"}</span>
             <Select value={kind} onChange={(e) => changeKind(e.target.value)} className="w-auto min-w-72" aria-label="Condition">
               {KIND_OPTIONS.filter((k) => conditions.includes(k.value)).map((k) => (
                 <option key={k.value} value={k.value}>
@@ -305,10 +321,45 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
               </div>
             </>
           )}
-          {!needsNumber && <p className="text-xs text-ink-3">{kind === "regression" ? "Fires when an issue you resolved happens again." : "Fires the first time Pyloggle sees a new kind of error."}</p>}
+          {isRecap && (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <span>at</span>
+                <Select value={String(r.send_hour ?? 8)} onChange={(e) => upd({ send_hour: Number(e.target.value) })} className="w-auto" aria-label="Send at">
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>
+                      {hourWords(h)}
+                    </option>
+                  ))}
+                </Select>
+                <span>in</span>
+                <Select value={r.timezone || "UTC"} onChange={(e) => (upd({ timezone: e.target.value }), setRecapText(null))} className="w-auto max-w-72" aria-label="Time zone">
+                  {(zones.includes(r.timezone || "UTC") ? zones : [r.timezone || "UTC", ...zones]).map((z) => (
+                    <option key={z} value={z}>
+                      {z.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <p className="text-xs text-ink-3">
+                Yesterday's errors compared with the day before, new problems, problems that came back, the ones that happened most, apps that need a look, anything still going on, and the alerts sent. It goes out once a day, even on a quiet day.
+              </p>
+              <div className="space-y-2 rounded-md bg-surface-2 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button size="xs" icon={<FlaskConical size={13} />} onClick={testRecap} loading={testing}>
+                    Test this alert
+                  </Button>
+                  {!recapText && <span className="text-ink-3">Builds yesterday's recap now, without sending it.</span>}
+                  {recapText && "error" in recapText && <span className="text-critical-text">{recapText.error}</span>}
+                </div>
+                {recapText && "text" in recapText && <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded border border-border bg-surface p-3 text-xs leading-5 text-ink [overflow-wrap:anywhere]">{recapText.text}</pre>}
+              </div>
+            </>
+          )}
+          {!needsNumber && !isRecap && <p className="text-xs text-ink-3">{kind === "regression" ? "Fires when an issue you resolved happens again." : "Fires the first time Pyloggle sees a new kind of error."}</p>}
         </fieldset>
 
-        <fieldset className="space-y-3 rounded-lg border border-border p-4 text-[13px] text-ink-2">
+        <fieldset className="min-w-0 space-y-3 rounded-lg border border-border p-4 text-[13px] text-ink-2">
           <legend className="px-1 text-[13px] font-semibold text-ink">Where</legend>
           <div className="flex flex-wrap items-center gap-2">
             <span>For</span>
@@ -318,15 +369,15 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
             <datalist id="alert-apps">{(facets.data?.fields.service ?? []).map((f) => <option key={f.value} value={f.value} />)}</datalist>
             <datalist id="alert-envs">{(facets.data?.fields.env ?? []).map((f) => <option key={f.value} value={f.value} />)}</datalist>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          {!isRecap && <div className="flex flex-wrap items-center gap-2">
             <span>Only requests to</span>
             <Input value={r.http_method ?? ""} onChange={(e) => upd({ http_method: e.target.value.toUpperCase() })} placeholder="any method" className="w-28 font-mono text-[12px]" aria-label="Method" />
             <Input value={r.http_route ?? ""} onChange={(e) => upd({ http_route: e.target.value })} placeholder="any route, e.g. /orders" className="w-56 font-mono text-[12px]" aria-label="Route" />
             <span className="text-xs text-ink-3">(optional)</span>
-          </div>
+          </div>}
         </fieldset>
 
-        <fieldset className="space-y-3 rounded-lg border border-border p-4 text-[13px]">
+        <fieldset className="min-w-0 space-y-3 rounded-lg border border-border p-4 text-[13px]">
           <legend className="px-1 text-[13px] font-semibold text-ink">Tell</legend>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="E-mail" hint="Addresses, separated by commas.">
@@ -342,11 +393,11 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
               <Textarea rows={2} value={webhooks} onChange={(e) => setWebhooks(e.target.value)} placeholder="https://example.com/hooks/pyloggle" />
             </Field>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-ink-2">
+          {!isRecap && <div className="flex flex-wrap items-center gap-2 text-ink-2">
             <span>After alerting, wait</span>
             <Input type="number" min={0} className={num} value={form.cooldownMinutes} onChange={(e) => updForm({ cooldownMinutes: Number(e.target.value) })} aria-label="Wait minutes" />
             <span>minutes before alerting again</span>
-          </div>
+          </div>}
         </fieldset>
 
         <Checkbox label="Turned on" checked={r.enabled ?? true} onChange={(e) => upd({ enabled: e.target.checked })} />

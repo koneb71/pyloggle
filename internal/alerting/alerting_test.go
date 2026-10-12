@@ -29,6 +29,78 @@ type fakeStore struct {
 	traces    map[string]bool
 	block     bool // context lookups wait until their context ends
 	panics    bool // context lookups panic
+
+	// once-only bookkeeping
+	comebacks []clickhouse.RegressionEvent
+	sent      map[string]time.Time // rule|subject -> when
+	incident  map[string]bool      // rule -> open
+	clock     func() time.Time     // when MarkNotified records (defaults to the wall clock)
+
+	// recap
+	overview map[time.Time]api.Overview // by range start
+	health   []api.ServiceHealth
+	top      []api.IssueSummary
+	ruleList []api.AlertRule
+	sentList []api.AlertFiring
+	openIncs []clickhouse.OpenIncident
+	project  clickhouse.ProjectView
+}
+
+func (f *fakeStore) GetProjectByID(context.Context, string) (clickhouse.ProjectView, bool, error) {
+	return f.project, f.project.ID != "", nil
+}
+func (f *fakeStore) Overview(_ context.Context, _, _, _ string, from, _ time.Time) (api.Overview, error) {
+	return f.overview[from], nil
+}
+func (f *fakeStore) ServiceHealth(context.Context, string, string, time.Time, time.Time, int) ([]api.ServiceHealth, error) {
+	return f.health, nil
+}
+func (f *fakeStore) TopIssues(context.Context, string, string, string, time.Time, time.Time, int) ([]api.IssueSummary, error) {
+	return f.top, nil
+}
+func (f *fakeStore) ListAlertRules(context.Context, string) ([]api.AlertRule, error) {
+	return f.ruleList, nil
+}
+func (f *fakeStore) ListAlertFirings(context.Context, string, int) ([]api.AlertFiring, error) {
+	return f.sentList, nil
+}
+func (f *fakeStore) OpenIncidents(context.Context, string) ([]clickhouse.OpenIncident, error) {
+	return f.openIncs, nil
+}
+
+func (f *fakeStore) NotifiedSubjects(_ context.Context, _, ruleID string, subjects []string, since time.Time) (map[string]bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := map[string]bool{}
+	for _, s := range subjects {
+		if at, ok := f.sent[ruleID+"|"+s]; ok && !at.Before(since) {
+			out[s] = true
+		}
+	}
+	return out, nil
+}
+func (f *fakeStore) MarkNotified(_ context.Context, _, ruleID string, subjects []string, open bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sent == nil {
+		f.sent, f.incident = map[string]time.Time{}, map[string]bool{}
+	}
+	now := time.Now()
+	if f.clock != nil {
+		now = f.clock()
+	}
+	for _, s := range subjects {
+		f.sent[ruleID+"|"+s] = now
+		if s == incidentSubject {
+			f.incident[ruleID] = open
+		}
+	}
+	return nil
+}
+func (f *fakeStore) IncidentOpen(_ context.Context, _, ruleID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.incident[ruleID], nil
 }
 
 func (f *fakeStore) lookup(ctx context.Context) error {
@@ -98,8 +170,8 @@ func (f *fakeStore) IssueSpikeCounts(_ context.Context, _ api.AlertRule, _, _, _
 func (f *fakeStore) NewIssues(context.Context, api.AlertRule, time.Time, time.Time, int) ([]api.IssueSummary, error) {
 	return f.newIssues, nil
 }
-func (f *fakeStore) RegressedIssues(context.Context, api.AlertRule, time.Time, time.Time, int) ([]api.IssueSummary, error) {
-	return nil, nil
+func (f *fakeStore) RegressionEvents(context.Context, api.AlertRule, time.Time, time.Time, int) ([]clickhouse.RegressionEvent, error) {
+	return f.comebacks, nil
 }
 func (f *fakeStore) CountLogs(_ context.Context, q clickhouse.LogQuery) (uint64, error) {
 	f.mu.Lock()
