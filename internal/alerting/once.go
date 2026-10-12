@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 // Each rule sends a thing once. What was sent is recorded per rule and subject

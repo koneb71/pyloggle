@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 // LogQuery is the explorer query. Where/Args carry the conditions rendered by the query

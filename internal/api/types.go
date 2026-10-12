@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 type LogEvent struct {

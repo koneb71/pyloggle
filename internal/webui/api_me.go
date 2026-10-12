@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"pyloggle/internal/auth"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/auth"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 type meResponse struct {

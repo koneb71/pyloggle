@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 // ParsePythonTraceback turns the text Python's traceback module prints (what OTEL puts into

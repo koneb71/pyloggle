@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/sysinfo"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/sysinfo"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 const apiKeyCookie = "pyloggle_api_key"

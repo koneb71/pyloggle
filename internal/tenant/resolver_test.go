@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 type memKeys struct {

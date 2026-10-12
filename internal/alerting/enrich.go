@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/logquery"
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/model"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/logquery"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 // IssueContext is one problem behind a firing, told through the latest time it happened in

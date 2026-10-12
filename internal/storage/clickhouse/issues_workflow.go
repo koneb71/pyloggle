@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/issue"
 )
 
 // epoch is the "unset" sentinel for DateTime64 columns (ClickHouse cannot store year 1).

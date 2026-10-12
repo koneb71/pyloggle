@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/config"
 )
 
 // fakeProvider is a minimal OpenID Connect provider: discovery, a JWKS with one RSA and one

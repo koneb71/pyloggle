@@ -14,7 +14,7 @@ build: web go-build ## Build the web UI and the ingestd binary (UI embedded)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
-LDFLAGS := -X pyloggle/internal/version.Version=$(VERSION) -X pyloggle/internal/version.Commit=$(COMMIT)
+LDFLAGS := -X github.com/koneb71/pyloggle/internal/version.Version=$(VERSION) -X github.com/koneb71/pyloggle/internal/version.Commit=$(COMMIT)
 
 go-build: ## Build the ingestd binary only (uses whatever is in web/dist)
 	$(GO) build -ldflags "$(LDFLAGS)" -o bin/ingestd ./cmd/ingestd

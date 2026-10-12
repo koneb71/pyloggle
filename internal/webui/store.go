@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 // Store is everything the UI API reads and writes. *clickhouse.Client implements it; tests use a fake.

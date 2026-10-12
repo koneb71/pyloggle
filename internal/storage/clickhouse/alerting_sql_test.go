@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 func TestRuleFilterQueriesAreWellFormed(t *testing.T) {

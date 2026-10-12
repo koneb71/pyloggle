@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/config"
 )
 
 // SlackNotifier posts Block Kit messages to incoming webhooks: the rule's own URLs, or the

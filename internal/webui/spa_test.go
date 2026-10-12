@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/config"
 )
 
 func TestSPAHandlerRoutesAndAssets(t *testing.T) {

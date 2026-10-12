@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/config"
 )
 
 // TelegramNotifier sends messages through the Bot API. Messages are HTML by default

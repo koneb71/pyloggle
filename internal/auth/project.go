@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 type ctxKey int

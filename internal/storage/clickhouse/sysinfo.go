@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 // TableInfo is one table's footprint from system.parts (active parts only).

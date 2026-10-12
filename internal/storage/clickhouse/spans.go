@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 // SpanQuery selects spans for the traces list and stats. Where/Args come from

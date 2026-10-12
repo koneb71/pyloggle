@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/auth"
-	"pyloggle/internal/logquery"
-	"pyloggle/internal/tenant"
-	"pyloggle/internal/timeparse"
+	"github.com/koneb71/pyloggle/internal/auth"
+	"github.com/koneb71/pyloggle/internal/logquery"
+	"github.com/koneb71/pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/timeparse"
 )
 
 // The JSON API consumed by the SPA lives under /ui/api/ (session cookies) and is mirrored under

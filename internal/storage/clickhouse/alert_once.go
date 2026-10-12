@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 // Alert bookkeeping: what each rule has already sent (alert_notified), and comebacks read from

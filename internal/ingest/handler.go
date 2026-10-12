@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/model"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 // Handler is the NDJSON door (POST /v1/ingest): one JSON event per line.

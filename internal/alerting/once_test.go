@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 func onceRule(kind string, threshold float64) api.AlertRule {
