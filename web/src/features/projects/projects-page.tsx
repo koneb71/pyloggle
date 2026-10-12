@@ -39,6 +39,7 @@ export function ProjectsPage({ me }: { me: Me }) {
     {
       id: "name",
       header: "Project",
+      width: "minmax(200px,1.6fr)",
       cell: (p) => (
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-surface-3 text-[13px] font-semibold uppercase text-ink-2">{p.name.slice(0, 1)}</span>
@@ -52,9 +53,9 @@ export function ProjectsPage({ me }: { me: Me }) {
         </div>
       ),
     },
-    { id: "limits", header: "Limits", width: "minmax(180px,1fr)", cell: (p) => <span className="text-[13px] text-ink-2">{limitsWords(p)}</span> },
+    { id: "limits", header: "Limits", width: "minmax(140px,1fr)", cell: (p) => <span className="text-[13px] text-ink-2">{limitsWords(p)}</span> },
     ...(isAdmin ? [{ id: "storage", header: "Storage used", width: "160px", cell: (p: Project) => <UsageBar project={p} /> }] : []),
-    { id: "created", header: "Created", width: "120px", cell: (p) => <TimeAgo iso={p.created_at} className="text-ink-3" /> },
+    { id: "created", header: "Created", width: "104px", cell: (p) => <TimeAgo iso={p.created_at} className="text-ink-3" /> },
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
@@ -113,7 +114,7 @@ export function ProjectsPage({ me }: { me: Me }) {
             />
           }
         >
-          {(d) => <DataTable label="Projects" columns={columns} rows={d.items} rowKey={(p) => p.id} stickyHeader={false} />}
+          {(d) => <DataTable label="Projects" columns={columns} rows={d.items} rowKey={(p) => p.id} stickyHeader={false} minWidth={isAdmin ? 880 : 610} />}
         </QueryState>
       </Section>
 

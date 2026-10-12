@@ -39,7 +39,7 @@ export function LoginPage({ me, loginUrl }: { me?: Me; loginUrl?: string }) {
       <div className="w-full max-w-[380px]">
         <div className="mb-6 flex flex-col items-center text-center">
           <svg width="40" height="40" viewBox="0 0 24 24" aria-hidden>
-            <rect x="2" y="2" width="20" height="20" rx="6" fill="var(--accent)" />
+            <rect x="2" y="2" width="20" height="20" rx="6" fill="var(--accent-strong)" />
             <rect x="6" y="13" width="3" height="5" rx="1" fill="#fff" opacity=".7" />
             <rect x="10.5" y="9" width="3" height="9" rx="1" fill="#fff" opacity=".85" />
             <rect x="15" y="6" width="3" height="12" rx="1" fill="#fff" />

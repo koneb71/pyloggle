@@ -18,7 +18,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const base =
   "inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none select-none";
 const variants: Record<Variant, string> = {
-  primary: "bg-accent text-accent-ink border-transparent hover:bg-accent-hover shadow-[0_1px_0_rgba(0,0,0,0.06)]",
+  primary: "bg-accent-strong text-accent-ink border-transparent hover:bg-accent-hover shadow-[0_1px_0_rgba(0,0,0,0.06)]",
   default: "bg-surface text-ink border-border-strong hover:bg-surface-2 shadow-[0_1px_0_rgba(0,0,0,0.03)]",
   subtle: "bg-surface-2 text-ink border-transparent hover:bg-surface-3",
   ghost: "bg-transparent text-ink-2 border-transparent hover:bg-surface-2 hover:text-ink",

@@ -14,7 +14,7 @@ export function scopeLabel(s: string): string {
 /** A project's limits in one line: "Up to 500 messages a second · 10 GB · keeps 14 days". */
 export function limitsWords(p: Pick<Project, "max_events_per_second" | "max_storage_gb" | "retention_days">): string {
   const parts = [p.max_events_per_second ? `Up to ${p.max_events_per_second.toLocaleString()} messages a second` : "", p.max_storage_gb ? `${p.max_storage_gb} GB of storage` : "", p.retention_days ? `keeps ${p.retention_days} days` : ""].filter(Boolean);
-  return parts.length ? parts.join(" · ") : "No limits; keeps data as long as the server does";
+  return parts.length ? parts.join(" · ") : "No limits";
 }
 
 const AUDIT_WORDS: Record<string, string> = {

@@ -23,6 +23,17 @@ describe("DataTable", () => {
     expect(rows[1].className).toContain("gap-x-4");
     expect(rows[0].className).toContain("gap-x-4");
   });
+  it("scrolls sideways below its minimum width instead of squeezing columns", () => {
+    render(
+      <MemoryRouter>
+        <DataTable columns={cols} rows={[{ id: "a", name: "A", n: 1 }]} rowKey={(r) => r.id} minWidth={600} />
+      </MemoryRouter>,
+    );
+    const table = screen.getByRole("table");
+    expect(table.style.minWidth).toBe("600px");
+    expect(table.parentElement?.className).toContain("overflow-x-auto");
+    expect(screen.getAllByRole("rowgroup")[0].className).not.toContain("sticky");
+  });
   it("shows the error instead of the empty text", () => {
     render(
       <MemoryRouter>

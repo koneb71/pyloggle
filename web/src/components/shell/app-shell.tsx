@@ -6,6 +6,7 @@ import type { Me } from "@/api/types";
 import { useLogout, useProjectMutations } from "@/api/hooks";
 import { Dialog, IconButton, Kbd, MenuItem, Popover, Tooltip } from "@/components/ui";
 import { useTheme } from "./theme";
+import { useMediaQuery } from "@/lib/use-media";
 
 interface NavItem {
   to: string;
@@ -45,17 +46,6 @@ const NAV: { title?: string; items: NavItem[] }[] = [
 
 const ALL_ITEMS = NAV.flatMap((g) => g.items);
 
-function useNarrow(query = "(max-width: 1023px)") {
-  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
-  useEffect(() => {
-    const m = window.matchMedia(query);
-    const on = () => setNarrow(m.matches);
-    m.addEventListener("change", on);
-    return () => m.removeEventListener("change", on);
-  }, [query]);
-  return narrow;
-}
-
 export function AppShell({ me }: { me: Me }) {
   const [pref, setPref] = useState<"open" | "collapsed">(() => {
     try {
@@ -64,8 +54,8 @@ export function AppShell({ me }: { me: Me }) {
       return "open";
     }
   });
-  // Below 1024px the sidebar starts as icons; opening it there is not remembered.
-  const narrow = useNarrow();
+  // Below 1200px the sidebar starts as icons; opening it there is not remembered.
+  const narrow = useMediaQuery("(max-width: 1199px)");
   const [narrowOpen, setNarrowOpen] = useState(false);
   const collapsed = narrow ? !narrowOpen : pref === "collapsed";
   const toggle = () => {
@@ -212,7 +202,7 @@ function ShortcutsDialog({ open, onClose, me }: { open: boolean; onClose: () => 
 function Logo() {
   return (
     <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden className="flex-none">
-      <rect x="2" y="2" width="20" height="20" rx="6" fill="var(--accent)" />
+      <rect x="2" y="2" width="20" height="20" rx="6" fill="var(--accent-strong)" />
       <rect x="6" y="13" width="3" height="5" rx="1" fill="#fff" opacity=".7" />
       <rect x="10.5" y="9" width="3" height="9" rx="1" fill="#fff" opacity=".85" />
       <rect x="15" y="6" width="3" height="12" rx="1" fill="#fff" />

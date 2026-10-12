@@ -78,20 +78,28 @@ rich error reports and the trace view links both. Details in
 
 ## The UI
 
-| Page | What it does |
-|---|---|
-| **Issues** | open / regressed / resolved / ignored tabs with counts, search, sort by last seen, first seen, events or users, 24 h sparklines, assignee chips and "assigned to me", bulk resolve / ignore / snooze / reopen |
-| **Issue** | occurrence trend, exception chain with the crash site first (in-app, all frames or raw), source context and locals, breadcrumbs, request, user and runtime, tags and attributes, the request's log lines and trace, raw JSON, older / newer navigation, breakdowns by env, release, route, host and user; assign, comment, snooze (1 h / 24 h / 7 d / until N more), resolve (now, in the next release, in a release), activity timeline |
-| **Logs** | query bar with chips, inline errors and autocomplete; facet panel (level, service, env, logger, host, release, HTTP method / status / route, any attribute or tag key); stacked timeline grouped by level, service, env, logger or status with drag-to-zoom; patterns view; analytics view (count, avg, sum, min, max, p50 / p95 / p99 of a field, grouped by anything, chart and table); virtualized list with a column picker; detail panel where every value offers *filter / exclude / copy*; same-request and same-trace links; view in context; live tail; saved views; CSV / NDJSON export |
-| **Traces** | root and server spans for the range with a latency histogram and p50 / p95 by name; a trace is a waterfall with a span panel (attributes, events), the request's log lines and the issues it caused |
-| **Dashboards** | events, errors, open / new issues, affected users and services for the range; error trend; log volume by level; top issues; req/s, 5xx % and p95 tiles with latency by route (from the logs or from OpenTelemetry HTTP metrics); a metric card for any OTLP metric |
-| **Alerts** | rules (error rate, issue spike, new issue, regression, log query with a Test button) with email, webhook, Slack and Telegram targets; recent firings with counts and links |
-| **Projects** | create, edit, quota and retention, API keys with scopes (create, revoke, last use), usage bar and per-source breakdown, delete a project, purge a user, admin audit |
-| **System** | version, uptime, ClickHouse tables and disk, ingest rate and drops, queues, retention, alerting status (admins) |
+The UI is written for the whole team, not only engineers: every page says in one line what
+it is for, labels use plain words with the technical name in a tooltip ("Slow (p95)",
+"Came back (regressed)", "Request timeline (trace)"), and monospace is kept for code, ids and
+queries. `/ui/` opens on **Overview**. The sidebar groups pages by what you are doing:
 
-Keyboard: `/` focuses search, `j` / `k` move through rows, `Esc` closes the panel, `g i` / `g l` /
-`g t` / `g d` / `g a` / `g p` / `g s` jump between pages. Light and dark themes follow the OS or
-the toggle. Every view keeps its state in the URL, so it can be shared.
+| Group | Page | What it answers |
+|---|---|---|
+| | **Overview** | *Is everything OK right now?* A status line ("All clear" or what needs attention, with links), errors, people affected, failed requests, response time and messages with the change against the previous period, issues that are new, came back or jumped, each app's health (OK, degraded, failing or silent), recent versions and recent alerts |
+| Investigate | **Issues** | Errors grouped by cause, in Unresolved / Came back / Resolved / Ignored / All tabs. Filter by app, environment, version and assignee; sort by most recent, newest, most frequent or most people; 24 h trend per issue; resolve, ignore, snooze or reopen several at once |
+| | **Issue** | What went wrong and where (your code first, all code, or plain text), the steps before the error, the web request, user and system, labels, how often it happened, which apps, versions, servers and routes it happens on, and every recent time it happened. Assign, comment, resolve now or in the next version, ignore until it happens N more times; an activity timeline in plain sentences |
+| | **Logs** | Every message your apps wrote. Search with plain chips ("Severity is Error", "App is api") over the [query language](docs/log-query-language.md), or the *Add filter* picker; filters sidebar with counts; a chart colored by severity, app, environment and more (drag to zoom, "each bar is 30 minutes"); *Similar messages* and *Charts* views; message details with "all messages from this request", the request timeline and surrounding messages; live mode, saved searches, CSV / NDJSON export |
+| | **Requests** | Each request your apps handled, step by step (traces): how long requests take, the busiest operations with typical / slow / failed share, and a timeline per request with step details, the messages logged during it and the errors it caused |
+| Monitor | **Dashboards** | How the project is doing over time, in three sections: errors, traffic (requests, failed share, response time, slowest endpoints, from app logs or OpenTelemetry) and activity, plus custom measurements from any OpenTelemetry metric |
+| | **Alerts** | Rules written as sentences ("Alert me when a problem suddenly jumps by more than 3 times compared with the previous 5 minutes, for api in prod, by e-mail and Slack"), a *Test this alert* button, and the alerts sent recently in plain words |
+| Settings | **Projects** | Projects with their limits and storage, a *Connect your app* guide (Python, Django, FastAPI, OpenTelemetry) with this server's address filled in, access keys (Send data / View / Make changes), storage per kind of data, deletion, and admin activity |
+| | **System** | Health of the Pyloggle server itself, for administrators: database, disk, incoming and dropped data, queues, cleanup tasks, the alerts engine and storage per table |
+
+Keyboard: `/` focuses search, `j` / `k` move through rows, `Esc` closes a panel, `g` then
+`o` / `i` / `l` / `t` / `d` / `a` / `p` / `s` jumps between pages, and `?` lists every shortcut.
+Light and dark themes follow the OS or the toggle. Below 1200 px wide the sidebar shrinks to
+icons. Every view keeps its state in the URL, so it can be shared. If ClickHouse stops
+answering, pages say so and come back on their own when it returns.
 
 The query language is documented in [docs/log-query-language.md](docs/log-query-language.md).
 
@@ -101,12 +109,15 @@ The query language is documented in [docs/log-query-language.md](docs/log-query-
 |---|---|---|
 | `POST /v1/ingest` | API key | NDJSON events ([wire format](docs/wire-format-v2.md)); answers `{accepted, rejected, errors, dropped}` |
 | `POST /v1/logs`, `/v1/traces`, `/v1/metrics` | API key | OTLP/HTTP (also under `/v1/otlp/v1/*`) |
-| `GET /v1/q/…` | API key (`X-API-Key` or `Bearer`) | the same JSON API the UI uses: `issues`, `issues/{id}`, `issues/{id}/trend`, `issues/{id}/breakdown`, `issues/{id}/occurrences`, `issues/{id}/activity`, `events/{id}`, `logs`, `logs/histogram`, `logs/facets`, `logs/patterns`, `logs/context`, `logs/aggregate`, `logs/export`, `traces`, `traces/{trace_id}`, `metrics/overview`, `metrics/errors`, `metrics/logs`, `metrics/top-issues`, `metrics/requests`, `metrics/names`, `metrics/series`, `saved-views`, `projects`, `projects/{id}/usage`, `projects/{id}/keys`, `alerts/rules`, `alerts/firings`, `admin/audit`, `system`; `POST` to change issue state, assign, comment, save views, manage projects, keys and rules. Keys need the `read` scope for GETs and `write` for the rest |
+| `GET /v1/q/…` | API key (`X-API-Key` or `Bearer`) | the same JSON API the UI uses: `issues`, `issues/{id}`, `issues/{id}/trend`, `issues/{id}/breakdown`, `issues/{id}/occurrences`, `issues/{id}/activity`, `events/{id}`, `logs`, `logs/histogram`, `logs/facets`, `logs/patterns`, `logs/context`, `logs/aggregate`, `logs/export`, `traces`, `traces/{trace_id}`, `metrics/overview`, `metrics/errors`, `metrics/logs`, `metrics/top-issues`, `metrics/requests`, `metrics/services`, `metrics/attention`, `metrics/names`, `metrics/series`, `releases`, `saved-views`, `projects`, `projects/{id}/usage`, `projects/{id}/keys`, `alerts/rules`, `alerts/firings`, `admin/audit`, `system`; `POST` to change issue state, assign, comment, save views, manage projects, keys and rules. Keys need the `read` scope for GETs and `write` for the rest |
 | `GET /ui/api/…` | browser session | identical routes for the SPA (mutations need the `X-Pyloggle-Request: 1` header) |
 | `GET /metrics` | optional bearer (`PYLOGGLE_METRICS_TOKEN`) | Prometheus exposition: ingest, queues, alerting, ClickHouse tables, build info |
 | `GET /v1/issues`, `/v1/logs`, `/v1/issues/occurrences`, `/v1/saved-searches`, `/v1/metrics/errors/trend` | API key | 0.1 query endpoints, kept for existing scripts |
 | `POST /v1/issues/state`, `/v1/alerts/rules`, `/v1/projects*` | `X-Admin-Token` | 0.1 admin endpoints, kept |
 | `GET /healthz`, `/healthz?verbose=1` | none | liveness; verbose adds queue depth and drop counters |
+
+`metrics/overview` and `metrics/requests` take `compare=previous` to add the same-length period
+before the range. When ClickHouse is unreachable the JSON API answers `503 unavailable`.
 
 Without an `X-API-Key`, requests fall back to `PYLOGGLE_DEFAULT_PROJECT_ID` (reads only on
 `/v1/q`). Set it to an empty string to require keys everywhere. Ingest doors need a key with
@@ -175,7 +186,7 @@ make build        # web UI (npm ci + vite) then the Go binary with the UI embedd
 make test         # go vet + go test -race, pytest, vitest + typecheck
 make dev-api      # ingestd against the compose ClickHouse, UI auth disabled
 make dev-web      # Vite dev server on :5173 proxying /ui/api and /v1 to :8080
-make screenshots  # Playwright screenshots of every page, light and dark
+make screenshots  # Playwright screenshots of every page, light and dark (WIDTH=1024 for narrow)
 make footprint    # RSS and disk measurement under a synthetic burst
 ```
 

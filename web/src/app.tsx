@@ -45,7 +45,7 @@ export function App() {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="w-full max-w-md rounded-lg border border-border bg-surface">
-          <ErrorState error={me.error} title="Can't reach the Pyloggle server" retry={() => me.refetch()} />
+          <ErrorState error={me.error} title={databaseDown(me.error) ? "Pyloggle can't reach its database" : "Can't reach the Pyloggle server"} retry={() => me.refetch()} />
         </div>
       </div>
     );
@@ -108,4 +108,9 @@ function NeedsProject({ me, children }: { me: NonNullable<ReturnType<typeof useM
       <Spinner />
     </div>
   );
+}
+
+/** The server answered, but its database (ClickHouse) did not. */
+function databaseDown(e: unknown): boolean {
+  return e instanceof ApiRequestError && e.status === 503 && e.body?.error === "unavailable";
 }

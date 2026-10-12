@@ -51,10 +51,15 @@ func (u *UI) apiMe(w http.ResponseWriter, r *http.Request) {
 	if p, ok := auth.ProjectFromContext(r.Context()); ok && p.ID != "" {
 		resp.Project = &meProject{ID: p.ID, Name: p.Name}
 	}
-	if items, err := u.store.ListProjects(r.Context(), 200); err == nil {
-		for _, it := range items {
-			resp.Projects = append(resp.Projects, meProject{ID: it.ID, Name: it.Name})
-		}
+	items, err := u.store.ListProjects(r.Context(), 200)
+	if err != nil {
+		// Without the project list the app cannot do anything useful; an empty list would send
+		// people to "create your first project" instead of telling them what is wrong.
+		writeErr(w, http.StatusServiceUnavailable, "unavailable", "the database is not answering: "+err.Error())
+		return
+	}
+	for _, it := range items {
+		resp.Projects = append(resp.Projects, meProject{ID: it.ID, Name: it.Name})
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

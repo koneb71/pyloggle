@@ -13,6 +13,9 @@ export function friendlyError(error: unknown): { title: string; detail: string }
     if (error.status === 403) return { title: "You don't have access to this", detail };
     if (error.status === 404) return { title: "This doesn't exist anymore", detail };
     if (error.status === 429) return { title: "Too many requests right now", detail: "Wait a moment and try again." };
+    if (error.status === 401 && error.body?.error === "no_project") return { title: "No project is open", detail: "Choose a project from the menu at the top left." };
+    if (error.status === 503 && error.body?.error === "unavailable")
+      return { title: "The database isn't answering", detail: "Pyloggle is running, but it can't reach its database (ClickHouse). Pages will load again once the database is back." };
     if (error.status >= 500) return { title: "The server had a problem loading this", detail };
   }
   if (error instanceof TypeError) return { title: "Can't reach the server", detail: "Check your connection, then try again." };

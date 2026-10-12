@@ -123,7 +123,7 @@ function Facet({ field, items, q, onToggle, defaultOpen = false, onRemove }: { f
                   {isLevel ? (
                     <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ background: levelVar(it.value) }} />
                   ) : (
-                    <span className={clsx("inline-flex h-3.5 w-3.5 flex-none items-center justify-center rounded-[4px] border", on ? "border-accent bg-accent" : "border-border-strong bg-surface")} aria-hidden>
+                    <span className={clsx("inline-flex h-3.5 w-3.5 flex-none items-center justify-center rounded-[4px] border", on ? "border-accent-strong bg-accent-strong" : "border-border-strong bg-surface")} aria-hidden>
                       {on && <svg viewBox="0 0 10 8" className="h-2 w-2.5 text-accent-ink"><path d="M1 4l3 3 5-6" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>}
                     </span>
                   )}
