@@ -1,7 +1,9 @@
 name: Docs
 
 # Builds the documentation site on every change to docs/ (a broken link fails the build) and
-# publishes it to GitHub Pages from main.
+# publishes it to GitHub Pages from main. Publishing needs Pages turned on, with GitHub Actions as
+# its source; until then a run from main still builds the site and says how to turn Pages on,
+# instead of failing.
 on:
   push:
     paths: ["docs/**", ".github/workflows/docs.yml"]
@@ -20,6 +22,11 @@ jobs:
   build:
     name: Build the site
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+    outputs:
+      publish: ${{ steps.pages.outputs.publish }}
     defaults:
       run:
         working-directory: docs
@@ -32,14 +39,27 @@ jobs:
           cache-dependency-path: docs/package-lock.json
       - run: npm ci
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v5
+      - name: Check that GitHub Pages is on
+        id: pages
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .build_type 2>/dev/null || true)
+          if [ "$source" = "workflow" ]; then
+            echo "publish=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Documentation not published::The site was built, but GitHub Pages is not turned on for this repository with GitHub Actions as its source. Turn it on under Settings, Pages, Build and deployment, Source: GitHub Actions, then run this workflow again."
+            echo "publish=false" >>"$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-pages-artifact@v5
+        if: steps.pages.outputs.publish == 'true'
         with:
           path: docs/.vitepress/dist
 
   deploy:
     name: Publish to GitHub Pages
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: needs.build.outputs.publish == 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:

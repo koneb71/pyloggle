@@ -61,8 +61,8 @@ git remote add public https://github.com/koneb71/pyloggle.git
 git push public fresh:main
 ```
 
-The push starts the CI and Docs workflows. Docs will fail to publish until Pages is turned on in
-the next step.
+The push starts the CI and Docs workflows. The Docs run builds the site but leaves a notice
+instead of publishing it, until Pages is turned on in the next step.
 
 ### 5. Repository settings
 
