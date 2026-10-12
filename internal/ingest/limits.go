@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 // limiter applies rate limiting + sampling for non-error events.

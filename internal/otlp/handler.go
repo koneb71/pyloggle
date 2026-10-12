@@ -19,10 +19,10 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/ingest"
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/ingest"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 const maxBody = 32 << 20

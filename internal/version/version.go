@@ -1,4 +1,4 @@
-// Package version carries the build identity (set with -ldflags "-X pyloggle/internal/version.Version=...").
+// Package version carries the build identity (set with -ldflags "-X github.com/koneb71/pyloggle/internal/version.Version=...").
 package version
 
 // Version is the release or git describe string; Commit the short hash when known.

@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/ingest"
-	"pyloggle/internal/model"
-	"pyloggle/internal/otlp"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/ingest"
+	"github.com/koneb71/pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/otlp"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 func TestIntegrationMetrics(t *testing.T) {

@@ -10,10 +10,10 @@ import (
 	"time"
 	_ "time/tzdata" // recap rules name IANA time zones; the Alpine image has no zoneinfo
 
-	"pyloggle/internal/alerting"
-	"pyloggle/internal/config"
-	"pyloggle/internal/httpserver"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/alerting"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/httpserver"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 func main() {

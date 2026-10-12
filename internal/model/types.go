@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/timeparse"
+	"github.com/koneb71/pyloggle/internal/timeparse"
 )
 
 // Timestamp is a lenient time.Time for the wire format. It accepts RFC3339 with any zone,

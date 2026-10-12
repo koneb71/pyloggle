@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 type savedSearchRow struct {

@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/model"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 // streamRouter provides bounded per-(project,service) queues to prevent a single noisy

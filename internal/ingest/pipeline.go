@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/config"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/model"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 // Sink receives accepted rows (the ClickHouse batching client, or a memory sink in tests).

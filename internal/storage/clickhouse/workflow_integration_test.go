@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/config"
-	"pyloggle/internal/ingest"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/model"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/ingest"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 func TestIntegrationIssueWorkflowState(t *testing.T) {

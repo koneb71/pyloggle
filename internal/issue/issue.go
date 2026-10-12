@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 // FingerprintVersion is stored on every occurrence so a future change can be told apart.

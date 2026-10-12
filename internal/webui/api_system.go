@@ -5,11 +5,11 @@ import (
 	"runtime"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/sysinfo"
-	"pyloggle/internal/version"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/sysinfo"
+	"github.com/koneb71/pyloggle/internal/version"
 )
 
 type systemTable struct {

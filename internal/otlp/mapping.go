@@ -13,7 +13,7 @@ import (
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 // resourceInfo is what we lift out of OTEL resource attributes.

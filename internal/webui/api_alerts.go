@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/alerting"
-	"pyloggle/internal/api"
-	"pyloggle/internal/auth"
-	"pyloggle/internal/logquery"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/alerting"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/auth"
+	"github.com/koneb71/pyloggle/internal/logquery"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 var alertConditions = map[string]bool{"error_rate": true, "issue_spike": true, "new_issue": true, "regression": true, "log_query": true, "daily_recap": true}

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/config"
-	"pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/metrics"
 )
 
 // A recap rule (condition_type daily_recap) sends a summary of yesterday once a day, after its

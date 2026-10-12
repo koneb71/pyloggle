@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/version"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/version"
 )
 
 // Source is the slice of storage the collector needs (the ClickHouse client in production).

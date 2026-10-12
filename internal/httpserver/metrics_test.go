@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/metrics"
 )
 
 func TestMetricsHandler(t *testing.T) {

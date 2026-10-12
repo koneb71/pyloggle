@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 // Storage accounting. system.parts cannot attribute bytes to projects (parts mix projects), so

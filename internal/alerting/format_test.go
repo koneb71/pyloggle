@@ -16,8 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/config"
 )
 
 func TestWords(t *testing.T) {

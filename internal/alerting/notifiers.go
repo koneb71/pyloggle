@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/config"
 )
 
 type Notifier interface {

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/auth"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/auth"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 // apiServiceHealth serves the Overview "Apps" list: ?from&to&env&limit.

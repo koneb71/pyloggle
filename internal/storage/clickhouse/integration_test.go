@@ -15,10 +15,11 @@ import (
 	"math/rand"
 	"net/url"
 	"os"
-	"pyloggle/internal/api"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 func integrationClient(t *testing.T) (*Client, func()) {

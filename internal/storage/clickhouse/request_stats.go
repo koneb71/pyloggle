@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 const latencyMerge = "quantilesTDigestIfMerge(0.5, 0.95, 0.99)(latency)"

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/ingest"
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/ingest"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 func TestIntegrationServiceHealthAndReleases(t *testing.T) {
