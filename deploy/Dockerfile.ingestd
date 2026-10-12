@@ -1,15 +1,22 @@
 # syntax=docker/dockerfile:1
 # Three stages: the React UI is built with Node, embedded into the Go binary, and shipped on a
-# plain Alpine image. The final image is ~25 MB and runs as an unprivileged user.
+# plain Alpine image. The final image is ~35 MB and runs as an unprivileged user. The Node and
+# Go stages run on the build machine and cross-compile, so multi-arch builds stay fast.
+#
+#   docker build -f deploy/Dockerfile.ingestd --build-arg VERSION=1.0.0 --build-arg COMMIT=$(git rev-parse --short HEAD) .
 
-FROM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+ARG COMMIT=
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -17,10 +24,18 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 COPY web/embed.go ./web/embed.go
 COPY --from=web /src/web/dist ./web/dist
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/ingestd ./cmd/ingestd
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+      -ldflags="-s -w -X github.com/koneb71/pyloggle/internal/version.Version=${VERSION} -X github.com/koneb71/pyloggle/internal/version.Commit=${COMMIT}" \
+      -o /out/ingestd ./cmd/ingestd
 
 FROM alpine:3.20
+LABEL org.opencontainers.image.title="Pyloggle" \
+      org.opencontainers.image.description="Self-hosted error tracking and logs for Python apps" \
+      org.opencontainers.image.source="https://github.com/koneb71/pyloggle" \
+      org.opencontainers.image.documentation="https://koneb71.github.io/pyloggle/" \
+      org.opencontainers.image.licenses="Apache-2.0"
 RUN apk --no-cache add ca-certificates tzdata && adduser -D -H -u 10001 pyloggle
+COPY LICENSE NOTICE THIRD_PARTY_LICENSES.md /usr/share/doc/pyloggle/
 COPY --from=builder /out/ingestd /usr/local/bin/ingestd
 USER pyloggle
 EXPOSE 8080

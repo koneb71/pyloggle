@@ -28,12 +28,17 @@ services:
     restart: unless-stopped
 
   ingestd:
+    # The released image; set PYLOGGLE_VERSION (e.g. 1.0.0) to pin one. When the image cannot be
+    # pulled, Compose builds it from this checkout instead (`docker compose up --build` always does).
+    image: ghcr.io/koneb71/pyloggle:${PYLOGGLE_VERSION:-latest}
     build:
       context: ..
       dockerfile: deploy/Dockerfile.ingestd
     container_name: pyloggle-ingestd
     ports:
-      - "8080:8080"
+      # Only this machine can reach it: sign-in is off below. Turn sign-in on before you publish
+      # the port to other machines (https://koneb71.github.io/pyloggle/self-hosting/sign-in).
+      - "127.0.0.1:8080:8080"
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -42,7 +47,7 @@ services:
       # connections intermittently stall, while an established connection stays healthy.
       CLICKHOUSE_DSN: "clickhouse://pyloggle:pyloggle@clickhouse:9000/pyloggle?dial_timeout=30s&read_timeout=60s&compress=none&max_open_conns=1&max_idle_conns=1&conn_max_lifetime=0s"
       INGEST_PORT: "8080"
-      # Local dev: disable UI auth (bypasses Azure session enforcement). See README for Azure.
+      # Sign-in off, for a local trial only. For a shared server use "oidc" or "azure".
       PYLOGGLE_UI_AUTH: "disabled"
       INGEST_MAX_QUEUE_SIZE: "10000"
       INGEST_BATCH_SIZE: "500"
