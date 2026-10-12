@@ -10,6 +10,7 @@ export function Popover({
   onOpenChange,
   align = "start",
   className,
+  anchorClassName,
   width,
 }: {
   trigger: (props: { open: boolean; toggle: () => void }) => ReactNode;
@@ -18,6 +19,8 @@ export function Popover({
   onOpenChange?: (o: boolean) => void;
   align?: "start" | "end";
   className?: string;
+  /** Classes for the wrapper around the trigger, e.g. "flex w-full" for a full-width trigger. */
+  anchorClassName?: string;
   width?: number | string;
 }) {
   const [internal, setInternal] = useState(false);
@@ -60,7 +63,7 @@ export function Popover({
   const close = () => setOpen(false);
   return (
     <>
-      <span ref={anchor} className="inline-flex">
+      <span ref={anchor} className={anchorClassName ?? "inline-flex"}>
         {trigger({ open: isOpen, toggle: () => setOpen(!isOpen) })}
       </span>
       {isOpen &&

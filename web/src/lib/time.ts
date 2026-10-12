@@ -3,14 +3,14 @@ export interface Range {
   to: string; // "" = now, or absolute ISO
 }
 
-export const QUICK_RANGES: { label: string; from: string }[] = [
-  { label: "15m", from: "-15m" },
-  { label: "1h", from: "-1h" },
-  { label: "4h", from: "-4h" },
-  { label: "24h", from: "-24h" },
-  { label: "2d", from: "-2d" },
-  { label: "7d", from: "-7d" },
-  { label: "30d", from: "-30d" },
+export const QUICK_RANGES: { label: string; short: string; from: string }[] = [
+  { label: "15 minutes", short: "15m", from: "-15m" },
+  { label: "hour", short: "1h", from: "-1h" },
+  { label: "4 hours", short: "4h", from: "-4h" },
+  { label: "24 hours", short: "24h", from: "-24h" },
+  { label: "2 days", short: "2d", from: "-2d" },
+  { label: "7 days", short: "7d", from: "-7d" },
+  { label: "30 days", short: "30d", from: "-30d" },
 ];
 
 export const DEFAULT_RANGE: Range = { from: "-1h", to: "" };
@@ -32,7 +32,7 @@ export function rangeLabel(r: Range): string {
   const q = QUICK_RANGES.find((x) => x.from === r.from && !r.to);
   if (q) return `Last ${q.label}`;
   const { from, to } = resolveRange(r);
-  return `${fmtShort(from)} → ${fmtShort(to)}`;
+  return `${fmtShort(from)} – ${fmtShort(to)}`;
 }
 
 export function fmtTs(iso: string | Date, opts: { seconds?: boolean; ms?: boolean } = { seconds: true }): string {
@@ -57,15 +57,39 @@ export function ago(iso: string, now = Date.now()): string {
   const t = new Date(iso).getTime();
   if (isNaN(t)) return "";
   const s = Math.max(0, Math.round((now - t) / 1000));
-  if (s < 5) return "just now";
-  if (s < 60) return `${s}s ago`;
+  if (s < 10) return "just now";
+  if (s < 60) return `${s} sec ago`;
   const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) return `${m} min ago`;
   const h = Math.round(m / 60);
-  if (h < 48) return `${h}h ago`;
+  if (h < 48) return h === 1 ? "1 hour ago" : `${h} hours ago`;
   const d = Math.round(h / 24);
-  if (d < 60) return `${d}d ago`;
-  return `${Math.round(d / 30)}mo ago`;
+  if (d < 60) return `${d} days ago`;
+  const mo = Math.round(d / 30);
+  return mo === 1 ? "1 month ago" : `${mo} months ago`;
+}
+
+/** "Today 09:28:56", "Yesterday 18:02", "Oct 3 18:02": readable times for tables. */
+export function fmtWhen(iso: string | Date, opts: { seconds?: boolean } = {}, now = new Date()): string {
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  if (isNaN(d.getTime())) return String(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}${opts.seconds ? `:${pad(d.getSeconds())}` : ""}`;
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const that = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  if (that === day) return `Today ${hm}`;
+  if (that === day - 864e5) return `Yesterday ${hm}`;
+  const md = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.getFullYear() === now.getFullYear() ? `${md} ${hm}` : `${md}, ${d.getFullYear()} ${hm}`;
+}
+
+/** "1 hour", "5 minutes": a bucket or window length in words. */
+export function durationWords(seconds: number): string {
+  const unit = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  if (seconds < 60) return unit(seconds, "second");
+  if (seconds < 3600) return unit(Math.round(seconds / 60), "minute");
+  if (seconds < 86400) return unit(Math.round(seconds / 3600), "hour");
+  return unit(Math.round(seconds / 86400), "day");
 }
 
 export function fmtDuration(ms: number): string {
