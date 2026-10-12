@@ -1,0 +1,8 @@
+Pyloggle
+Copyright 2026 koneb71
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The ingestd binary and Docker image include third-party software: Go modules and the
+JavaScript packages built into the web UI. Their licenses and notices are listed in
+THIRD_PARTY_LICENSES.md (also served by a running server at /ui/licenses.txt).
