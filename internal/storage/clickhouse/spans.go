@@ -295,3 +295,39 @@ func (c *Client) TraceStats(ctx context.Context, q SpanQuery) (api.TraceStats, e
 	}
 	return out, rows.Err()
 }
+
+// TracesWithSpans reports which of the trace ids have at least one stored span between from
+// and to, so links to a request timeline are only offered when the timeline exists.
+func (c *Client) TracesWithSpans(ctx context.Context, projectID string, traceIDs []string, from, to time.Time) (map[string]bool, error) {
+	out := map[string]bool{}
+	ids := make([]string, 0, len(traceIDs))
+	for _, id := range traceIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if strings.TrimSpace(projectID) == "" || len(ids) == 0 {
+		return out, nil
+	}
+	q, args := tracesWithSpansQuery(projectID, ids, from, to)
+	rows, err := c.conn.Query(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+// tracesWithSpansQuery uses IN, not has(): the bloom-filter index on trace_id makes ClickHouse
+// reject has(array, column).
+func tracesWithSpansQuery(projectID string, ids []string, from, to time.Time) (string, []any) {
+	return `SELECT DISTINCT trace_id FROM spans WHERE project_id = ? AND trace_id IN (?) AND start_ts >= ? AND start_ts < ?`,
+		[]any{projectID, ids, from.UTC(), to.UTC()}
+}

@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-A redesigned UI for the whole team, not only engineers. No migrations.
+A redesigned UI for the whole team, not only engineers, and alerts that say what went wrong
+and where. No migrations.
 
 ### Look and language
 
@@ -30,6 +31,29 @@ A redesigned UI for the whole team, not only engineers. No migrations.
 - Alerts: rules read and are edited as sentences, with a *Test this alert* button.
 - Projects: a *Connect your app* guide (Python, Django, FastAPI, OpenTelemetry) with the
   server's address filled in; settings, keys and storage in a side drawer.
+
+### Alerts with context
+
+- Every notification (e-mail, Telegram, Slack) is written from one message in plain words: what
+  happened ("PaymentDeclined happened 60 times in 5 minutes, up from 3"), where ("api · prod",
+  or "all apps · all environments") and when ("Oct 11, 11:13–11:18 UTC (5 minutes), compared
+  with the 5 minutes before").
+- For the first three problems: how many times and how many people, the file, line and code
+  that failed, version and route, the last three steps before the error (URLs without their
+  query strings), and links to that exact time, the request's messages and the request
+  timeline (only when its spans were stored). Error-rate alerts name the top problems; log
+  monitors include three matching lines.
+- Looking this up gets at most 5 seconds (less near the end of an evaluation pass) and never
+  blocks or fails the alert; `pyloggle_alert_enrich_failures_total` counts the times it gave up.
+- Telegram: HTML by default with link previews off, fitted to Telegram's 4096-character limit by
+  dropping detail rather than cutting text, and resent once as plain text if Telegram refuses
+  the markup. Errors no longer include the bot token. `ALERT_TELEGRAM_API_URL` points at a
+  self-hosted Bot API server.
+- E-mail subjects are encoded for non-ASCII text and cannot carry line breaks; bodies are
+  quoted-printable.
+- The webhook payload and the stored firing gain `context` (title, summary, scope, window),
+  `top_issues` and `samples`, with counts of people but never who they are, request URLs or
+  the steps. *Alerts sent* in the UI shows the same summary sentence.
 
 ### Fixed
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AlertRule } from "@/api/types";
-import { formFromRule, ruleCondition, ruleFromForm, ruleRecipients, ruleScope, secondsWords } from "./alert-words";
+import type { AlertFiring } from "@/api/types";
+import { firingSentence, formFromRule, ruleCondition, ruleFromForm, ruleRecipients, ruleScope, secondsWords } from "./alert-words";
 
 const rule = (over: Partial<AlertRule>): AlertRule => ({ id: "r", project_id: "p", name: "n", description: "", service: "", env: "", http_route: "", http_method: "", condition_type: "error_rate", threshold: 0.05, time_window_seconds: 300, cooldown_seconds: 900, enabled: true, notification_channels: [], notification_emails: [], webhook_urls: [], telegram_chat_ids: [], created_at: "", updated_at: "", ...over });
 
@@ -26,5 +27,13 @@ describe("alert rules in words", () => {
     expect(ruleFromForm("error_rate", f)).toEqual({ threshold: 0.05, time_window_seconds: 600, cooldown_seconds: 1800 });
     const s = rule({ condition_type: "issue_spike", threshold: 20 });
     expect(ruleFromForm("issue_spike", formFromRule(s)).threshold).toBe(20);
+  });
+});
+
+describe("alerts sent", () => {
+  it("shows the sentence the notification carried, when the payload has one", () => {
+    const f = { condition_type: "error_rate", payload: { context: { summary: " 42 errors in 5 minutes. " } } } as unknown as AlertFiring;
+    expect(firingSentence(f)).toBe("42 errors in 5 minutes.");
+    expect(firingSentence({ condition_type: "error_rate", payload: {} } as unknown as AlertFiring)).toBeUndefined();
   });
 });

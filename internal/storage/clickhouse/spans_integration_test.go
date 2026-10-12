@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"pyloggle/internal/api"
 	"pyloggle/internal/config"
 	"pyloggle/internal/ingest"
 	"pyloggle/internal/logquery"
@@ -89,6 +90,39 @@ func TestIntegrationSpansAndTraces(t *testing.T) {
 	errs, err := c.TraceErrors(ctx, "p1", tid0, now)
 	if err != nil || len(errs) != 1 || errs[0].ExceptionType != "ValueError" {
 		t.Fatalf("TraceErrors: %+v %v", errs, err)
+	}
+
+	// Alert context: which traces have a stored timeline (IN, not has(), because of the index).
+	found, err := c.TracesWithSpans(ctx, "p1", []string{tid0, "ffffffffffffffffffffffffffffffff", ""}, now.Add(-time.Hour), now.Add(time.Hour))
+	if err != nil || len(found) != 1 || !found[tid0] {
+		t.Fatalf("TracesWithSpans: %v %v", found, err)
+	}
+	if found, err := c.TracesWithSpans(ctx, "p1", []string{tid0}, now.Add(-48*time.Hour), now.Add(-47*time.Hour)); err != nil || len(found) != 0 {
+		t.Fatalf("TracesWithSpans outside the window: %v %v", found, err)
+	}
+	// Alert context: people per spiking issue, counted from hashed ids in the current window only.
+	for i, user := range []string{"u1", "u2", "u2", ""} {
+		ev := model.Event{Timestamp: model.At(now.Add(time.Duration(i) * time.Second)), Service: "api", Env: "prod", Level: "error", Message: "declined",
+			Exception: &model.Exception{Type: "PaymentDeclined", Message: "declined", Frames: []model.Frame{{Filename: "pay.py", Function: "charge", Lineno: 9}}}}
+		if user != "" {
+			ev.User = &model.UserInfo{IDHash: user}
+		}
+		if o := p.Process(ctx, tn, ev, 100); o != ingest.Accepted {
+			t.Fatalf("event: %v", o)
+		}
+	}
+	if err := c.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	spikes, err := c.IssueSpikeCounts(ctx, api.AlertRule{ProjectID: "p1", Service: "api"}, now.Add(-2*time.Hour), now.Add(-time.Hour), now.Add(-time.Hour), now.Add(time.Hour), 10)
+	var declined *clickhouse.IssueSpikeRow
+	for i := range spikes {
+		if strings.HasPrefix(spikes[i].Title, "PaymentDeclined") {
+			declined = &spikes[i]
+		}
+	}
+	if err != nil || declined == nil || declined.CurCount != 4 || declined.CurUsers != 2 || declined.PrevCount != 0 {
+		t.Fatalf("IssueSpikeCounts people: %+v %v", spikes, err)
 	}
 
 	// List: newest first, trace-wide counts, keyset cursor.

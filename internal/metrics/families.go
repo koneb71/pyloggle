@@ -22,6 +22,7 @@ var (
 	AlertEvaluations   = Default.NewCounter("pyloggle_alert_evaluations_total", "Alert rule evaluations.", "condition")
 	AlertFirings       = Default.NewCounter("pyloggle_alert_firings_total", "Alerts fired.", "condition")
 	AlertNotifyFailure = Default.NewCounter("pyloggle_alert_notify_failures_total", "Notifier deliveries that failed.", "notifier")
+	AlertEnrichFailure = Default.NewCounter("pyloggle_alert_enrich_failures_total", "Firings sent with less context than usual (a lookup failed, ran out of time or panicked).", "reason")
 	AlertLastRun       = Default.NewGauge("pyloggle_alert_last_run_timestamp_seconds", "Unix time of the last alert evaluation pass.")
 
 	CHUp                 = Default.NewGauge("pyloggle_ch_up", "1 when the last ClickHouse probe succeeded.")

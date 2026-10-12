@@ -4,7 +4,7 @@ import { previewAlertRule, useAlertFirings, useAlertRules, useLogFacets, useSave
 import type { AlertFiring, AlertRule, Me } from "@/api/types";
 import { Badge, Button, Card, Checkbox, Dialog, EmptyState, Field, Input, JsonView, MetaLine, Page, QueryState, Section, Select, Skeleton, Textarea, TimeAgo, friendlyError, toast } from "@/components/ui";
 import { fmtTs, fmtWhen } from "@/lib/time";
-import { ALERT_KIND, COMPARISON_WORDS, alertKindLabel, firingSummary, formFromRule, ruleCondition, ruleFromForm, ruleRecipients, ruleScope, secondsWords, type RuleForm } from "./alert-words";
+import { ALERT_KIND, COMPARISON_WORDS, alertKindLabel, firingSentence, firingSummary, formFromRule, ruleCondition, ruleFromForm, ruleRecipients, ruleScope, secondsWords, type RuleForm } from "./alert-words";
 
 export function Compare(op: string | undefined, value: number, threshold: number): boolean {
   switch (op || "gt") {
@@ -135,13 +135,14 @@ export function AlertsPage({ me }: { me: Me }) {
 
 function Firing({ f, ruleName }: { f: AlertFiring; ruleName?: string }) {
   const [open, setOpen] = useState(false);
+  const sentence = firingSentence(f);
   return (
     <li className="px-4 py-3 text-[13px]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <Bell size={14} className="flex-none text-ink-3" />
         <span className="font-medium text-ink">{ruleName ?? "Deleted rule"}</span>
         <span className="text-ink-2">{alertKindLabel(f.condition_type)}</span>
-        <span className="text-ink-3">{firingSummary(f)}</span>
+        {!sentence && <span className="text-ink-3">{firingSummary(f)}</span>}
         <span className="ml-auto flex items-center gap-3 text-xs text-ink-3">
           <span title={`Looked at ${fmtTs(f.window_start)} to ${fmtTs(f.window_end)}`}>{fmtWhen(f.fired_at)}</span>
           {f.url && (
@@ -154,6 +155,7 @@ function Firing({ f, ruleName }: { f: AlertFiring; ruleName?: string }) {
           </button>
         </span>
       </div>
+      {sentence && <p className="ml-[26px] mt-1 text-ink-2">{sentence}</p>}
       {(f.service || f.env) && <MetaLine className="ml-[26px] mt-0.5">{[f.service, f.env].filter(Boolean).join(" / ")}</MetaLine>}
       {open && (
         <div className="mt-2 rounded-md bg-surface-2 p-3">

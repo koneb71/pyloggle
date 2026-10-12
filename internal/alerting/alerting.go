@@ -22,6 +22,7 @@ type IssueSpike struct {
 	CurCount  uint64 `json:"cur_count"`
 	PrevCount uint64 `json:"prev_count"`
 	Delta     int64  `json:"delta"`
+	Users     uint64 `json:"users,omitempty"` // how many people, never who
 	URL       string `json:"url,omitempty"`
 }
 
@@ -31,6 +32,7 @@ type IssueRef struct {
 	Title   string `json:"title"`
 	Culprit string `json:"culprit,omitempty"`
 	Count   uint64 `json:"count,omitempty"`
+	Users   uint64 `json:"users,omitempty"`
 	URL     string `json:"url,omitempty"`
 }
 
@@ -68,6 +70,10 @@ type AlertEvent struct {
 
 	Spikes []IssueSpike
 	Issues []IssueRef
+
+	// Filled by enrich() just before notifying; best effort, so either may be empty.
+	TopIssues []IssueContext // the first few issues with the latest time each happened
+	Samples   []LogSample    // log_query: a few of the matching lines
 }
 
 // PublicAlert is the wire shape of a firing.
@@ -83,6 +89,18 @@ type PublicAlert struct {
 	URL         string       `json:"url,omitempty"`
 	Spikes      []IssueSpike `json:"spikes,omitempty"`
 	Issues      []IssueRef   `json:"issues,omitempty"`
+
+	Context   AlertContext   `json:"context"`
+	TopIssues []IssueContext `json:"top_issues,omitempty"`
+	Samples   []LogSample    `json:"samples,omitempty"`
+}
+
+// AlertContext is the alert in words, as the notifications say it.
+type AlertContext struct {
+	Title   string `json:"title"`   // "Too many errors"
+	Summary string `json:"summary"` // "42 errors in 5 minutes: 8.4 a minute, above the limit of 6 a minute."
+	Scope   string `json:"scope"`   // "api · prod" or "all apps · all environments"
+	Window  string `json:"window"`  // "Oct 11, 11:13–11:18 UTC (5 minutes)"
 }
 
 func (ev AlertEvent) Public() PublicAlert {
@@ -92,6 +110,8 @@ func (ev AlertEvent) Public() PublicAlert {
 			ConditionType: r.ConditionType, Query: r.Query, Comparison: r.Comparison, Threshold: r.Threshold, TimeWindowSeconds: r.TimeWindowSeconds},
 		FiredAt: ev.FiredAt, WindowStart: ev.WindowStart, WindowEnd: ev.WindowEnd, Kind: ev.Kind,
 		ErrorCount: ev.ErrorCount, ErrorRate: ev.ErrorRate, Count: ev.Count, URL: ev.URL, Spikes: ev.Spikes, Issues: ev.Issues,
+		Context:   AlertContext{Title: kindTitle(ev), Summary: headline(ev), Scope: scopeWords(r), Window: windowWords(ev)},
+		TopIssues: ev.TopIssues, Samples: ev.Samples,
 	}
 }
 
@@ -108,14 +128,20 @@ type Store interface {
 	NewIssues(ctx context.Context, rule api.AlertRule, from, to time.Time, limit int) ([]api.IssueSummary, error)
 	RegressedIssues(ctx context.Context, rule api.AlertRule, from, to time.Time, limit int) ([]api.IssueSummary, error)
 	CountLogs(ctx context.Context, q clickhouse.LogQuery) (uint64, error)
+
+	// Used to add context to a firing (enrich.go).
+	QueryLogs(ctx context.Context, q clickhouse.LogQuery) ([]api.LogEvent, error)
+	QueryOccurrences(ctx context.Context, projectID, issueID string, from, to, before time.Time, limit int) ([]api.ErrorOccurrence, error)
+	TracesWithSpans(ctx context.Context, projectID string, traceIDs []string, from, to time.Time) (map[string]bool, error)
 }
 
 type Runner struct {
-	cfg       config.Config
-	store     Store
-	notifiers []Notifier
-	badRules  map[string]string // rule id -> last logged parse error (logged once)
-	now       func() time.Time
+	cfg          config.Config
+	store        Store
+	notifiers    []Notifier
+	badRules     map[string]string // rule id -> last logged parse error (logged once)
+	now          func() time.Time
+	enrichBudget time.Duration // how long adding context to one firing may take
 }
 
 func NewRunner(cfg config.Config, ch *clickhouse.Client) *Runner {
@@ -132,7 +158,8 @@ func NewRunner(cfg config.Config, ch *clickhouse.Client) *Runner {
 
 // NewRunnerWith builds a runner around any store and notifier set (tests).
 func NewRunnerWith(cfg config.Config, store Store, notifiers []Notifier) *Runner {
-	return &Runner{cfg: cfg, store: store, notifiers: notifiers, badRules: map[string]string{}, now: func() time.Time { return time.Now().UTC() }}
+	return &Runner{cfg: cfg, store: store, notifiers: notifiers, badRules: map[string]string{}, now: func() time.Time { return time.Now().UTC() },
+		enrichBudget: 5 * time.Second}
 }
 
 func (r *Runner) Run(ctx context.Context) {
@@ -253,7 +280,7 @@ func (r *Runner) evalIssueSpike(ctx context.Context, rule api.AlertRule, now tim
 		if float64(delta) < rule.Threshold {
 			continue
 		}
-		spikes = append(spikes, IssueSpike{IssueID: row.IssueID, Title: row.Title, CurCount: row.CurCount, PrevCount: row.PrevCount, Delta: delta, URL: r.issueURL(row.IssueID)})
+		spikes = append(spikes, IssueSpike{IssueID: row.IssueID, Title: row.Title, CurCount: row.CurCount, PrevCount: row.PrevCount, Delta: delta, Users: row.CurUsers, URL: r.issueURL(row.IssueID)})
 		if len(spikes) >= 5 {
 			break
 		}
@@ -409,12 +436,13 @@ func scopeQuery(rule api.AlertRule) string {
 func (r *Runner) refs(rows []api.IssueSummary) []IssueRef {
 	out := make([]IssueRef, 0, len(rows))
 	for _, s := range rows {
-		out = append(out, IssueRef{IssueID: s.IssueID, Title: s.Title, Culprit: s.Culprit, Count: s.OccurrenceCount, URL: r.issueURL(s.IssueID)})
+		out = append(out, IssueRef{IssueID: s.IssueID, Title: s.Title, Culprit: s.Culprit, Count: s.OccurrenceCount, Users: s.AffectedUsers, URL: r.issueURL(s.IssueID)})
 	}
 	return out
 }
 
 func (r *Runner) fire(ctx context.Context, ev AlertEvent) {
+	r.enrich(ctx, &ev)
 	ok := false
 	for _, n := range r.notifiers {
 		if err := n.Notify(ctx, ev); err != nil {
