@@ -35,6 +35,18 @@ export function rangeLabel(r: Range): string {
   return `${fmtShort(from)} – ${fmtShort(to)}`;
 }
 
+/** "the last 24 hours" for a recent range, or the dates for a fixed one: reads inside a sentence. */
+export function rangePhrase(r: Range): string {
+  const q = QUICK_RANGES.find((x) => x.from === r.from && !r.to);
+  return q ? `the last ${q.label}` : rangeLabel(r);
+}
+
+/** "vs previous 24 hours": the label for a change against the same-length range before. */
+export function previousLabel(r: Range): string {
+  const q = QUICK_RANGES.find((x) => x.from === r.from && !r.to);
+  return q ? `vs previous ${q.label}` : "vs the period before";
+}
+
 export function fmtTs(iso: string | Date, opts: { seconds?: boolean; ms?: boolean } = { seconds: true }): string {
   const d = typeof iso === "string" ? new Date(iso) : iso;
   if (isNaN(d.getTime())) return String(iso);

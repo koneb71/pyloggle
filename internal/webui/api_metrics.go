@@ -14,12 +14,33 @@ import (
 func (u *UI) apiOverview(w http.ResponseWriter, r *http.Request) {
 	from, to := qRange(r, 24*time.Hour)
 	qs := r.URL.Query()
-	o, err := u.store.Overview(r.Context(), auth.ProjectIDFromContext(r.Context()), qs.Get("service"), qs.Get("env"), from, to)
+	projectID := auth.ProjectIDFromContext(r.Context())
+	o, err := u.store.Overview(r.Context(), projectID, qs.Get("service"), qs.Get("env"), from, to)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "overview": o})
+	resp := map[string]any{"from": from, "to": to, "overview": o}
+	if wantsPrevious(r) {
+		pf, pt := previousRange(from, to)
+		prev, err := u.store.Overview(r.Context(), projectID, qs.Get("service"), qs.Get("env"), pf, pt)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+			return
+		}
+		resp["previous"] = prev
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// wantsPrevious reports ?compare=previous: also compute the same-length range just before.
+func wantsPrevious(r *http.Request) bool {
+	return strings.EqualFold(r.URL.Query().Get("compare"), "previous")
+}
+
+// previousRange is the window of the same length that ends where [from, to) starts.
+func previousRange(from, to time.Time) (time.Time, time.Time) {
+	return from.Add(-to.Sub(from)), from
 }
 
 func (u *UI) apiErrorTrend(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +75,8 @@ func (u *UI) apiLogVolume(w http.ResponseWriter, r *http.Request) {
 func (u *UI) apiTopIssues(w http.ResponseWriter, r *http.Request) {
 	from, to := qRange(r, 24*time.Hour)
 	qs := r.URL.Query()
-	items, err := u.store.TopIssues(r.Context(), auth.ProjectIDFromContext(r.Context()), qs.Get("service"), qs.Get("env"), from, to, qInt(r, "limit", 10, 100))
+	projectID := auth.ProjectIDFromContext(r.Context())
+	items, err := u.store.TopIssues(r.Context(), projectID, qs.Get("service"), qs.Get("env"), from, to, qInt(r, "limit", 10, 100))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
 		return
@@ -62,13 +84,34 @@ func (u *UI) apiTopIssues(w http.ResponseWriter, r *http.Request) {
 	if items == nil {
 		items = []api.IssueSummary{}
 	}
+	u.attachSparklines(r, projectID, items)
 	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "items": items})
+}
+
+// attachSparklines fills each issue's last-24h hourly counts. A failure only leaves them empty.
+func (u *UI) attachSparklines(r *http.Request, projectID string, items []api.IssueSummary) {
+	if len(items) == 0 {
+		return
+	}
+	ids := make([]string, len(items))
+	for i := range items {
+		ids[i] = items[i].IssueID
+	}
+	sp, err := u.store.IssueSparklines(r.Context(), projectID, ids, 24)
+	if err != nil {
+		return
+	}
+	for i := range items {
+		items[i].Sparkline = sp[items[i].IssueID]
+	}
 }
 
 type requestStatsResponse struct {
 	api.RequestStats
 	Source    string `json:"source"`
 	Available bool   `json:"available"`
+	// PreviousTotals covers the same-length range just before (with ?compare=previous).
+	PreviousTotals *api.RouteStats `json:"previous_totals,omitempty"`
 }
 
 // apiRequestStats serves the dashboard request tiles from request_stats_minutely (source=logs,
@@ -110,7 +153,24 @@ func (u *UI) apiRequestStats(w http.ResponseWriter, r *http.Request) {
 	if st.BucketSeconds == 0 {
 		st.BucketSeconds, st.From, st.To = bucket, from, to
 	}
-	writeJSON(w, http.StatusOK, requestStatsResponse{RequestStats: st, Source: source, Available: available})
+	resp := requestStatsResponse{RequestStats: st, Source: source, Available: available}
+	if wantsPrevious(r) {
+		// One bucket spanning the whole previous range: only the totals are needed.
+		pf, pt := previousRange(from, to)
+		whole := int(pt.Sub(pf) / time.Second)
+		var prev api.RequestStats
+		if source == "otel" {
+			prev, _, err = u.store.RequestStatsFromOTel(r.Context(), projectID, qs.Get("service"), qs.Get("env"), pf, pt, whole, 1)
+		} else {
+			prev, err = u.store.RequestStats(r.Context(), projectID, qs.Get("service"), qs.Get("env"), pf, pt, whole, 1)
+		}
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+			return
+		}
+		resp.PreviousTotals = &prev.Totals
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // apiMetricNames lists the OTLP metrics the project has reported (the dashboard picker).

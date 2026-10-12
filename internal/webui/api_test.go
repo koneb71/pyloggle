@@ -42,10 +42,26 @@ type fakeStore struct {
 	created         []clickhouse.ProjectUpsert
 	keys            []api.APIKey
 	revoked         []string
+	issues          []api.IssueSummary // when set, QueryIssues returns these (filtered by IssueIDs)
+	spikes          []clickhouse.IssueSpikeRow
+	spikeWindows    [4]time.Time
+	overviewRanges  [][2]time.Time
+	requestRanges   [][2]time.Time
 }
 
 func (f *fakeStore) QueryIssues(_ context.Context, q clickhouse.IssueListQuery) ([]api.IssueSummary, error) {
 	f.lastIssueQuery = q
+	if f.issues != nil {
+		var out []api.IssueSummary
+		for _, s := range f.issues {
+			for _, id := range q.IssueIDs {
+				if s.IssueID == id {
+					out = append(out, s)
+				}
+			}
+		}
+		return out, nil
+	}
 	return []api.IssueSummary{{IssueID: "i1", Title: "ValueError: boom", Status: "open", Service: "api", Env: "prod"}}, nil
 }
 func (f *fakeStore) CountIssuesByStatus(context.Context, clickhouse.IssueListQuery) (map[string]uint64, error) {
@@ -169,8 +185,9 @@ func (f *fakeStore) LogAggregate(_ context.Context, q clickhouse.LogQuery, spec 
 	return api.LogAggregate{BucketSeconds: int(spec.Bucket / time.Second), GroupBy: spec.GroupBy, Metric: spec.Metric, Of: spec.Of,
 		Total: api.AggregateGroup{Key: "total", Rows: 3, Value: &v}, Groups: []api.AggregateGroup{{Key: "/orders", Rows: 3, Value: &v}}}, nil
 }
-func (f *fakeStore) RequestStats(_ context.Context, _, service, _ string, _, _ time.Time, bucket, limit int) (api.RequestStats, error) {
+func (f *fakeStore) RequestStats(_ context.Context, _, service, _ string, from, to time.Time, bucket, limit int) (api.RequestStats, error) {
 	f.lastService = service
+	f.requestRanges = append(f.requestRanges, [2]time.Time{from, to})
 	return api.RequestStats{BucketSeconds: bucket, Totals: api.RouteStats{Requests: 10, Errors: 1, ErrorPct: 10}, Routes: make([]api.RouteStats, limit)}, nil
 }
 func (f *fakeStore) TraceList(_ context.Context, q clickhouse.SpanQuery) ([]api.TraceSummary, error) {
@@ -290,8 +307,19 @@ func (f *fakeStore) GlobalLogVolume(_ context.Context, from, to time.Time, bucke
 func (f *fakeStore) Stats() clickhouse.Stats {
 	return clickhouse.Stats{Queues: []clickhouse.BatcherStats{{Kind: "logs", Depth: 3, Capacity: 100, Written: 50}}}
 }
-func (f *fakeStore) Overview(context.Context, string, string, string, time.Time, time.Time) (api.Overview, error) {
-	return api.Overview{Events: 10}, nil
+func (f *fakeStore) Overview(_ context.Context, _, _, _ string, from, to time.Time) (api.Overview, error) {
+	f.overviewRanges = append(f.overviewRanges, [2]time.Time{from, to})
+	return api.Overview{Events: uint64(10 * len(f.overviewRanges))}, nil
+}
+func (f *fakeStore) ServiceHealth(_ context.Context, _, env string, _, _ time.Time, _ int) ([]api.ServiceHealth, error) {
+	return []api.ServiceHealth{{Service: "api", Envs: []string{"prod"}, Status: "failing", Requests: 100, Failed: 9, FailedPct: 9}}, nil
+}
+func (f *fakeStore) ListReleases(context.Context, string, time.Time, time.Time, int) ([]api.Release, error) {
+	return []api.Release{{Release: "1.4.0", Errors: 3, Issues: 1}}, nil
+}
+func (f *fakeStore) IssueSpikeCounts(_ context.Context, _ api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, _ int) ([]clickhouse.IssueSpikeRow, error) {
+	f.spikeWindows = [4]time.Time{prevFrom, prevTo, curFrom, curTo}
+	return f.spikes, nil
 }
 func (f *fakeStore) ErrorTrend(context.Context, string, string, string, string, string, time.Time, time.Time, int) ([]api.TimeSeriesPoint, error) {
 	return nil, nil

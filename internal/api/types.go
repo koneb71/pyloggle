@@ -243,6 +243,40 @@ type Overview struct {
 	Services      uint64 `json:"services"`
 }
 
+// ServiceHealth is one app's traffic and error picture over a range (the Overview "Apps" list).
+// Requests come from request lines, errors from issue occurrences, volume from log lines.
+type ServiceHealth struct {
+	Service string   `json:"service"`
+	Envs    []string `json:"envs"`
+	// Status is "failing", "degraded", "silent" (nothing recent) or "ok".
+	Status    string    `json:"status"`
+	Requests  uint64    `json:"requests"`
+	Failed    uint64    `json:"failed"`
+	FailedPct float64   `json:"failed_pct"`
+	RPM       float64   `json:"rpm"`
+	P50MS     float64   `json:"p50_ms"`
+	P95MS     float64   `json:"p95_ms"`
+	Errors    uint64    `json:"errors"`
+	Logs      uint64    `json:"logs"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
+// Release is one version the project has reported, with its errors in the requested range.
+type Release struct {
+	Release   string    `json:"release"`
+	FirstSeen time.Time `json:"first_seen"`
+	Errors    uint64    `json:"errors"`
+	Issues    uint64    `json:"issues"`
+}
+
+// AttentionItem is an issue the Overview flags, with why: "regressed", "new" or "spike".
+type AttentionItem struct {
+	Issue         IssueSummary `json:"issue"`
+	Reasons       []string     `json:"reasons"`
+	Count         uint64       `json:"count"`
+	PreviousCount uint64       `json:"previous_count"`
+}
+
 // AlertRule is the user-managed rule stored in ClickHouse (table: alert_rules).
 // Note: updates are modeled as new inserts; reads return the latest row per (project_id,id).
 type AlertRule struct {

@@ -7,6 +7,7 @@ import { AppShell } from "@/components/shell/app-shell";
 import { Button, ErrorState, Spinner } from "@/components/ui";
 import { LoginPage } from "@/features/auth/login-page";
 import { IssuesPage } from "@/features/issues/issues-page";
+import { OverviewPage } from "@/features/overview/overview-page";
 import { IssueDetailPage } from "@/features/issues/issue-detail-page";
 import { LogsPage } from "@/features/logs/logs-page";
 import { DashboardsPage } from "@/features/dashboards/dashboards-page";
@@ -56,9 +57,10 @@ export function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={<Navigate to="/issues" replace />} />
+      <Route path="/login" element={<Navigate to="/overview" replace />} />
       <Route element={<AppShell me={me.data} />}>
-        <Route index element={<Navigate to="/issues" replace />} />
+        <Route index element={<Navigate to="/overview" replace />} />
+        <Route path="/overview" element={<NeedsProject me={me.data}><OverviewPage me={me.data} /></NeedsProject>} />
         <Route path="/issues" element={<NeedsProject me={me.data}><IssuesPage /></NeedsProject>} />
         <Route path="/issues/:id" element={<NeedsProject me={me.data}><IssueDetailPage /></NeedsProject>} />
         <Route path="/logs" element={<NeedsProject me={me.data}><LogsPage /></NeedsProject>} />
@@ -68,7 +70,7 @@ export function App() {
         <Route path="/alerts" element={<NeedsProject me={me.data}><AlertsPage me={me.data} /></NeedsProject>} />
         <Route path="/projects" element={<ProjectsPage me={me.data} />} />
         <Route path="/system" element={<SystemPage me={me.data} />} />
-        <Route path="*" element={<Navigate to="/issues" replace />} />
+        <Route path="*" element={<Navigate to="/overview" replace />} />
       </Route>
     </Routes>
   );

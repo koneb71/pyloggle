@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { del, get, post } from "./client";
-import type { APIKey, AlertFiring, AlertRule, AuditEntry, Histogram, IssueActivity, IssueDetail, IssueListResponse, LogAggregate, LogContext, LogFacets, LogPattern, LogsResponse, Me, MetricInfo, MetricSeries, Occurrence, Overview, Project, ProjectUsage, RequestStatsResponse, SavedView, TimeSeriesPoint, TraceDetail, TracesResponse } from "./types";
+import type { APIKey, AlertFiring, AlertRule, AttentionItem, AttentionReason, AuditEntry, Histogram, IssueActivity, IssueDetail, IssueListResponse, LogAggregate, LogContext, LogFacets, LogPattern, LogsResponse, Me, MetricInfo, MetricSeries, Occurrence, Overview, Project, ProjectUsage, Release, RequestStatsResponse, SavedView, ServiceHealth, TimeSeriesPoint, TraceDetail, TracesResponse } from "./types";
 
 export const useMe = () => useQuery({ queryKey: ["me"], queryFn: () => get<Me>("/me"), staleTime: 60_000, retry: false });
 
@@ -160,10 +160,24 @@ export function useDeleteView() {
   return useMutation({ meta: { action: "delete the saved search" }, mutationFn: (id: string) => del(`/saved-views/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-views"] }) });
 }
 
-export const useOverview = (p: { from?: string; to?: string; service?: string; env?: string }) =>
-  useQuery({ queryKey: ["overview", p], queryFn: () => get<{ overview: Overview }>("/metrics/overview", p), placeholderData: keepPreviousData });
+export const useOverview = (p: { from?: string; to?: string; service?: string; env?: string; compare?: "previous" }, refetchInterval?: number | false) =>
+  useQuery({ queryKey: ["overview", p], queryFn: () => get<{ overview: Overview; previous?: Overview }>("/metrics/overview", p), placeholderData: keepPreviousData, refetchInterval: refetchInterval ?? false });
 
-export const useErrorTrend = (p: { from?: string; to?: string; service?: string; env?: string }) =>
+export const useServiceHealth = (p: { from?: string; to?: string; env?: string }, refetchInterval?: number | false) =>
+  useQuery({ queryKey: ["service-health", p], queryFn: () => get<{ items: ServiceHealth[] }>("/metrics/services", p), placeholderData: keepPreviousData, refetchInterval: refetchInterval ?? false });
+
+export const useAttention = (p: { from?: string; to?: string; service?: string; env?: string; limit?: number }, refetchInterval?: number | false) =>
+  useQuery({
+    queryKey: ["attention", p],
+    queryFn: () => get<{ items: AttentionItem[]; counts: Record<AttentionReason, number> }>("/metrics/attention", p),
+    placeholderData: keepPreviousData,
+    refetchInterval: refetchInterval ?? false,
+  });
+
+export const useReleases = (p: { from?: string; to?: string; limit?: number }) =>
+  useQuery({ queryKey: ["releases", p], queryFn: () => get<{ items: Release[] }>("/releases", p), placeholderData: keepPreviousData });
+
+export const useErrorTrend = (p: { from?: string; to?: string; service?: string; env?: string; buckets?: number }) =>
   useQuery({ queryKey: ["error-trend", p], queryFn: () => get<{ bucket_seconds: number; points: TimeSeriesPoint[] }>("/metrics/errors", p), placeholderData: keepPreviousData });
 
 export const useLogVolume = (p: { from?: string; to?: string; service?: string; env?: string }) =>
@@ -190,7 +204,7 @@ export const useTrace = (id: string | undefined, at?: string) =>
 export const useTraceFields = () =>
   useQuery({ queryKey: ["trace-fields"], queryFn: () => get<{ fields: string[]; syntax: string[] }>("/traces/fields"), staleTime: Infinity });
 
-export const useRequestStats = (p: { from?: string; to?: string; service?: string; env?: string; source?: string }) =>
+export const useRequestStats = (p: { from?: string; to?: string; service?: string; env?: string; source?: string; compare?: "previous"; buckets?: number }) =>
   useQuery({ queryKey: ["request-stats", p], queryFn: () => get<RequestStatsResponse>("/metrics/requests", { ...p, limit: 10 }), placeholderData: keepPreviousData });
 
 export const useMetricNames = () =>
@@ -247,7 +261,7 @@ export function useProjectMutations() {
 }
 
 export const useAlertRules = () => useQuery({ queryKey: ["alert-rules"], queryFn: () => get<{ items: AlertRule[]; conditions: string[] }>("/alerts/rules") });
-export const useAlertFirings = () => useQuery({ queryKey: ["alert-firings"], queryFn: () => get<{ items: AlertFiring[] }>("/alerts/firings", { limit: 50 }) });
+export const useAlertFirings = (limit = 50, enabled = true) => useQuery({ queryKey: ["alert-firings", limit], queryFn: () => get<{ items: AlertFiring[] }>("/alerts/firings", { limit }), enabled });
 export const previewAlertRule = (p: { query: string; window_seconds: number; service?: string; env?: string; http_route?: string; http_method?: string }) =>
   get<{ count: number; window_start: string; window_end: string }>("/alerts/rules/preview", p);
 
