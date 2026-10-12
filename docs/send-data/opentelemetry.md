@@ -53,9 +53,9 @@ opentelemetry-instrument celery -A shop worker
 Exceptions the instrumentations record on spans become issues; the SDK can run alongside
 (see "One issue per crash").
 
-## FastAPI 0.142+ native telemetry
+## Native telemetry in FastAPI
 
-FastAPI ships its own OpenTelemetry support: one `SERVER` span per request plus operation spans
+FastAPI 0.142 and later ships its own OpenTelemetry support: one `SERVER` span per request plus operation spans
 (`fastapi.dependencies`, `fastapi.endpoint`, `fastapi.serialization`, background tasks), the
 HTTP metrics `http.server.request.duration` and `http.server.active_requests`, and one log
 record per unhandled exception and per validation failure. No contrib package, no SDK:
