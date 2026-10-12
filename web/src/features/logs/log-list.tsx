@@ -6,6 +6,7 @@ import { get } from "@/api/client";
 import type { LogEvent, LogsResponse } from "@/api/types";
 import { EmptyState, LevelBadge, LoadMore, QueryState, Skeleton } from "@/components/ui";
 import { fmtTs, fmtWhen } from "@/lib/time";
+import { useElementWidth, useSmallScreen } from "@/lib/use-media";
 import { columnFor, type ColumnDef } from "./log-fields";
 
 export interface LogTableProps {
@@ -26,12 +27,20 @@ export interface LogTableProps {
 /**
  * Virtualized message rows. The header and every row share one grid template and one gap, so
  * columns line up exactly. Keyboard: j / k move, Enter opens, when the page has focus.
+ *
+ * Where the columns don't fit (a phone, or a tablet with the filters open) each message takes
+ * two lines instead: when, how severe and the chosen columns on the first, the message on the
+ * second. A desk with many columns keeps the table and scrolls sideways.
  */
 export function LogTable({ items, columns = [], selectedId, highlightEventId, onSelect, wrap, dense, className, footer, scrollRef, onScrollTop }: LogTableProps) {
   const localRef = useRef<HTMLDivElement>(null);
   const parentRef = scrollRef ?? localRef;
   const cols = useMemo(() => columns.map(columnFor).filter((c): c is ColumnDef => !!c), [columns]);
-  const rowH = dense ? 28 : 34;
+  const width = useElementWidth(parentRef);
+  const small = useSmallScreen();
+  const stacked = width > 0 ? stacksAt(width, cols, dense) : small;
+  // Two-line rows: padding (12 or 16) + a 20px line of facts + a 20px line of message.
+  const rowH = stacked ? (dense ? 52 : 56) : dense ? 28 : 34;
   const v = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
@@ -39,6 +48,8 @@ export function LogTable({ items, columns = [], selectedId, highlightEventId, on
     overscan: 20,
     measureElement: wrap ? (el) => el.getBoundingClientRect().height : undefined,
   });
+  // Turning a tablet or resizing across the phone width changes every row's height.
+  useEffect(() => v.measure(), [stacked, v]);
   const grid: CSSProperties = { gridTemplateColumns: `${dense ? 128 : 150}px 84px ${cols.map((c) => c.width).join(" ")} minmax(240px,1fr)` };
   const rowClass = "grid gap-x-4 px-4";
 
@@ -82,7 +93,7 @@ export function LogTable({ items, columns = [], selectedId, highlightEventId, on
       aria-label="Messages"
       aria-rowcount={items.length}
     >
-      <div className={clsx(rowClass, "sticky top-0 z-10 h-8 items-center border-b border-border bg-surface text-xs font-medium text-ink-3")} style={grid} role="row">
+      <div className={stacked ? "sr-only" : clsx(rowClass, "sticky top-0 z-10 h-8 items-center border-b border-border bg-surface text-xs font-medium text-ink-3")} style={stacked ? undefined : grid} role="row">
         <div role="columnheader">Time</div>
         <div role="columnheader">Severity</div>
         {cols.map((c) => (
@@ -97,6 +108,45 @@ export function LogTable({ items, columns = [], selectedId, highlightEventId, on
           const e = items[vi.index];
           const selected = e.event_id === selectedId;
           const highlighted = e.event_id === highlightEventId;
+          if (stacked)
+            return (
+              <div
+                key={e.event_id}
+                ref={wrap ? v.measureElement : undefined}
+                data-index={vi.index}
+                role="row"
+                aria-selected={selected}
+                onClick={() => onSelect?.(e)}
+                className={clsx(
+                  "absolute left-0 w-full cursor-pointer border-b border-border/70 px-4 hover:bg-surface-2",
+                  dense ? "py-1.5" : "py-2",
+                  selected && "bg-accent-soft hover:bg-accent-soft",
+                  highlighted && !selected && "bg-warning/10",
+                )}
+                style={{ top: 0, transform: `translateY(${vi.start}px)`, minHeight: rowH }}
+              >
+                <div className="flex h-5 min-w-0 items-center gap-2 text-xs text-ink-3">
+                  <span role="cell" className="flex-none tabular text-ink-2" title={fmtTs(e.ts, { ms: true })}>
+                    {fmtWhen(e.ts, { seconds: true })}
+                  </span>
+                  <span role="cell" className="flex-none">
+                    <LevelBadge level={e.level} className="text-xs" />
+                  </span>
+                  {cols.map((c) => {
+                    const val = c.value(e);
+                    return val ? (
+                      <span key={c.id} role="cell" className={clsx("min-w-0 truncate", c.mono && "font-mono text-[11px]")} title={`${c.label}: ${val}`}>
+                        {val}
+                      </span>
+                    ) : null;
+                  })}
+                </div>
+                <div role="cell" className={clsx("min-w-0 leading-5 text-ink", wrap ? "whitespace-pre-wrap break-words" : "truncate")}>
+                  {e.message}
+                  {e.exception_type && <span className="ml-2 text-xs font-medium text-critical-text">{e.exception_type}</span>}
+                </div>
+              </div>
+            );
           return (
             <div
               key={e.event_id}
@@ -138,6 +188,20 @@ export function LogTable({ items, columns = [], selectedId, highlightEventId, on
       {footer}
     </div>
   );
+}
+
+/** Narrower than this, a list stacks even when its columns would just fit. */
+const STACK_BELOW = 720;
+
+/** Whether a list this wide shows two-line rows: when the table wouldn't fit, up to STACK_BELOW. */
+export function stacksAt(width: number, cols: ColumnDef[], dense?: boolean): boolean {
+  return width < Math.min(STACK_BELOW, minTableWidth(cols, dense));
+}
+
+/** The narrowest the table can be: every column at its minimum, the gaps and the padding. */
+function minTableWidth(cols: ColumnDef[], dense?: boolean): number {
+  const least = (track: string) => Number(/(\d+)px/.exec(track)?.[1] ?? 0);
+  return (dense ? 128 : 150) + 84 + cols.reduce((n, c) => n + least(c.width), 0) + 240 + 16 * (cols.length + 2) + 32;
 }
 
 /** Self-fetching list (issue detail, request timeline). Newest first; "Show earlier" appends. */

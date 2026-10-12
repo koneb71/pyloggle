@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import clsx from "clsx";
-import { Check, ChevronsUpDown, Keyboard, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Sun, SunMoon } from "lucide-react";
+import { Check, ChevronsUpDown, Keyboard, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun, SunMoon, X } from "lucide-react";
 import type { Me } from "@/api/types";
 import { useLogout, useProjectMutations } from "@/api/hooks";
 import { Dialog, IconButton, Kbd, MenuItem, Popover, Tooltip } from "@/components/ui";
 import { useTheme } from "./theme";
-import { useMediaQuery } from "@/lib/use-media";
+import { useMediaQuery, useSmallScreen } from "@/lib/use-media";
 import { ALL_ITEMS, HELP, NAV, shortcutRows, type NavItem } from "./nav";
 
 
@@ -64,55 +65,141 @@ export function AppShell({ me }: { me: Me }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [nav, me]);
 
+  // Phones: a top bar, and the same navigation in a drawer that slides in from the left.
+  const small = useSmallScreen();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const { pathname } = useLocation();
+  useEffect(() => closeMenu(), [pathname, small, closeMenu]);
+
   return (
-    <div className="flex h-full min-h-0">
-      <aside className={clsx("flex h-full flex-none flex-col border-r border-border bg-surface transition-[width] duration-150", collapsed ? "w-14" : "w-60")} aria-label="Main navigation">
-        <div className={clsx("flex h-14 flex-none items-center", collapsed ? "justify-center" : "gap-2.5 px-4")}>
-          <Logo />
-          {!collapsed && <span className="text-[15px] font-semibold tracking-tight text-ink">Pyloggle</span>}
-        </div>
-        {!collapsed && <ProjectSwitcher me={me} />}
-        <nav className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 py-3">
-          {NAV.map((group, gi) => {
-            const items = group.items.filter((n) => !n.show || n.show(me));
-            if (items.length === 0) return null;
-            return (
-              <div key={gi} className="flex flex-col gap-0.5">
-                {group.title && !collapsed && <div className="px-2.5 pb-1 text-xs font-medium text-ink-3">{group.title}</div>}
-                {group.title && collapsed && <div className="mx-3 mb-1 h-px bg-border" aria-hidden />}
-                {items.map((n) => (
-                  <NavEntry key={n.to} item={n} collapsed={collapsed} />
-                ))}
-              </div>
-            );
-          })}
-          <div className="mt-auto">
-            <NavEntry item={HELP} collapsed={collapsed} />
-          </div>
-        </nav>
-        <div className={clsx("flex flex-none items-center gap-0.5 border-t border-border p-2", collapsed && "flex-col")}>
-          <UserMenu me={me} collapsed={collapsed} />
-          <IconButton label="Keyboard shortcuts (?)" icon={<Keyboard size={15} />} onClick={() => setHelp(true)} />
-          <ThemeToggle />
-          <IconButton label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={toggle} icon={collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />} />
-        </div>
+    <div className="flex h-full min-h-0 flex-col md:flex-row">
+      <TopBar me={me} menuOpen={menuOpen} onMenu={() => setMenuOpen(true)} />
+      <aside className={clsx("hidden h-full flex-none flex-col border-r border-border bg-surface transition-[width] duration-150 md:flex", collapsed ? "w-14" : "w-60")} aria-label="Main navigation">
+        <Sidebar
+          me={me}
+          collapsed={collapsed}
+          footer={
+            <>
+              <UserMenu me={me} collapsed={collapsed} />
+              <IconButton label="Keyboard shortcuts (?)" icon={<Keyboard size={15} />} onClick={() => setHelp(true)} />
+              <ThemeToggle />
+              <IconButton label={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={toggle} icon={collapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />} />
+            </>
+          }
+        />
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Outlet />
       </main>
+      {small && <MobileNav open={menuOpen} onClose={closeMenu} me={me} />}
       <ShortcutsDialog open={help} onClose={() => setHelp(false)} me={me} />
     </div>
   );
 }
 
-function NavEntry({ item: n, collapsed }: { item: NavItem; collapsed: boolean }) {
+/** The navigation itself, shared by the sidebar on wide screens and the menu on phones. */
+function Sidebar({ me, collapsed, footer, headerAction, onNavigate }: { me: Me; collapsed: boolean; footer: ReactNode; headerAction?: ReactNode; onNavigate?: () => void }) {
+  return (
+    <>
+      <div className={clsx("flex h-14 flex-none items-center", collapsed ? "justify-center" : "gap-2.5 px-4")}>
+        <Logo />
+        {!collapsed && <span className="text-[15px] font-semibold tracking-tight text-ink">Pyloggle</span>}
+        {headerAction && <span className="-mr-2 ml-auto">{headerAction}</span>}
+      </div>
+      {!collapsed && <ProjectSwitcher me={me} onSwitched={onNavigate} />}
+      <nav className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-2 py-3">
+        {NAV.map((group, gi) => {
+          const items = group.items.filter((n) => !n.show || n.show(me));
+          if (items.length === 0) return null;
+          return (
+            <div key={gi} className="flex flex-col gap-0.5">
+              {group.title && !collapsed && <div className="px-2.5 pb-1 text-xs font-medium text-ink-3">{group.title}</div>}
+              {group.title && collapsed && <div className="mx-3 mb-1 h-px bg-border" aria-hidden />}
+              {items.map((n) => (
+                <NavEntry key={n.to} item={n} collapsed={collapsed} onNavigate={onNavigate} />
+              ))}
+            </div>
+          );
+        })}
+        <div className="mt-auto">
+          <NavEntry item={HELP} collapsed={collapsed} onNavigate={onNavigate} />
+        </div>
+      </nav>
+      <div className={clsx("flex flex-none items-center gap-0.5 border-t border-border p-2", collapsed && "flex-col")}>{footer}</div>
+    </>
+  );
+}
+
+/** Phones only: the brand, the project, and the button that opens the menu. */
+function TopBar({ me, menuOpen, onMenu }: { me: Me; menuOpen: boolean; onMenu: () => void }) {
+  return (
+    <header className="flex h-12 flex-none items-center gap-2 border-b border-border bg-surface pl-1.5 pr-4 md:hidden">
+      <IconButton label="Open menu" size="md" icon={<Menu size={19} />} onClick={onMenu} aria-expanded={menuOpen} aria-controls="mobile-nav" />
+      <Logo />
+      <span className="flex min-w-0 items-baseline gap-1.5 text-[15px]">
+        <span className="flex-none font-semibold tracking-tight text-ink">Pyloggle</span>
+        {me.project && (
+          <>
+            <span className="text-ink-3" aria-hidden>
+              /
+            </span>
+            <span className="truncate text-ink-2" title="Current project">
+              {me.project.name}
+            </span>
+          </>
+        )}
+      </span>
+    </header>
+  );
+}
+
+/** The menu on phones: the sidebar as a drawer over the page. Escape, the backdrop or a choice closes it. */
+function MobileNav({ open, onClose, me }: { open: boolean; onClose: () => void; me: Me }) {
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const back = document.activeElement as HTMLElement | null;
+    panel.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      back?.focus?.();
+    };
+  }, [open, onClose]);
+  if (!open) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[57] md:hidden">
+      <div className="fade-in absolute inset-0 bg-black/40" onPointerDown={onClose} aria-hidden />
+      <aside ref={panel} id="mobile-nav" role="dialog" aria-modal aria-label="Main navigation" className="slide-in-left relative flex h-full w-[min(18rem,86vw)] flex-col border-r border-border bg-surface shadow-[var(--shadow)]">
+        <Sidebar
+          me={me}
+          collapsed={false}
+          onNavigate={onClose}
+          headerAction={<IconButton label="Close menu" size="md" icon={<X size={18} />} onClick={onClose} data-autofocus />}
+          footer={
+            <>
+              <UserMenu me={me} collapsed={false} />
+              <ThemeToggle />
+            </>
+          }
+        />
+      </aside>
+    </div>,
+    document.body,
+  );
+}
+
+function NavEntry({ item: n, collapsed, onNavigate }: { item: NavItem; collapsed: boolean; onNavigate?: () => void }) {
   const link = (
     <NavLink
       to={n.to}
+      onClick={onNavigate}
       aria-label={collapsed ? n.label : undefined}
       className={({ isActive }) =>
         clsx(
-          "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors",
+          "flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[13px] font-medium transition-colors pointer-coarse:h-10 pointer-coarse:text-sm",
           isActive ? "bg-accent-soft text-accent" : "text-ink-2 hover:bg-surface-2 hover:text-ink",
           collapsed && "justify-center px-0",
         )
@@ -122,6 +209,8 @@ function NavEntry({ item: n, collapsed }: { item: NavItem; collapsed: boolean })
       {!collapsed && <span className="truncate">{n.label}</span>}
     </NavLink>
   );
+  // In the phone menu every entry already shows its name, and a tap would only pop the tooltip.
+  if (onNavigate) return link;
   return (
     <Tooltip
       content={
@@ -177,7 +266,7 @@ function Logo() {
   );
 }
 
-function ProjectSwitcher({ me }: { me: Me }) {
+function ProjectSwitcher({ me, onSwitched }: { me: Me; onSwitched?: () => void }) {
   const { select } = useProjectMutations();
   const current = me.project;
   return (
@@ -204,6 +293,7 @@ function ProjectSwitcher({ me }: { me: Me }) {
                 onClick={() => {
                   close();
                   if (p.id !== current?.id) select.mutate(p.id);
+                  onSwitched?.();
                 }}
               >
                 <span className="min-w-0 flex-1 truncate">{p.name}</span>
@@ -211,7 +301,7 @@ function ProjectSwitcher({ me }: { me: Me }) {
               </MenuItem>
             ))}
             <div className="my-1 h-px bg-border" />
-            <NavLink to="/projects" onClick={close} className="block rounded px-2 py-1.5 text-[13px] text-ink-2 hover:bg-surface-2 hover:text-ink">
+            <NavLink to="/projects" onClick={() => (close(), onSwitched?.())} className="block rounded px-2 py-1.5 text-[13px] text-ink-2 hover:bg-surface-2 hover:text-ink">
               Manage projects…
             </NavLink>
           </div>

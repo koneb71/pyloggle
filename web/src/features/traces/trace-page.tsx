@@ -8,6 +8,7 @@ import { Badge, CopyButton, EmptyState, ErrorState, KeyValueList, LevelBadge, Li
 import { useUrlState } from "@/lib/url";
 import { fmtTs, fmtWhen } from "@/lib/time";
 import { pluralize } from "@/lib/format";
+import { useSmallScreen } from "@/lib/use-media";
 import { LogTable } from "@/features/logs/log-list";
 import { LogDetailPanel } from "@/features/logs/log-detail";
 import { issueHeadline } from "@/features/issues/issue-text";
@@ -23,6 +24,7 @@ export function TracePage() {
   const selId = get("span");
   const logSel = get("log");
   const [tab, setTab] = useState<"logs" | "errors">("logs");
+  const small = useSmallScreen();
   const trace = useTrace(id, at);
   const d = trace.data;
   const selected = useMemo(() => d?.spans.find((s) => s.span_id === selId), [d, selId]);
@@ -41,7 +43,7 @@ export function TracePage() {
     <Page
       width="full"
       back={{ to: "/traces", label: "Requests" }}
-      title={root ? <span className="font-mono text-[17px]">{requestLabel(root)}</span> : notFound || trace.isError ? "Request" : <span className="skeleton inline-block h-6 w-72 align-middle" aria-label="Loading" />}
+      title={root ? <span className="break-all font-mono text-[17px]">{requestLabel(root)}</span> : notFound || trace.isError ? "Request" : <span className="skeleton inline-block h-6 w-72 align-middle" aria-label="Loading" />}
       description={
         d && (
           <MetaLine className="text-[13px]">
@@ -72,7 +74,7 @@ export function TracePage() {
         <Skeleton rows={12} className="bg-surface p-4" />
       ) : (
         <>
-          <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-surface px-5 py-2 text-xs text-ink-2">
+          <div className="flex flex-none flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-surface px-4 py-2 text-xs text-ink-2 sm:px-5">
             <span className="text-ink-3">{d.services.length === 1 ? "App" : "Apps in this request"}</span>
             {d.services.map((s) => (
               <span key={s} className="inline-flex items-center gap-1.5">
@@ -80,7 +82,7 @@ export function TracePage() {
                 {s}
               </span>
             ))}
-            <span className="ml-auto text-ink-3">Click a step to see its details · the arrow hides the steps inside it</span>
+            <span className="ml-auto text-ink-3 max-md:hidden">Click a step to see its details · the arrow hides the steps inside it</span>
           </div>
           <div className="flex min-h-0 flex-1">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
@@ -91,7 +93,7 @@ export function TracePage() {
                   value={tab}
                   onChange={(t) => setTab(t as "logs" | "errors")}
                   items={[
-                    { id: "logs", label: "Messages logged during this request", count: d.logs.length },
+                    { id: "logs", label: small ? "Messages" : "Messages logged during this request", count: d.logs.length },
                     { id: "errors", label: "Errors", count: d.errors.length },
                   ]}
                 />
@@ -115,10 +117,10 @@ export function TracePage() {
                               <span className="font-semibold text-ink">{headline}</span>
                               {message && <span className="ml-2 text-ink-2">{message}</span>}
                             </span>
-                            <span className="flex-none text-xs text-ink-3">{e.service}</span>
-                            <span className="flex-none text-xs tabular text-ink-3">{fmtWhen(e.ts, { seconds: true })}</span>
+                            <span className="flex-none text-xs text-ink-3 max-sm:hidden">{e.service}</span>
+                            <span className="flex-none text-xs tabular text-ink-3 max-sm:hidden">{fmtWhen(e.ts, { seconds: true })}</span>
                             <span className="inline-flex flex-none items-center gap-1 text-xs font-medium text-accent">
-                              <AlertOctagon size={13} /> Open issue
+                              <AlertOctagon size={13} /> <span className="max-sm:sr-only">Open issue</span>
                             </span>
                           </Link>
                         </li>

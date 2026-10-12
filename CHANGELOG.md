@@ -71,6 +71,15 @@ about each.
   each view shows exactly one of loading, error, empty or data; failed actions show a toast.
 - The sidebar groups pages (Investigate, Monitor, Settings) and shrinks to icons below
   1200 px; `?` lists the keyboard shortcuts; logs, filters and details fit at 1024 px.
+- **Works on a phone.** No page scrolls sideways, from a 360 px phone to a wide screen:
+  - Below 768 px a top bar names the project, and its menu holds the sidebar.
+  - Tables drop their less important columns and move the key numbers into the row.
+  - Messages and a request's steps become two-line rows wherever the columns don't fit, which
+    includes a tablet with the Logs filters open.
+  - Details cover the screen, and the Logs filters open as a sheet.
+  - Popovers stay inside the window.
+  - On touch screens, buttons and fields grow a little, fields no longer make iOS zoom in, and
+    hover-only actions are always shown.
 
 ### New
 

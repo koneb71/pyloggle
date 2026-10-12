@@ -18,7 +18,7 @@ export function Dialog({ open, onClose, title, children, className, wide, maxWid
   }, [open, onClose]);
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-[8vh]" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/40 p-2 sm:p-4 sm:pt-[8vh]" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div role="dialog" aria-modal className={clsx("w-full rounded-lg border border-border bg-surface shadow-[var(--shadow)]", !maxWidth && (wide ? "max-w-5xl" : "max-w-lg"), className)} style={maxWidth ? { maxWidth } : undefined}>
         {title !== undefined && (
           <div className="flex items-center justify-between border-b border-border px-4 py-2.5">

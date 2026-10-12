@@ -4,7 +4,7 @@ import { get, ApiRequestError } from "@/api/client";
 import type { SpanNameStats, TraceSummary, TracesResponse } from "@/api/types";
 import { TimeRangePicker } from "@/components/shell/time-range-picker";
 import { LatencyHistogram } from "@/components/charts/latency-histogram";
-import { Badge, DataTable, EmptyState, LoadMore, MetaLine, Page, Section, Skeleton, Swatch, Term, type Column } from "@/components/ui";
+import { Badge, DataTable, EmptyState, LoadMore, MetaItem, MetaLine, Page, Section, Skeleton, Swatch, Term, type Column } from "@/components/ui";
 import { useRange } from "@/lib/use-range";
 import { useUrlState } from "@/lib/url";
 import { addTerm } from "@/lib/query";
@@ -67,18 +67,19 @@ export function TracesPage() {
         </button>
       ),
     },
-    { id: "count", header: <Term k="span">Steps</Term>, width: "64px", align: "right", cell: (s) => <span className="text-ink-2">{fmtNumber(s.count)}</span> },
-    { id: "p50", header: <Term k="p50">Typical</Term>, width: "72px", align: "right", cell: (s) => <span className="text-ink-2">{fmtUs(s.p50_us)}</span> },
+    { id: "count", header: <Term k="span">Steps</Term>, width: "64px", align: "right", hideBelow: "sm", cell: (s) => <span className="text-ink-2">{fmtNumber(s.count)}</span> },
+    { id: "p50", header: <Term k="p50">Typical</Term>, width: "72px", align: "right", hideBelow: "sm", cell: (s) => <span className="text-ink-2">{fmtUs(s.p50_us)}</span> },
     { id: "p95", header: <Term k="p95">Slow</Term>, width: "72px", align: "right", cell: (s) => <span className="text-ink">{fmtUs(s.p95_us)}</span> },
     { id: "failed", header: "Failed", width: "64px", align: "right", cell: (s) => <span className={s.error_pct >= 1 ? "font-medium text-critical-text" : "text-ink-3"}>{fmtPct(s.error_pct)}</span> },
   ];
 
   const columns: Column<TraceSummary>[] = [
-    { id: "start", header: "Started", width: "150px", cell: (t) => <span className="tabular text-ink-2" title={fmtTs(t.start_ts, { ms: true })}>{fmtWhen(t.start_ts, { seconds: true })}</span> },
+    { id: "start", header: "Started", width: "150px", hideBelow: "sm", cell: (t) => <span className="tabular text-ink-2" title={fmtTs(t.start_ts, { ms: true })}>{fmtWhen(t.start_ts, { seconds: true })}</span> },
     {
       id: "app",
       header: <Term k="service">App</Term>,
       width: "minmax(100px,160px)",
+      hideBelow: "lg",
       cell: (t) => (
         <span className="flex min-w-0 items-center gap-2">
           <Swatch color={serviceColor(services, t.service)} />
@@ -98,6 +99,16 @@ export function TracesPage() {
             <span className="font-mono text-[11px]" title="Request timeline ID">
               {t.trace_id.slice(0, 12)}
             </span>
+            {/* What the hidden columns would say, where they are hidden. */}
+            <MetaItem className="lg:hidden">{t.service}</MetaItem>
+            <MetaItem className="sm:hidden">{fmtWhen(t.start_ts, { seconds: true })}</MetaItem>
+            {requestResult(t) === "failed" ? (
+              <MetaItem className="sm:hidden">
+                <span className="font-medium text-critical-text">failed</span>
+              </MetaItem>
+            ) : (
+              ""
+            )}
           </MetaLine>
         </div>
       ),
@@ -108,6 +119,7 @@ export function TracesPage() {
       header: <Term k="span">Steps</Term>,
       width: "90px",
       align: "right",
+      hideBelow: "lg",
       cell: (t) => (
         <span className="text-ink-2">
           {t.span_count}
@@ -119,6 +131,7 @@ export function TracesPage() {
       id: "result",
       header: "Result",
       width: "84px",
+      hideBelow: "sm",
       cell: (t) => {
         const r = requestResult(t);
         return r === "failed" ? (
@@ -154,7 +167,7 @@ export function TracesPage() {
       }
     >
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-4 px-5 py-4">
+        <div className="flex flex-col gap-4 px-4 py-4 sm:px-5">
           {!queryError && (
             <div className="grid gap-4 lg:grid-cols-[2fr_3fr]">
               <Section title="How long requests take" description="How many requests finished within each duration range.">

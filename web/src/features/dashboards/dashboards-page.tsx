@@ -87,9 +87,20 @@ export function DashboardsPage() {
         );
       },
     },
-    { id: "trend", header: "Last 24 hours", width: "112px", cell: (it) => <Sparkline values={it.sparkline} width={104} height={22} title="Times per hour, last 24 hours" /> },
-    { id: "times", header: <Term k="events">Times</Term>, width: "80px", align: "right", cell: (it) => <span className="font-medium text-ink">{fmtNumber(it.occurrence_count)}</span> },
-    { id: "people", header: <Term k="users">People</Term>, width: "72px", align: "right", cell: (it) => <span className="text-ink-2">{fmtNumber(it.affected_users)}</span> },
+    { id: "trend", header: "Last 24 hours", width: "112px", hideBelow: "md", cell: (it) => <Sparkline values={it.sparkline} width={104} height={22} title="Times per hour, last 24 hours" /> },
+    {
+      id: "times",
+      header: <Term k="events">Times</Term>,
+      width: "80px",
+      align: "right",
+      cell: (it) => (
+        <span className="flex flex-col items-end">
+          <span className="font-medium text-ink">{fmtNumber(it.occurrence_count)}</span>
+          <span className="whitespace-nowrap text-xs text-ink-3 sm:hidden">{pluralize(it.affected_users, "person", "people")}</span>
+        </span>
+      ),
+    },
+    { id: "people", header: <Term k="users">People</Term>, width: "72px", align: "right", hideBelow: "sm", cell: (it) => <span className="text-ink-2">{fmtNumber(it.affected_users)}</span> },
   ];
   const routeColumns: Column<RouteStats>[] = [
     {
@@ -101,11 +112,11 @@ export function DashboardsPage() {
         </span>
       ),
     },
-    { id: "requests", header: "Requests", width: "96px", align: "right", cell: (r) => <span className="text-ink">{fmtNumber(r.requests)}</span> },
-    { id: "failed", header: <Term k="failed">Failed</Term>, width: "80px", align: "right", cell: (r) => <span className={r.error_pct >= 5 ? "font-medium text-critical-text" : r.error_pct >= 1 ? "text-warning-text" : "text-ink-3"}>{fmtPct(r.error_pct)}</span> },
-    { id: "p50", header: <Term k="p50">Typical</Term>, width: "80px", align: "right", cell: (r) => <span className="text-ink-2">{fmtMs(r.p50_ms)}</span> },
-    { id: "p95", header: <Term k="p95">Slow</Term>, width: "80px", align: "right", cell: (r) => <span className="text-ink">{fmtMs(r.p95_ms)}</span> },
-    { id: "p99", header: <Term k="p99">Slowest</Term>, width: "80px", align: "right", cell: (r) => <span className="text-ink-2">{fmtMs(r.p99_ms)}</span> },
+    { id: "requests", header: "Requests", width: "96px", align: "right", hideBelow: "sm", cell: (r) => <span className="text-ink">{fmtNumber(r.requests)}</span> },
+    { id: "failed", header: <Term k="failed">Failed</Term>, width: "72px", align: "right", cell: (r) => <span className={r.error_pct >= 5 ? "font-medium text-critical-text" : r.error_pct >= 1 ? "text-warning-text" : "text-ink-3"}>{fmtPct(r.error_pct)}</span> },
+    { id: "p50", header: <Term k="p50">Typical</Term>, width: "80px", align: "right", hideBelow: "md", cell: (r) => <span className="text-ink-2">{fmtMs(r.p50_ms)}</span> },
+    { id: "p95", header: <Term k="p95">Slow</Term>, width: "72px", align: "right", cell: (r) => <span className="text-ink">{fmtMs(r.p95_ms)}</span> },
+    { id: "p99", header: <Term k="p99">Slowest</Term>, width: "80px", align: "right", hideBelow: "md", cell: (r) => <span className="text-ink-2">{fmtMs(r.p99_ms)}</span> },
   ];
 
   return (

@@ -25,6 +25,8 @@ data to someone else or running a large monitoring stack.
 - **Alerts that are worth reading.** Get an e-mail, Slack, Telegram or webhook message when a
   new problem appears, an old one comes back, errors jump, or a search finds matching messages.
   Each problem alerts once, and a daily recap tells you how yesterday went.
+- **On your phone too.** Open an alert's link and the problem reads well on a small screen,
+  with the same actions as on a desk: assign it, resolve it, or look at its messages.
 - **Projects and access keys**, with limits on storage and speed for each project, and keys
   that can only send data, only read, or make changes.
 

@@ -10,6 +10,7 @@ import { isNewIssue, issueHeadline } from "./issue-text";
 import { useRange } from "@/lib/use-range";
 import { useUrlState } from "@/lib/url";
 import { fmtNumber } from "@/lib/time";
+import { pluralize } from "@/lib/format";
 import { term as glossary } from "@/lib/glossary";
 
 const ISSUES_DEFAULT = { from: "-7d", to: "" };
@@ -75,10 +76,23 @@ export function IssuesPage() {
       id: "trend",
       header: <span title="Times per hour over the last 24 hours">Last 24 hours</span>,
       width: "112px",
+      hideBelow: "md",
       cell: (it) => <Sparkline values={it.sparkline} width={104} height={24} title={`${fmtNumber((it.sparkline ?? []).reduce((a, b) => a + b, 0))} times in the last 24 hours`} />,
     },
-    { id: "times", header: <Term k="events">Times</Term>, width: "72px", align: "right", cell: (it) => <span className="font-medium text-ink">{fmtNumber(it.occurrence_count)}</span> },
-    { id: "people", header: <Term k="users">People</Term>, width: "64px", align: "right", cell: (it) => <span className="text-ink-2">{fmtNumber(it.affected_users)}</span> },
+    {
+      id: "times",
+      header: <Term k="events">Times</Term>,
+      width: "72px",
+      align: "right",
+      cell: (it) => (
+        <span className="flex flex-col items-end">
+          <span className="font-medium text-ink">{fmtNumber(it.occurrence_count)}</span>
+          {/* On a phone the People column steps out, so its number sits under the count. */}
+          <span className="whitespace-nowrap text-xs text-ink-3 sm:hidden">{pluralize(it.affected_users, "person", "people")}</span>
+        </span>
+      ),
+    },
+    { id: "people", header: <Term k="users">People</Term>, width: "64px", align: "right", hideBelow: "sm", cell: (it) => <span className="text-ink-2">{fmtNumber(it.affected_users)}</span> },
   ];
 
   return (
@@ -101,9 +115,10 @@ export function IssuesPage() {
             onChange={(s) => set({ status: s === "open" ? undefined : s, offset: undefined })}
           />
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+        {/* Two filters a row on a phone; one line that wraps on wider screens. */}
+        <div className="grid grid-cols-2 gap-2 border-b border-border px-4 py-3 sm:flex sm:flex-wrap sm:items-center [&>select]:max-sm:w-full [&>select]:max-sm:min-w-0 [&>select]:max-sm:max-w-none">
           <form
-            className="min-w-56 flex-1"
+            className="col-span-2 min-w-56 flex-1"
             onSubmit={(e) => {
               e.preventDefault();
               set({ q: draft || undefined, offset: undefined });

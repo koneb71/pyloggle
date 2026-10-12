@@ -1,7 +1,7 @@
 import { Filter } from "lucide-react";
 import { useLogPatterns } from "@/api/hooks";
 import type { LogPattern } from "@/api/types";
-import { Button, DataTable, EmptyState, LevelBadge, MetaLine, type Column } from "@/components/ui";
+import { Button, DataTable, EmptyState, IconButton, LevelBadge, MetaLine, type Column } from "@/components/ui";
 import { fmtNumber } from "@/lib/time";
 import { patternPhrase } from "./log-fields";
 
@@ -16,7 +16,7 @@ export function PatternsView({ q, range, onFilter }: { q: string; range: { from:
     {
       id: "count",
       header: "Times",
-      width: "110px",
+      width: "88px",
       align: "right",
       cell: (it) => (
         <div className="w-full">
@@ -24,11 +24,13 @@ export function PatternsView({ q, range, onFilter }: { q: string; range: { from:
           <div className="mt-1 h-1 w-full rounded-full bg-surface-3">
             <div className="h-1 rounded-full bg-accent" style={{ width: `${Math.max(3, (it.count / total) * 100)}%` }} />
           </div>
+          {/* On a phone the Severity column steps out; its word sits under the count. */}
+          <LevelBadge level={it.level} className="mt-1.5 justify-end text-xs sm:hidden" />
         </div>
       ),
       className: "self-start",
     },
-    { id: "level", header: "Severity", width: "96px", cell: (it) => <LevelBadge level={it.level} />, className: "self-start" },
+    { id: "level", header: "Severity", width: "96px", hideBelow: "sm", cell: (it) => <LevelBadge level={it.level} />, className: "self-start" },
     {
       id: "pattern",
       header: "Message shape",
@@ -49,11 +51,21 @@ export function PatternsView({ q, range, onFilter }: { q: string; range: { from:
       header: <span className="sr-only">Show</span>,
       width: "92px",
       align: "right",
+      hideBelow: "sm",
       cell: (it) => (
         <Button size="xs" variant="ghost" icon={<Filter size={13} />} onClick={() => onFilter(patternPhrase(it.pattern))} title="Show only messages with this shape">
           Show these
         </Button>
       ),
+      className: "self-start",
+    },
+    {
+      id: "go-compact",
+      header: <span className="sr-only">Show</span>,
+      width: "32px",
+      align: "right",
+      showBelow: "sm",
+      cell: (it) => <IconButton size="xs" icon={<Filter size={14} />} onClick={() => onFilter(patternPhrase(it.pattern))} label="Show only messages with this shape" />,
       className: "self-start",
     },
   ];

@@ -325,46 +325,51 @@ const HEALTH: Record<HealthStatus, { label: string; tone: BadgeTone; explain: st
 
 function AppsTable({ apps, range }: { apps: Q<{ items: ServiceHealth[] }>; range: Range }) {
   const rangeQs = `from=${encodeURIComponent(range.from)}${range.to ? `&to=${encodeURIComponent(range.to)}` : ""}`;
+  // Every column fits from a phone up to a 1280px window with the sidebar open; the less
+  // important ones step out as the screen narrows, and on a phone the app's line says the rest.
   const columns: Column<ServiceHealth>[] = [
     {
       id: "app",
       header: <Term k="service">App</Term>,
-      width: "minmax(160px,1.6fr)",
+      width: "minmax(140px,1.6fr)",
       cell: (a) => (
         <div className="min-w-0">
           <div className="truncate font-medium text-ink">{a.service || "(unnamed app)"}</div>
           {a.envs.length > 0 && <div className="truncate text-xs text-ink-3">{a.envs.join(", ")}</div>}
+          <div className="truncate text-xs text-ink-3 sm:hidden">{phoneSummary(a)}</div>
         </div>
       ),
     },
     {
       id: "status",
       header: "Status",
-      width: "130px",
+      width: "116px",
       cell: (a) => (
         <Badge tone={HEALTH[a.status].tone} title={HEALTH[a.status].explain}>
           {HEALTH[a.status].label}
         </Badge>
       ),
     },
-    { id: "rpm", header: <Term k="requestsPerMin">Requests / min</Term>, width: "120px", align: "right", cell: (a) => (a.requests > 0 ? fmtRate(a.rpm) : <span className="text-ink-3">—</span>) },
+    { id: "rpm", header: <Term k="requestsPerMin">Requests / min</Term>, width: "104px", align: "right", hideBelow: "lg", cell: (a) => (a.requests > 0 ? fmtRate(a.rpm) : <span className="text-ink-3">—</span>) },
     {
       id: "failed",
       header: <Term k="failed">Failed</Term>,
-      width: "90px",
+      width: "72px",
       align: "right",
+      hideBelow: "sm",
       cell: (a) =>
         a.requests > 0 ? <span className={clsx(a.status !== "silent" && (a.failed_pct >= 5 ? "font-medium text-critical-text" : a.failed_pct >= 1 && "text-warning-text"))}>{fmtPct(a.failed_pct)}</span> : <span className="text-ink-3">—</span>,
     },
-    { id: "p50", header: <Term k="p50">Typical time</Term>, width: "110px", align: "right", cell: (a) => (a.requests > 0 ? fmtMs(a.p50_ms) : <span className="text-ink-3">—</span>) },
-    { id: "errors", header: "Errors", width: "80px", align: "right", cell: (a) => (a.errors > 0 ? fmtNumber(a.errors) : <span className="text-ink-3">0</span>) },
-    { id: "logs", header: "Messages", width: "90px", align: "right", cell: (a) => fmtNumber(a.logs) },
-    { id: "seen", header: "Last seen", width: "110px", align: "right", cell: (a) => (a.last_seen && !a.last_seen.startsWith("1970") ? <TimeAgo iso={a.last_seen} className="text-ink-2" /> : <span className="text-ink-3">—</span>) },
+    { id: "p50", header: <Term k="p50">Typical time</Term>, width: "92px", align: "right", hideBelow: "lg", cell: (a) => (a.requests > 0 ? fmtMs(a.p50_ms) : <span className="text-ink-3">—</span>) },
+    { id: "errors", header: "Errors", width: "64px", align: "right", hideBelow: "sm", cell: (a) => (a.errors > 0 ? fmtNumber(a.errors) : <span className="text-ink-3">0</span>) },
+    { id: "logs", header: "Messages", width: "80px", align: "right", hideBelow: "xl", cell: (a) => fmtNumber(a.logs) },
+    { id: "seen", header: "Last seen", width: "96px", align: "right", hideBelow: "xl", cell: (a) => (a.last_seen && !a.last_seen.startsWith("1970") ? <TimeAgo iso={a.last_seen} className="text-ink-2" /> : <span className="text-ink-3">—</span>) },
     {
       id: "go",
       header: <span className="sr-only">Open</span>,
-      width: "72px",
+      width: "64px",
       align: "right",
+      hideBelow: "md",
       cell: (a) => (
         <LinkButton to={`/issues?${rangeQs}&service=${encodeURIComponent(a.service)}`} size="xs" variant="ghost">
           Issues
@@ -386,6 +391,12 @@ function AppsTable({ apps, range }: { apps: Q<{ items: ServiceHealth[] }>; range
       stickyHeader={false}
     />
   );
+}
+
+/** The numbers a phone has no columns for: "1.8% failed · 12 errors". */
+function phoneSummary(a: ServiceHealth): string {
+  const parts = [a.requests > 0 ? `${fmtPct(a.failed_pct)} failed` : "", a.errors > 0 ? pluralize(a.errors, "error") : "no errors"];
+  return parts.filter(Boolean).join(" · ");
 }
 
 function fmtRate(perMin: number): string {

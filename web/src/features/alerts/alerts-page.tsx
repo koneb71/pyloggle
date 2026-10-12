@@ -77,9 +77,10 @@ export function AlertsPage({ me }: { me: Me }) {
               {d.items.map((r) => {
                 const sent = lastSent(r.id);
                 return (
-                  <li key={r.id} className="flex items-start gap-3 px-4 py-3.5">
+                  // On a phone the buttons move under the rule, which keeps the full width.
+                  <li key={r.id} className="flex flex-wrap items-start gap-x-3 gap-y-2 px-4 py-3.5">
                     <span className={r.enabled ? "mt-0.5 text-accent" : "mt-0.5 text-ink-3"}>{r.enabled ? <Bell size={16} /> : <BellOff size={16} />}</span>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-[1_1_16rem]">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-[14px] font-semibold text-ink">{r.name}</span>
                         {r.enabled ? <Badge tone="good">On</Badge> : <Badge>Off</Badge>}
@@ -95,7 +96,7 @@ export function AlertsPage({ me }: { me: Me }) {
                       </MetaLine>
                     </div>
                     {canEdit && (
-                      <div className="flex flex-none items-center gap-1">
+                      <div className="flex flex-none items-center gap-1 max-sm:ml-7">
                         <Button
                           size="xs"
                           variant="ghost"
@@ -369,16 +370,16 @@ function RuleDialog({ rule, onClose, conditions, slackDefault }: { rule: Partial
           <legend className="px-1 text-[13px] font-semibold text-ink">Where</legend>
           <div className="flex flex-wrap items-center gap-2">
             <span>For</span>
-            <Input list="alert-apps" value={r.service ?? ""} onChange={(e) => upd({ service: e.target.value })} placeholder="all apps" className="w-44" aria-label="App" />
+            <Input list="alert-apps" value={r.service ?? ""} onChange={(e) => upd({ service: e.target.value })} placeholder="all apps" className="w-44 max-sm:w-auto max-sm:min-w-32 max-sm:flex-1" aria-label="App" />
             <span>in</span>
-            <Input list="alert-envs" value={r.env ?? ""} onChange={(e) => upd({ env: e.target.value })} placeholder="all environments" className="w-44" aria-label="Environment" />
+            <Input list="alert-envs" value={r.env ?? ""} onChange={(e) => upd({ env: e.target.value })} placeholder="all environments" className="w-44 max-sm:w-auto max-sm:min-w-32 max-sm:flex-1" aria-label="Environment" />
             <datalist id="alert-apps">{(facets.data?.fields.service ?? []).map((f) => <option key={f.value} value={f.value} />)}</datalist>
             <datalist id="alert-envs">{(facets.data?.fields.env ?? []).map((f) => <option key={f.value} value={f.value} />)}</datalist>
           </div>
           {!isRecap && <div className="flex flex-wrap items-center gap-2">
             <span>Only requests to</span>
             <Input value={r.http_method ?? ""} onChange={(e) => upd({ http_method: e.target.value.toUpperCase() })} placeholder="any method" className="w-28 font-mono text-[12px]" aria-label="Method" />
-            <Input value={r.http_route ?? ""} onChange={(e) => upd({ http_route: e.target.value })} placeholder="any route, e.g. /orders" className="w-56 font-mono text-[12px]" aria-label="Route" />
+            <Input value={r.http_route ?? ""} onChange={(e) => upd({ http_route: e.target.value })} placeholder="any route, e.g. /orders" className="w-56 font-mono text-[12px] max-sm:w-auto max-sm:min-w-0 max-sm:flex-1" aria-label="Route" />
             <span className="text-xs text-ink-3">(optional)</span>
           </div>}
         </fieldset>

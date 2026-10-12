@@ -38,8 +38,25 @@ Press `?` on any page to see them.
 | `Esc` | Close a panel or dialog |
 | `?` | Show the shortcuts |
 
-## Looks
+## Looks and screen sizes
 
-The app follows your computer's light or dark setting; the sun and moon button at the bottom
-of the sidebar overrides it. Below 1200 pixels wide the sidebar shrinks to icons; the button
-next to it expands or collapses it.
+The app follows your device's light or dark setting; the sun and moon button at the bottom of
+the sidebar (of the menu, on a phone) overrides it.
+
+Every page works from a desk to a phone:
+
+![Overview, an issue and Logs on a phone: a top bar with the menu button, cards in one column, and messages in two-line rows](../images/screenshots/phone-light.png#gh-light-mode-only)
+![Overview, an issue and Logs on a phone: a top bar with the menu button, cards in one column, and messages in two-line rows](../images/screenshots/phone-dark.png#gh-dark-mode-only)
+
+- **Wide screens** show the sidebar with page names. Below 1200 pixels wide it shrinks to icons,
+  and the button at its bottom expands or collapses it.
+- **Phones and small tablets** (below 768 pixels) get a bar at the top with the current project.
+  Its menu button opens the pages, the project switcher and your account.
+- **Lists** that are tables on a desk become two-line rows where there isn't room. A message
+  shows its time, severity and app above its text, and each step of a request shows its name
+  above its bar. Columns that matter less step out; the important ones, such as how many people
+  an issue affected, move into the row.
+- **Details** of a message or a request step cover the screen. On Logs, the **Filters** button
+  opens the filters, and **Show … messages** closes them.
+- **Touch screens** get slightly larger buttons and fields. The actions a mouse finds by
+  hovering, such as filtering by a value, hiding it or copying it, are always shown.

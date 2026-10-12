@@ -68,7 +68,7 @@ export function SavedViewsMenu({ current, onApply, activeName }: { current: View
                       </span>
                       {v.is_public && <span className="text-xs text-ink-3">Shared</span>}
                     </MenuItem>
-                    <button type="button" aria-label={`Delete ${v.name}`} title="Delete" className="invisible mr-1 rounded p-1 text-ink-3 hover:text-critical-text group-hover:visible" onClick={() => del.mutate(v.id)}>
+                    <button type="button" aria-label={`Delete ${v.name}`} title="Delete" className="invisible pointer-coarse:visible mr-1 rounded p-1 text-ink-3 hover:text-critical-text group-hover:visible" onClick={() => del.mutate(v.id)}>
                       <Trash2 size={13} />
                     </button>
                   </div>

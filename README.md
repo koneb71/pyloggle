@@ -40,7 +40,7 @@ the Apache License 2.0.
 - **Light to run.** Messages cost about 100 bytes each on disk and old data is dropped a day at a
   time. Sign-in with Google, Okta, Microsoft or any OpenID Connect provider, projects with their
   own keys and limits, Prometheus metrics, and a written-for-everyone interface with light and
-  dark themes.
+  dark themes that works on a phone as well as on a desk.
 
 ## Quick start
 

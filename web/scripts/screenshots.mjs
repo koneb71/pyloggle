@@ -7,6 +7,7 @@
 //                (install it once with `npx playwright install chromium`).
 //   ISSUE_Q=…    search that picks the issue to show (default: the latest one).
 //   TRACE_Q=…    search that picks the request to show (default: the latest one).
+//   The view "phone" shows Overview, an issue and Logs side by side as a phone shows them.
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -81,9 +82,32 @@ for (const scheme of ["light", "dark"]) {
     await page.screenshot({ path: path.join(out, `login${suffix}-${scheme}.png`) });
     await page.unroute("**/ui/api/me");
   }
+  if (wanted("phone")) await phoneSheet(scheme);
   if (errors.length) {
     console.error(`[${scheme}] browser errors:\n` + errors.map((e) => "  " + e).join("\n"));
   }
   await ctx.close();
 }
 await browser.close();
+
+/** Three screens from a phone-sized touch browser, framed side by side on one image. */
+async function phoneSheet(scheme) {
+  const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: scheme, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
+  await phone.addInitScript((t) => localStorage.setItem("pyloggle.theme", t), scheme);
+  const page = await phone.newPage();
+  const shots = [];
+  for (const p of ["/ui/overview", `/ui/issues/${ids.issue}?from=-7d`, "/ui/logs?from=-24h"]) {
+    await page.goto(base + p, { waitUntil: "networkidle" });
+    await page.waitForTimeout(400);
+    shots.push((await page.screenshot()).toString("base64"));
+  }
+  await phone.close();
+  const [bg, edge] = scheme === "dark" ? ["#0e0e0d", "#3a3a37"] : ["#f6f6f4", "#d2d1ca"];
+  const sheet = await browser.newPage({ viewport: { width: 3 * 390 + 4 * 32, height: 844 + 2 * 32 } });
+  const imgs = shots.map((b64) => `<img src="data:image/png;base64,${b64}" width="390" height="844" style="border-radius:24px;border:1px solid ${edge}">`).join("");
+  await sheet.setContent(`<body style="margin:0;padding:32px;display:flex;gap:32px;background:${bg}">${imgs}</body>`);
+  const file = path.join(out, `phone-${scheme}.png`);
+  await sheet.screenshot({ path: file });
+  await sheet.close();
+  console.log("saved", file);
+}

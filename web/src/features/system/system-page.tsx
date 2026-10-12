@@ -225,12 +225,14 @@ const tableColumns: Column<Table>[] = [
       <div className="min-w-0">
         <div className="truncate text-ink">{TABLE_LABEL[t.name] ?? t.name}</div>
         <div className="truncate font-mono text-[11px] text-ink-3">{t.name}</div>
+        {/* On a phone, how long it is kept goes under its name. */}
+        {t.retention_days ? <div className="truncate text-xs text-ink-3 sm:hidden">kept for {t.retention_days} days</div> : null}
       </div>
     ),
   },
-  { id: "rows", header: "Rows", width: "100px", align: "right", cell: (t) => <span className="text-ink-2">{fmtNumber(t.rows)}</span> },
+  { id: "rows", header: "Rows", width: "100px", align: "right", hideBelow: "md", cell: (t) => <span className="text-ink-2">{fmtNumber(t.rows)}</span> },
   { id: "bytes", header: "On disk", width: "100px", align: "right", cell: (t) => <span className="font-medium text-ink">{fmtBytes(t.bytes)}</span> },
-  { id: "ratio", header: "Compression", width: "110px", align: "right", cell: (t) => <span className="text-ink-3">{t.uncompressed ? `${(t.uncompressed / Math.max(1, t.bytes)).toFixed(1)}× smaller` : "—"}</span> },
-  { id: "oldest", header: "Oldest data", width: "120px", cell: (t) => <span className="font-mono text-[12px] text-ink-3">{t.oldest_partition || "—"}</span> },
-  { id: "retention", header: "Kept for", width: "90px", align: "right", cell: (t) => <span className="text-ink-3">{t.retention_days ? `${t.retention_days} days` : "—"}</span> },
+  { id: "ratio", header: "Compression", width: "110px", align: "right", hideBelow: "lg", cell: (t) => <span className="text-ink-3">{t.uncompressed ? `${(t.uncompressed / Math.max(1, t.bytes)).toFixed(1)}× smaller` : "—"}</span> },
+  { id: "oldest", header: "Oldest data", width: "120px", hideBelow: "md", cell: (t) => <span className="font-mono text-[12px] text-ink-3">{t.oldest_partition || "—"}</span> },
+  { id: "retention", header: "Kept for", width: "90px", align: "right", hideBelow: "sm", cell: (t) => <span className="text-ink-3">{t.retention_days ? `${t.retention_days} days` : "—"}</span> },
 ];

@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import { useLogFacets } from "@/api/hooks";
 import { ApiRequestError } from "@/api/client";
 import type { FacetCount, LogFacets } from "@/api/types";
-import { ErrorState, Input, Skeleton, UpdatingDot } from "@/components/ui";
+import { ErrorState, IconButton, Input, Skeleton, UpdatingDot } from "@/components/ui";
 import { fmtNumber } from "@/lib/time";
 import { addTerm, hasTerm, removeTerm, term } from "@/lib/query";
 import { levelLabel, levelVar } from "@/lib/levels";
@@ -17,10 +17,12 @@ export interface FacetsPanelProps {
   onChange: (q: string) => void;
   extraFacets: string[]; // attrs.x / tags.y pinned by the user
   onExtraFacets: (f: string[]) => void;
+  /** Shown as a sheet on a phone: a close button joins the header. */
+  onClose?: () => void;
 }
 
 /** The Filters sidebar: the most common values of each field, one click to narrow the list. */
-export function FacetsPanel({ q, range, onChange, extraFacets, onExtraFacets }: FacetsPanelProps) {
+export function FacetsPanel({ q, range, onChange, extraFacets, onExtraFacets, onClose }: FacetsPanelProps) {
   const facets = useLogFacets({ q, from: range.from, to: range.to, attr_keys: 40 });
   const data = facets.data;
 
@@ -32,9 +34,12 @@ export function FacetsPanel({ q, range, onChange, extraFacets, onExtraFacets }: 
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 flex-none items-center justify-between border-b border-border px-3">
+      <div className={clsx("flex flex-none items-center justify-between gap-2 border-b border-border px-3", onClose ? "h-12" : "h-10")}>
         <span className="text-[13px] font-semibold text-ink">Filters</span>
-        <UpdatingDot active={facets.isFetching && !!data} />
+        <span className="flex items-center gap-1">
+          <UpdatingDot active={facets.isFetching && !!data} />
+          {onClose && <IconButton label="Close filters" size="md" icon={<X size={17} />} onClick={onClose} className="-mr-1.5" />}
+        </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!data && facets.isError ? (
@@ -106,7 +111,7 @@ function Facet({ field, items, q, onToggle, defaultOpen = false, onRemove }: { f
           <span className="truncate">{label}</span>
         </button>
         {onRemove && (
-          <button type="button" className="invisible rounded p-1 text-ink-3 hover:text-ink group-hover/f:visible" onClick={onRemove} aria-label={`Remove the ${label} filter`} title="Remove from the sidebar">
+          <button type="button" className="invisible pointer-coarse:visible rounded p-1 text-ink-3 hover:text-ink group-hover/f:visible" onClick={onRemove} aria-label={`Remove the ${label} filter`} title="Remove from the sidebar">
             <X size={13} />
           </button>
         )}
@@ -131,7 +136,7 @@ function Facet({ field, items, q, onToggle, defaultOpen = false, onRemove }: { f
                     {it.value === "" ? <em className="text-ink-3">empty</em> : isLevel ? levelLabel(it.value) : it.value}
                   </span>
                 </button>
-                <button type="button" title={`Hide ${label}: ${it.value || "empty"}`} aria-label={`Hide ${it.value || "empty"}`} className="invisible flex-none rounded px-1 text-xs text-ink-3 hover:text-critical-text group-hover:visible" onClick={() => onToggle(field, it.value, true)}>
+                <button type="button" title={`Hide ${label}: ${it.value || "empty"}`} aria-label={`Hide ${it.value || "empty"}`} className="invisible pointer-coarse:visible flex-none rounded px-1 text-xs text-ink-3 hover:text-critical-text group-hover:visible" onClick={() => onToggle(field, it.value, true)}>
                   Hide
                 </button>
                 <span className="w-10 flex-none text-right text-xs tabular text-ink-3" title={total ? `${Math.round((it.count / total) * 100)}% of messages` : undefined}>
