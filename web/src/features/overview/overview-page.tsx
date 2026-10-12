@@ -11,6 +11,7 @@ import { useRange } from "@/lib/use-range";
 import { fmtMs, fmtNumber, fmtPct, previousLabel, rangePhrase, type Range } from "@/lib/time";
 import { pluralize } from "@/lib/format";
 import { alertKindLabel, firingRuleName } from "@/features/alerts/alert-words";
+import { issueHeadline } from "@/features/issues/issue-text";
 
 const OVERVIEW_DEFAULT: Range = { from: "-24h", to: "" };
 
@@ -287,8 +288,7 @@ function reasonBadge(item: AttentionItem, reason: string) {
 
 function AttentionRow({ item }: { item: AttentionItem }) {
   const s = item.issue;
-  const [headline, ...rest] = (s.title || s.last_message || "Unknown error").split(": ");
-  const message = rest.join(": ") || (s.last_message && s.last_message !== s.title ? s.last_message : "");
+  const { headline, message } = issueHeadline(s);
   return (
     <li>
       <Link to={`/issues/${s.issue_id}`} className="flex items-start gap-4 px-4 py-3 hover:bg-surface-2">

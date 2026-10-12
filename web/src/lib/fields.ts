@@ -39,6 +39,7 @@ const LABELS: Record<string, string> = {
   stack_fingerprint: "Grouping key",
   user_agent: "Browser",
   ip: "IP address",
+  remote_addr: "Remote address",
   id_hash: "Person (anonymized)",
   user_id_hash: "Person (anonymized)",
   "user.id": "User ID",
@@ -114,6 +115,14 @@ const ACRONYMS: Record<string, string> = {
 
 const PREFIXES = ["attrs.", "attr.", "attributes.", "tags.", "tag.", "labels.", "resource."];
 
+const SOURCE_WORDS: Record<string, string> = { sdk: "Pyloggle SDK", otlp: "OpenTelemetry", http: "HTTP API", syslog: "Syslog" };
+
+/** How the data arrived, in words: "sdk" → "Pyloggle SDK". */
+export function sourceLabel(source?: string): string {
+  if (!source) return "";
+  return SOURCE_WORDS[source.toLowerCase()] ?? source;
+}
+
 /** A human label for a field: "http.status" → "Response code", "order_id" → "Order ID". */
 export function fieldLabel(key: string): string {
   if (!key) return "";
@@ -133,7 +142,7 @@ export function fieldLabel(key: string): string {
 }
 
 const CODE_KEY = /(^|[._])(id|ids|hash|trace_id|span_id|event_id|request_id|fingerprint|path|filepath|file|filename|function|func|module|namespace|logger|statement|query|sql|stacktrace|stack|url|uri|route|user_agent|sha|commit|key|token|uuid)$/i;
-const CODE_KEYS = new Set(["exception", "exception_type", "culprit", "code.lineno", "http.method", "http_method", "runtime.pid", "process.pid", "release", "id_hash"]);
+const CODE_KEYS = new Set(["exception", "exception_type", "culprit", "code.lineno", "http.method", "http_method", "runtime.pid", "process.pid", "id_hash"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LONG_HEX = /^[0-9a-f]{12,}$/i;
 const PATHLIKE = /^(\/|[a-z]:\\|\.{1,2}\/)[^\s]*$/i;

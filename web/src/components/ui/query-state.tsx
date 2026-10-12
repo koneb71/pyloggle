@@ -19,8 +19,10 @@ export function friendlyError(error: unknown): { title: string; detail: string }
   return { title: "Couldn't load this", detail };
 }
 
-export function ErrorState({ error, retry, title, compact, className }: { error: unknown; retry?: () => void; title?: string; compact?: boolean; className?: string }) {
+export function ErrorState({ error, retry: retryProp, title, compact, className }: { error: unknown; retry?: () => void; title?: string; compact?: boolean; className?: string }) {
   const f = friendlyError(error);
+  // Retrying can't fix a missing page or missing access.
+  const retry = error instanceof ApiRequestError && (error.status === 404 || error.status === 403) ? undefined : retryProp;
   if (compact) {
     return (
       <div role="alert" className={clsx("flex items-center gap-2 px-4 py-3 text-[13px]", className)}>

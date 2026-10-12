@@ -28,23 +28,36 @@ export function resolveRange(r: Range, now = Date.now()): { from: Date; to: Date
   return { from, to };
 }
 
+const UNIT_WORD: Record<string, string> = { s: "second", m: "minute", h: "hour", d: "day", w: "week" };
+
+/** "-3d" → "3 days", "-1h" → "hour": a relative range's length in words, or "" if not relative. */
+function relativeWords(from: string): string {
+  const q = QUICK_RANGES.find((x) => x.from === from);
+  if (q) return q.label;
+  const m = RELATIVE.exec(from || "");
+  if (!m) return "";
+  const n = parseFloat(m[1]);
+  const w = UNIT_WORD[m[2]];
+  return n === 1 ? w : `${m[1]} ${w}s`;
+}
+
 export function rangeLabel(r: Range): string {
-  const q = QUICK_RANGES.find((x) => x.from === r.from && !r.to);
-  if (q) return `Last ${q.label}`;
+  const words = !r.to ? relativeWords(r.from) : "";
+  if (words) return `Last ${words}`;
   const { from, to } = resolveRange(r);
   return `${fmtShort(from)} – ${fmtShort(to)}`;
 }
 
 /** "the last 24 hours" for a recent range, or the dates for a fixed one: reads inside a sentence. */
 export function rangePhrase(r: Range): string {
-  const q = QUICK_RANGES.find((x) => x.from === r.from && !r.to);
-  return q ? `the last ${q.label}` : rangeLabel(r);
+  const words = !r.to ? relativeWords(r.from) : "";
+  return words ? `the last ${words}` : rangeLabel(r);
 }
 
 /** "vs previous 24 hours": the label for a change against the same-length range before. */
 export function previousLabel(r: Range): string {
-  const q = QUICK_RANGES.find((x) => x.from === r.from && !r.to);
-  return q ? `vs previous ${q.label}` : "vs the period before";
+  const words = !r.to ? relativeWords(r.from) : "";
+  return words ? `vs previous ${words}` : "vs the period before";
 }
 
 export function fmtTs(iso: string | Date, opts: { seconds?: boolean; ms?: boolean } = { seconds: true }): string {
@@ -117,10 +130,12 @@ export function bucketLabel(seconds: number): string {
   return `${Math.round(seconds / 86400)}d`;
 }
 
+/** Axis ticks: "Oct 5" for long spans, "Oct 5 12:00" across days, "12:00" within a day. */
 export function fmtAxisTime(d: Date, spanMs: number): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  if (spanMs > 14 * 864e5) return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  if (spanMs > 864e5) return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const md = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (spanMs > 14 * 864e5) return md;
+  if (spanMs > 864e5) return `${md} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
