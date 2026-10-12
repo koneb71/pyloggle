@@ -168,6 +168,7 @@ export function fmtMs(ms: number | null | undefined): string {
 /** Compact percentage: 0.034 → "0.03%", 12.3 → "12.3%", 100 → "100%". */
 export function fmtPct(pct: number): string {
   if (!isFinite(pct)) return "–";
+  if (pct === 0) return "0%";
   if (pct >= 100) return "100%";
   if (pct >= 10) return `${pct.toFixed(1)}%`;
   return `${pct.toFixed(2)}%`;

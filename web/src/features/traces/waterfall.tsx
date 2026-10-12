@@ -15,8 +15,8 @@ export interface WaterfallProps {
   services: string[];
 }
 
-const ROW_H = 26;
-const LEFT_W = 320;
+const ROW_H = 28;
+const LEFT_W = 340;
 
 export function serviceColor(services: string[], service: string): string {
   const i = services.indexOf(service);
@@ -46,14 +46,14 @@ export function Waterfall({ spans, selectedId, onSelect, className, services }: 
 
   return (
     <div className={clsx("flex min-h-0 flex-col", className)}>
-      <div className="grid flex-none border-b border-border bg-surface-2 text-[11px] text-ink-3" style={grid}>
-        <div className="flex items-center justify-between px-2 py-1">
+      <div className="grid flex-none border-b border-border bg-surface-2 text-xs text-ink-3" style={grid}>
+        <div className="flex items-center justify-between px-3 py-1.5">
           <span>
-            {rows.length} spans{collapsed.size > 0 && ` · ${rows.length - visible.length} hidden`}
+            {rows.length} steps{collapsed.size > 0 && ` · ${rows.length - visible.length} hidden`}
           </span>
           {collapsed.size > 0 && (
-            <button type="button" className="text-accent hover:underline" onClick={() => setCollapsed(new Set())}>
-              expand all
+            <button type="button" className="font-medium text-accent hover:underline" onClick={() => setCollapsed(new Set())}>
+              Show all
             </button>
           )}
         </div>
@@ -85,7 +85,7 @@ function Row({ row, top, grid, selected, collapsed, onToggle, onSelect, color, t
     <div
       role="row"
       aria-selected={selected}
-      className={clsx("absolute left-0 right-0 grid cursor-pointer border-b border-border text-xs hover:bg-surface-2", selected && "bg-accent-soft")}
+      className={clsx("absolute left-0 right-0 grid cursor-pointer border-b border-border text-[13px] hover:bg-surface-2", selected && "bg-accent-soft hover:bg-accent-soft")}
       style={{ ...grid, top, height: ROW_H }}
       onClick={onSelect}
     >
@@ -98,8 +98,8 @@ function Row({ row, top, grid, selected, collapsed, onToggle, onSelect, color, t
               e.stopPropagation();
               onToggle();
             }}
-            aria-label={collapsed ? `Expand ${row.descendants} spans` : "Collapse"}
-            title={collapsed ? `Expand ${row.descendants} spans` : "Collapse"}
+            aria-label={collapsed ? `Show ${row.descendants} steps inside` : "Hide the steps inside"}
+            title={collapsed ? `Show ${row.descendants} steps inside` : "Hide the steps inside"}
           >
             {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
           </button>
@@ -107,21 +107,21 @@ function Row({ row, top, grid, selected, collapsed, onToggle, onSelect, color, t
           <span className="inline-block h-4 w-4 flex-none" />
         )}
         <span className="inline-block h-2.5 w-2.5 flex-none rounded-sm" style={{ background: color }} aria-hidden />
-        <span className={clsx("min-w-0 flex-1 truncate font-mono", failed ? "text-critical" : "text-ink")} title={`${s.service} · ${s.name}`}>
+        <span className={clsx("min-w-0 flex-1 truncate", failed ? "font-medium text-critical-text" : "text-ink")} title={`${s.service} · ${s.name}${failed ? " · failed" : ""}`}>
           {label}
         </span>
-        {collapsed && row.descendants > 0 && <span className="flex-none rounded bg-surface-3 px-1 text-[10px] tabular text-ink-2">+{row.descendants}</span>}
-        {row.hasError && !failed && <AlertTriangle size={11} className="flex-none text-serious" aria-label="A child span failed" />}
-        <span className="flex-none text-[10px] text-ink-3">{s.service}</span>
+        {collapsed && row.descendants > 0 && <span className="flex-none rounded bg-surface-3 px-1 text-[11px] tabular text-ink-2">+{row.descendants}</span>}
+        {row.hasError && !failed && <AlertTriangle size={12} className="flex-none text-warning-text" aria-label="A step inside failed" />}
+        <span className="flex-none text-[11px] text-ink-3">{s.service}</span>
       </div>
       <div className="relative border-l border-border">
         {ticks.slice(1, -1).map((t, i) => (
           <span key={i} className="absolute bottom-0 top-0 w-px bg-grid" style={{ left: `${t.pct}%` }} aria-hidden />
         ))}
         <span
-          className={clsx("absolute top-[6px] h-[14px] rounded-sm", failed && "ring-1 ring-[var(--lvl-error)]")}
+          className={clsx("absolute top-[7px] h-[14px] rounded-sm", failed && "ring-1 ring-[var(--lvl-error)]")}
           style={{ left: `${row.left}%`, width: `${row.width}%`, background: failed ? "var(--lvl-error)" : color, opacity: failed ? 0.9 : 0.85 }}
-          title={`${label}: ${fmtUs(s.duration_us)} (starts at +${fmtUs(row.startUs)})`}
+          title={`${label}: took ${fmtUs(s.duration_us)}, started ${fmtUs(row.startUs)} into the request`}
         />
         <DurationLabel row={row} />
       </div>
@@ -136,7 +136,7 @@ function Row({ row, top, grid, selected, collapsed, onToggle, onSelect, color, t
 function DurationLabel({ row }: { row: WaterfallRow }) {
   const end = row.left + row.width;
   const text = fmtUs(row.span.duration_us);
-  const base = "pointer-events-none absolute top-[5px] whitespace-nowrap text-[10px] tabular";
+  const base = "pointer-events-none absolute top-[6px] whitespace-nowrap text-[11px] leading-4 tabular";
   if (end <= 85) return <span className={clsx(base, "text-ink-2")} style={{ left: `${end}%`, paddingLeft: 4 }}>{text}</span>;
   if (row.left >= 15) return <span className={clsx(base, "text-ink-2")} style={{ right: `${100 - row.left}%`, paddingRight: 4 }}>{text}</span>;
   return (

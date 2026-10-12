@@ -112,7 +112,7 @@ export function fmtUs(us: number): string {
 }
 
 /** Tick positions (percent, label) for the time ruler above the waterfall. */
-export function rulerTicks(totalUs: number, count = 5): { pct: number; label: string }[] {
+export function rulerTicks(totalUs: number, count = 4): { pct: number; label: string }[] {
   const out: { pct: number; label: string }[] = [];
   for (let i = 0; i <= count; i++) {
     const pct = (i / count) * 100;
