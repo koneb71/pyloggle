@@ -55,7 +55,7 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: scripts/build-release.sh "${{ needs.verify.outputs.version }}" dist
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-notes
       - name: Create the release
@@ -135,7 +135,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: python-sdk-dist
           path: dist/
