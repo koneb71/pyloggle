@@ -82,6 +82,10 @@ and where. No migrations.
 
 ### Fixed
 
+- The alert dialog's Slack field said "Empty uses the server's default", but an empty field
+  turned Slack off, so the default webhook (`ALERT_SLACK_WEBHOOK_URL`) could not be chosen.
+  When the server has one, the dialog now offers it as a checkbox, and rule cards that use it
+  say "Slack".
 - Sign-in allow-lists trusted an e-mail address the sign-in provider marked as unverified
   (`email_verified: false`), so on a provider where people can register any address, someone
   could pass `PYLOGGLE_OIDC_ALLOWED_DOMAINS` with an address that is not theirs. Unverified

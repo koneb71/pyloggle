@@ -9,7 +9,7 @@ export interface Me {
   is_admin: boolean;
   project?: { id: string; name: string };
   projects: { id: string; name: string }[];
-  features: { alerting: boolean; traces?: boolean; public_url?: string; auth_provider?: string };
+  features: { alerting: boolean; traces?: boolean; public_url?: string; auth_provider?: string; slack_default?: boolean };
 }
 
 export interface IssueSummary {

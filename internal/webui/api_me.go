@@ -33,12 +33,15 @@ type meFeatures struct {
 	Traces       bool   `json:"traces"`
 	PublicURL    string `json:"public_url,omitempty"`
 	AuthProvider string `json:"auth_provider,omitempty"`
+	// SlackDefault: ALERT_SLACK_WEBHOOK_URL is set, so a rule may send to Slack without its
+	// own webhook address.
+	SlackDefault bool `json:"slack_default,omitempty"`
 }
 
 func (u *UI) apiMe(w http.ResponseWriter, r *http.Request) {
 	oidc := u.cfg.OIDC()
 	resp := meResponse{AuthMode: oidc.Mode, IsAdmin: u.isUIAdmin(r), Projects: []meProject{},
-		Features: meFeatures{Alerting: u.cfg.AlertingEnabled, Traces: u.cfg.OTLPStoreSpans, PublicURL: u.cfg.PublicURL}}
+		Features: meFeatures{Alerting: u.cfg.AlertingEnabled, Traces: u.cfg.OTLPStoreSpans, PublicURL: u.cfg.PublicURL, SlackDefault: u.cfg.AlertSlackWebhookURL != ""}}
 	if oidc.Enabled() {
 		resp.Features.AuthProvider = oidc.DisplayName
 	}
