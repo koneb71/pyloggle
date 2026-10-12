@@ -1,50 +1,14 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import clsx from "clsx";
-import { Activity, AlertOctagon, Bell, Check, ChevronsUpDown, FolderKanban, GitBranch, Home, Keyboard, LayoutDashboard, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, Sun, SunMoon } from "lucide-react";
+import { Check, ChevronsUpDown, Keyboard, LogOut, Moon, PanelLeftClose, PanelLeftOpen, Sun, SunMoon } from "lucide-react";
 import type { Me } from "@/api/types";
 import { useLogout, useProjectMutations } from "@/api/hooks";
 import { Dialog, IconButton, Kbd, MenuItem, Popover, Tooltip } from "@/components/ui";
 import { useTheme } from "./theme";
 import { useMediaQuery } from "@/lib/use-media";
+import { ALL_ITEMS, HELP, NAV, shortcutRows, type NavItem } from "./nav";
 
-interface NavItem {
-  to: string;
-  label: string;
-  hint: string;
-  icon: ComponentType<{ size?: number; className?: string }>;
-  key: string;
-  show?: (me: Me) => boolean;
-}
-
-/** Navigation grouped by what people come to do: look into problems, keep watch, set things up. */
-const NAV: { title?: string; items: NavItem[] }[] = [
-  { items: [{ to: "/overview", label: "Overview", hint: "Is everything OK right now?", icon: Home, key: "o" }] },
-  {
-    title: "Investigate",
-    items: [
-      { to: "/issues", label: "Issues", hint: "Errors grouped by cause", icon: AlertOctagon, key: "i" },
-      { to: "/logs", label: "Logs", hint: "Every message your apps wrote", icon: ScrollText, key: "l" },
-      { to: "/traces", label: "Requests", hint: "Each request step by step (traces)", icon: GitBranch, key: "t", show: (me) => me.features.traces !== false },
-    ],
-  },
-  {
-    title: "Monitor",
-    items: [
-      { to: "/dashboards", label: "Dashboards", hint: "How the project is doing over time", icon: LayoutDashboard, key: "d" },
-      { to: "/alerts", label: "Alerts", hint: "Get told when something goes wrong", icon: Bell, key: "a", show: (me) => !!me.features.alerting || me.is_admin },
-    ],
-  },
-  {
-    title: "Settings",
-    items: [
-      { to: "/projects", label: "Projects", hint: "Projects, access keys and storage", icon: FolderKanban, key: "p" },
-      { to: "/system", label: "System", hint: "Health of the Pyloggle server", icon: Activity, key: "s", show: (me) => me.is_admin },
-    ],
-  },
-];
-
-const ALL_ITEMS = NAV.flatMap((g) => g.items);
 
 export function AppShell({ me }: { me: Me }) {
   const [pref, setPref] = useState<"open" | "collapsed">(() => {
@@ -122,6 +86,9 @@ export function AppShell({ me }: { me: Me }) {
               </div>
             );
           })}
+          <div className="mt-auto">
+            <NavEntry item={HELP} collapsed={collapsed} />
+          </div>
         </nav>
         <div className={clsx("flex flex-none items-center gap-0.5 border-t border-border p-2", collapsed && "flex-col")}>
           <UserMenu me={me} collapsed={collapsed} />
@@ -171,31 +138,31 @@ function NavEntry({ item: n, collapsed }: { item: NavItem; collapsed: boolean })
 }
 
 function ShortcutsDialog({ open, onClose, me }: { open: boolean; onClose: () => void; me: Me }) {
-  const rows: [string[], string][] = [
-    ...ALL_ITEMS.filter((n) => !n.show || n.show(me)).map((n): [string[], string] => [["g", n.key], `Go to ${n.label}`]),
-    [["/"], "Search (on Logs and Requests)"],
-    [["j", "k"], "Next and previous message (on Logs)"],
-    [["Esc"], "Close a panel or dialog"],
-    [["?"], "Show these shortcuts"],
-  ];
   return (
     <Dialog open={open} onClose={onClose} title="Keyboard shortcuts">
-      <dl className="grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-2 text-[13px]">
-        {rows.map(([keys, what]) => (
-          <div key={what} className="contents">
-            <dt className="flex items-center gap-1">
-              {keys.map((k, i) => (
-                <span key={k} className="flex items-center gap-1">
-                  {i > 0 && <span className="text-xs text-ink-3">{keys[0] === "g" ? "then" : "/"}</span>}
-                  <Kbd>{k}</Kbd>
-                </span>
-              ))}
-            </dt>
-            <dd className="text-ink-2">{what}</dd>
-          </div>
-        ))}
-      </dl>
+      <ShortcutList me={me} />
     </Dialog>
+  );
+}
+
+/** The keyboard shortcuts as a two-column list, in the dialog and on the Help page. */
+export function ShortcutList({ me }: { me: Me }) {
+  return (
+    <dl className="grid grid-cols-[max-content_1fr] items-center gap-x-6 gap-y-2 text-[13px]">
+      {shortcutRows(me).map(([keys, what]) => (
+        <div key={what} className="contents">
+          <dt className="flex items-center gap-1">
+            {keys.map((k, i) => (
+              <span key={k} className="flex items-center gap-1">
+                {i > 0 && <span className="text-xs text-ink-3">{keys[0] === "g" ? "then" : "/"}</span>}
+                <Kbd>{k}</Kbd>
+              </span>
+            ))}
+          </dt>
+          <dd className="text-ink-2">{what}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

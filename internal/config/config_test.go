@@ -71,3 +71,18 @@ func TestEmptyDefaultProjectRequiresKeys(t *testing.T) {
 		t.Fatalf("an empty PYLOGGLE_DEFAULT_PROJECT_ID must stay empty, got %q", got)
 	}
 }
+
+func TestDocsURL(t *testing.T) {
+	t.Setenv("PYLOGGLE_UI_AUTH", "disabled")
+	if got := FromEnv().DocsURL; got != "https://koneb71.github.io/pyloggle/" {
+		t.Fatalf("default: %q", got)
+	}
+	t.Setenv("PYLOGGLE_DOCS_URL", "https://docs.internal.example/pyloggle")
+	if got := FromEnv().DocsURL; got != "https://docs.internal.example/pyloggle/" {
+		t.Fatalf("a mirror gets a trailing slash: %q", got)
+	}
+	t.Setenv("PYLOGGLE_DOCS_URL", "")
+	if got := FromEnv().DocsURL; got != "" {
+		t.Fatalf("empty hides the links: %q", got)
+	}
+}

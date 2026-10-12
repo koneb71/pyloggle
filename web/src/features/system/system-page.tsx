@@ -7,6 +7,7 @@ import { TrendChart } from "@/components/charts/trend-chart";
 import { Card, DataTable, EmptyState, Page, QueryState, Section, Skeleton, StatTile, TimeAgo, buttonClass, type Column } from "@/components/ui";
 import { fmtBytes, fmtNumber, fmtPct, fmtWhen } from "@/lib/time";
 import { alertKindLabel } from "@/features/alerts/alert-words";
+import { LearnMore } from "@/components/learn-more";
 
 interface SystemInfo {
   version: string;
@@ -98,7 +99,12 @@ export function SystemPage({ me }: { me: Me }) {
   return (
     <Page
       title="System"
-      description={d ? `Health of the Pyloggle server itself, for administrators. Version ${d.version}, running for ${fmtUptime(d.uptime_s)}.` : "Health of the Pyloggle server itself, for administrators."}
+      description={
+        <>
+          {d ? `Health of the Pyloggle server itself, for administrators. Version ${d.version}, running for ${fmtUptime(d.uptime_s)}.` : "Health of the Pyloggle server itself, for administrators."}{" "}
+          <LearnMore doc="retention">How much it keeps</LearnMore>
+        </>
+      }
       actions={
         me.is_admin && (
           <a href="/metrics" target="_blank" rel="noreferrer" className={buttonClass({ className: "gap-1.5" })}>

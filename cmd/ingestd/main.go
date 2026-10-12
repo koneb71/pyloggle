@@ -25,7 +25,7 @@ func main() {
 			fmt.Println("pyloggle ingestd " + version.String())
 			return
 		case "-h", "-help", "--help", "help":
-			fmt.Println("pyloggle ingestd " + version.String() + "\n\nConfigured through environment variables; see https://koneb71.github.io/pyloggle/reference/configuration")
+			fmt.Println("pyloggle ingestd " + version.String() + "\n\nConfigured through environment variables; see " + config.DocsHome + "reference/configuration")
 			return
 		}
 	}

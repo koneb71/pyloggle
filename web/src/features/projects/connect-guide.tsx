@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CopyButton, Section, Tabs } from "@/components/ui";
+import { LearnMore } from "@/components/learn-more";
 
 interface Props {
   serverUrl: string;
@@ -64,7 +65,12 @@ export function ConnectGuide({ serverUrl, projectId, apiKey, prominent }: Props)
   return (
     <Section
       title="Connect your app"
-      description={prominent ? "This project hasn't received anything yet. Pick how your app is built and follow the steps." : "How to send data to this project, with this server's address filled in."}
+      description={
+        <>
+          {prominent ? "This project hasn't received anything yet. Pick how your app is built and follow the steps." : "How to send data to this project, with this server's address filled in."}{" "}
+          <LearnMore doc={tab === "otel" ? "opentelemetry" : tab === "python" ? "python" : "frameworks"} />
+        </>
+      }
       className={prominent ? "border-accent/40" : undefined}
       flush
     >

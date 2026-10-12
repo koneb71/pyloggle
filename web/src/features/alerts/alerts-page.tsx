@@ -5,6 +5,7 @@ import type { AlertFiring, AlertRule, Me } from "@/api/types";
 import { Badge, Button, Card, Checkbox, Dialog, EmptyState, Field, Input, JsonView, MetaLine, Page, QueryState, Section, Select, Skeleton, Textarea, TimeAgo, friendlyError, toast } from "@/components/ui";
 import { fmtTs, fmtWhen } from "@/lib/time";
 import { ALERT_KIND, COMPARISON_WORDS, alertKindLabel, browserTimeZone, firingSentence, firingSummary, formFromRule, hourWords, ruleChannels, ruleFromForm, ruleRecipients, ruleRepeat, ruleSentence, secondsWords, timeZones, usesDefaultSlack, type RuleForm } from "./alert-words";
+import { LearnMore } from "@/components/learn-more";
 
 export function Compare(op: string | undefined, value: number, threshold: number): boolean {
   switch (op || "gt") {
@@ -34,7 +35,11 @@ export function AlertsPage({ me }: { me: Me }) {
   return (
     <Page
       title="Alerts"
-      description="Get told when something goes wrong, by e-mail, Slack, Telegram or a webhook. Rules are checked every minute."
+      description={
+        <>
+          Get told when something goes wrong, by e-mail, Slack, Telegram or a webhook. Rules are checked every minute. <LearnMore doc="alerting" />
+        </>
+      }
       actions={
         canEdit && (
           <Button variant="primary" icon={<Plus size={14} />} onClick={() => setEditing(blank())}>
