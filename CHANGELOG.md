@@ -101,7 +101,7 @@ and where. No migrations.
 Issue workflow, log-query monitors, traces, OpenTelemetry metrics, analytics and export,
 storage accounting with per-project retention and deletion, Prometheus metrics and a System
 page, generic OIDC login, scoped API keys, Django and Celery in the SDK. Migrations are
-additive; see `docs/upgrading-0.3.md`.
+additive; see `docs/self-hosting/upgrading-0.3.md`.
 
 ### Issues
 
@@ -182,7 +182,7 @@ additive; see `docs/upgrading-0.3.md`.
 ### OpenTelemetry
 
 - Three doors (`/v1/logs`, `/v1/traces`, `/v1/metrics`), a Collector example, a guide
-  (`docs/opentelemetry.md`) and support for FastAPI 0.142+ native telemetry: spans with
+  (`docs/send-data/opentelemetry.md`) and support for FastAPI 0.142+ native telemetry: spans with
   operation spans, HTTP metrics for the dashboards, exception logs as issues.
 - One issue per crash: the first error occurrence per project, trace and exception class is
   the occurrence, a second report through another door within two minutes is a linked log
@@ -214,7 +214,7 @@ additive; see `docs/upgrading-0.3.md`.
 ## 0.2.0
 
 A redesign of the server, the UI and the Python SDK. Projects already sending data need no
-change; see `docs/upgrading-0.2.md`.
+change; see `docs/self-hosting/upgrading-0.2.md`.
 
 ### Error reports
 
@@ -249,7 +249,7 @@ change; see `docs/upgrading-0.2.md`.
   bloom and token indexes. Expired data is dropped as whole parts (`ttl_only_drop_parts`).
 - 30-day default retention for logs and errors, 365 days for the tiny aggregate tables.
 - Tuned ClickHouse configuration mounted by compose and memory/CPU limits for both containers
-  (`docs/footprint.md`).
+  (`docs/self-hosting/retention-and-footprint.md`).
 
 ### UI
 

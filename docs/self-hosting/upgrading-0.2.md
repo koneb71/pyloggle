@@ -11,7 +11,7 @@ no code change; this page lists what happens on the first start and what you may
   (`PYLOGGLE_RETENTION_LOGS_DAYS`, `PYLOGGLE_RETENTION_ERRORS_DAYS`). Rows older than that are not
   copied into the new tables.
 - `docker compose` now mounts `deploy/clickhouse/config.d` and `users.d` into ClickHouse and sets
-  memory limits. Review `docs/footprint.md` if your box is unusually small or large.
+  memory limits. Review [Retention and footprint](retention-and-footprint.md) if your box is unusually small or large.
 
 ## What the first start does
 

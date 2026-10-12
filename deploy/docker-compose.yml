@@ -5,7 +5,7 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       # Footprint tuning (memory caps, small caches, two merge threads, no unused system logs).
-      # See docs/footprint.md before changing these.
+      # See docs/self-hosting/retention-and-footprint.md before changing these.
       - ./clickhouse/config.d/pyloggle.xml:/etc/clickhouse-server/config.d/pyloggle.xml:ro
       - ./clickhouse/users.d/pyloggle.xml:/etc/clickhouse-server/users.d/pyloggle.xml:ro
     environment:

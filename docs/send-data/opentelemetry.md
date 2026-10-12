@@ -6,13 +6,13 @@ metrics to it with one API key, with or without the Python SDK.
 | Door | Payload | Lands in |
 |---|---|---|
 | `POST /v1/logs` | log records | log lines; records with `exception.*` attributes become issues (Python tracebacks in `exception.stacktrace` are parsed back into frames) |
-| `POST /v1/traces` | spans | the `spans` table (7 days) for the Traces page; server spans also produce a `request` log line; failures become issues (rules below) |
-| `POST /v1/metrics` | gauges, sums, histograms | `metrics_points` (30 days) for the Dashboards metric card and the request tiles |
+| `POST /v1/traces` | spans | the `spans` table (7 days) for the **Requests** page; server spans also produce a `request` log line; failures become issues (rules below) |
+| `POST /v1/metrics` | gauges, sums, histograms | `metrics_points` (30 days) for the **Custom measurements** section of Dashboards and its web request numbers |
 
 Protobuf (`application/x-protobuf`) and JSON encodings are accepted, gzip too, also under
 `/v1/otlp/v1/*`. Authenticate with `X-API-Key: <key>` or `Authorization: Bearer <key>`; the key
-needs the `ingest` scope (every key created from the Projects page with "ingest" ticked, and
-every key migrated from 0.2).
+needs the *Send data* permission (every key created on the Projects page with *Send data*
+ticked, and every key migrated from 0.2).
 
 ## Exporter settings
 
@@ -29,8 +29,8 @@ export OTEL_RESOURCE_ATTRIBUTES=deployment.environment=prod,service.version=1.4.
 `service.name`, `deployment.environment` (or `deployment.environment.name`) and
 `service.version` map to pyloggle's service, env and release.
 
-Through the OpenTelemetry Collector, use the `otlphttp` exporter; `examples/otel-collector.yaml`
-is a complete pipeline for logs, traces and metrics:
+Through the OpenTelemetry Collector, use the `otlphttp` exporter;
+[`examples/otel-collector.yaml`](https://github.com/koneb71/pyloggle/blob/main/examples/otel-collector.yaml) is a complete pipeline for logs, traces and metrics:
 
 ```yaml
 exporters:
@@ -68,16 +68,16 @@ export FASTAPI_OTEL_AUTO_CONFIGURE=true        # 0.143+: exporters from the envi
 export OTEL_SERVICE_NAME=checkout
 ```
 
-`examples/otel_app.py` is the runnable version. What you get in pyloggle:
+[`examples/otel_app.py`](https://github.com/koneb71/pyloggle/blob/main/examples/otel_app.py) is the runnable version. What you get in pyloggle:
 
-- **Traces** lists `GET /boom` with its operation spans in the waterfall, the request's log
-  lines and the issue it caused.
+- **Requests** lists `GET /boom`; its timeline shows the operation steps, the messages logged
+  during the request and the issue it caused.
 - The exception log (`http.server.request.exception`, body "Unhandled exception in FastAPI
   request") becomes **one issue** with parsed frames; the failed request and endpoint spans
   do not become issues of their own.
-- The **Dashboards** request tiles can read the OTEL HTTP metrics (source toggle "otel
-  metrics"): request rate and error % from the duration histogram, p50/p95 by `http.route`,
-  active requests.
+- The **Web requests** section of Dashboards can read FastAPI's HTTP metrics (choose *Based on:
+  OpenTelemetry metrics*, or leave it on *Automatic*): requests per second and the failed share
+  from the duration histogram, and typical and slow response times by `http.route`.
 - Validation failures (`fastapi.validation.failed`) land in the explorer as warnings.
 
 `FastAPI(telemetry={...})` options that matter: `exclude` (a function of the ASGI scope; use it
