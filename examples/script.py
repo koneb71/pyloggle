@@ -5,8 +5,8 @@ import logging
 
 import pyloggle
 
+logging.basicConfig(level=logging.INFO)  # before init(): basicConfig does nothing once a handler exists
 pyloggle.init(service="example-script", env="dev")
-logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("example")
 
 pyloggle.set_tag("job", "nightly-report")

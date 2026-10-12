@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 func b(v bool) *bool { return &v }

@@ -1,4 +1,4 @@
-module pyloggle
+module github.com/koneb71/pyloggle
 
 go 1.24
 

@@ -15,10 +15,11 @@ import (
 	"math/rand"
 	"net/url"
 	"os"
-	"pyloggle/internal/api"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 func integrationClient(t *testing.T) (*Client, func()) {
@@ -53,6 +54,51 @@ func integrationClient(t *testing.T) (*Client, func()) {
 	return c, cleanup
 }
 
+// A user that may only touch its own database can install the whole schema: migrations never
+// create or switch databases. Skipped where the server cannot create users.
+func TestIntegrationMigrateAsDatabaseOwner(t *testing.T) {
+	dsn := os.Getenv("PYLOGGLE_TEST_CLICKHOUSE_DSN")
+	if dsn == "" {
+		t.Skip("PYLOGGLE_TEST_CLICKHOUSE_DSN not set")
+	}
+	ctx := context.Background()
+	admin, err := New(dsn, 100, 10, time.Second)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer func() { _ = admin.Close() }()
+	n := rand.Int63()
+	db, user, pass := fmt.Sprintf("pyloggle_owner_%d", n), fmt.Sprintf("pyloggle_owner_%d", n), fmt.Sprintf("pw-%d", n)
+	if err := admin.Exec(ctx, "CREATE USER "+user+" IDENTIFIED BY '"+pass+"'"); err != nil {
+		t.Skipf("cannot create users here: %v", err)
+	}
+	defer func() { _ = admin.Exec(ctx, "DROP USER IF EXISTS "+user) }()
+	if err := admin.Exec(ctx, "CREATE DATABASE "+db); err != nil {
+		t.Fatalf("create db: %v", err)
+	}
+	defer func() { _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+db) }()
+	if err := admin.Exec(ctx, "GRANT ALL ON "+db+".* TO "+user); err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User, u.Path = url.UserPassword(user, pass), "/"+db
+	c, err := New(u.String(), 100, 10, time.Second)
+	if err != nil {
+		t.Fatalf("connect as %s: %v", user, err)
+	}
+	defer func() { _ = c.Close() }()
+	applied, err := c.Migrate(ctx, MigrateOptions{RetentionLogsDays: 30, RetentionErrorsDays: 30, RetentionStatsDays: 365, RetentionSpansDays: 7, RetentionMetricsDays: 30})
+	if err != nil {
+		t.Fatalf("migrate as the database owner (applied %v): %v", applied, err)
+	}
+	if len(applied) < 16 {
+		t.Fatalf("applied only %v", applied)
+	}
+}
+
 // applyV1Schema reproduces a deployment created by the old docker initdb DDL (001-005 only).
 func applyV1Schema(t *testing.T, c *Client) {
 	t.Helper()
@@ -63,9 +109,6 @@ func applyV1Schema(t *testing.T, c *Client) {
 			t.Fatal(err)
 		}
 		for _, stmt := range splitStatements(string(raw)) {
-			if strings.HasPrefix(strings.ToUpper(stmt), "CREATE DATABASE") {
-				continue
-			}
 			if err := c.Exec(ctx, stmt); err != nil {
 				t.Fatalf("v1 %s: %v\n%s", f, err, firstLine(stmt))
 			}

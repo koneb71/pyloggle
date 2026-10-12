@@ -4,102 +4,127 @@ import clsx from "clsx";
 import { useProjectMutations, useProjectUsage } from "@/api/hooks";
 import type { Project } from "@/api/types";
 import { Sparkline } from "@/components/charts/sparkline";
-import { Button, Dialog, Field, Input, Skeleton } from "@/components/ui";
+import { Button, Dialog, ErrorState, Field, Input, Skeleton, toast } from "@/components/ui";
 import { fmtBytes, fmtNumber, fmtPct } from "@/lib/time";
 
-const SOURCE_LABEL: Record<string, string> = { logs: "Log lines", errors: "Error occurrences", spans: "Spans", metrics: "Metric points" };
+const SOURCE_LABEL: Record<string, string> = { logs: "Messages", errors: "Error details", spans: "Request steps", metrics: "Custom measurements" };
 
-/** Storage of one project against its quota, with the admin danger zone. */
-export function ProjectUsagePanel({ project, canEdit, onDeleted }: { project: Project; canEdit: boolean; onDeleted: () => void }) {
+/** A small bar of storage used against the quota, for the projects table. */
+export function UsageBar({ project }: { project: Project }) {
   const usage = useProjectUsage(project.id);
-  const { remove, purgeUser } = useProjectMutations();
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [purge, setPurge] = useState(false);
+  const u = usage.data;
+  if (usage.isPending) return <span className="skeleton inline-block h-3 w-24" aria-label="Loading" />;
+  if (!u) return <span className="text-xs text-ink-3">Unknown</span>;
+  if (u.quota_gb <= 0) return <span className="text-[13px] text-ink-2">{fmtBytes(u.stored_disk_est)}</span>;
+  const pct = u.stored_pct;
+  return (
+    <span className="flex w-full flex-col gap-1" title={`${fmtBytes(u.stored_disk_est)} of ${u.quota_gb} GB`}>
+      <span className="text-xs tabular text-ink-2">
+        {fmtBytes(u.stored_disk_est)} <span className="text-ink-3">of {u.quota_gb} GB</span>
+      </span>
+      <span className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+        <span className={clsx("block h-1.5 rounded-full", pct >= 90 ? "bg-critical" : pct >= 70 ? "bg-warning" : "bg-accent")} style={{ width: `${Math.min(100, Math.max(2, pct))}%` }} />
+      </span>
+    </span>
+  );
+}
+
+/** How much one project stores, what it is, and how long it is kept. */
+export function StoragePanel({ project }: { project: Project }) {
+  const usage = useProjectUsage(project.id);
   const u = usage.data;
   const daily = useMemo(() => {
     if (!u) return [];
     const byDay = new Map<string, number>();
-    for (const d of u.daily) byDay.set(d.day, (byDay.get(d.day) ?? 0) + d.bytes_est);
+    for (const d of u.daily) byDay.set(d.day.slice(0, 10), (byDay.get(d.day.slice(0, 10)) ?? 0) + d.bytes_est);
     const out: number[] = [];
     const today = new Date();
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(today.getTime() - i * 864e5).toISOString().slice(0, 10);
-      out.push([...byDay.entries()].find(([k]) => k.startsWith(d))?.[1] ?? 0);
-    }
+    for (let i = 29; i >= 0; i--) out.push(byDay.get(new Date(today.getTime() - i * 864e5).toISOString().slice(0, 10)) ?? 0);
     return out;
   }, [u]);
-  if (usage.isPending) return <Skeleton rows={3} className="p-3" />;
-  if (usage.isError || !u) return <div className="px-3 py-2 text-xs text-critical">Usage unavailable: {String(usage.error)}</div>;
+  if (usage.isPending) return <Skeleton rows={4} className="p-5" />;
+  if (usage.isError || !u) return <ErrorState error={usage.error} retry={() => usage.refetch()} title="Couldn't load storage" />;
   const pct = u.quota_gb > 0 ? u.stored_pct : 0;
-  const tone = pct >= 90 ? "bg-critical" : pct >= 70 ? "bg-serious" : "bg-accent";
   const sources = Object.entries(u.by_source).sort((a, b) => b[1].disk_est - a[1].disk_est);
+  const r = u.retention;
   return (
-    <div className="space-y-3 border-t border-border bg-surface-2/40 px-3 py-3 text-xs">
+    <div className="space-y-5 p-5 text-[13px]">
       {u.deleting && (
-        <div className="flex items-center gap-2 rounded-md border border-serious/40 px-2 py-1.5 text-serious">
-          <AlertTriangle size={13} /> A purge is still running for this project.
+        <div className="flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-warning-text">
+          <AlertTriangle size={14} /> Data is still being deleted for this project.
         </div>
       )}
-      <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-        <div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-[13px] font-medium text-ink">
-              {fmtBytes(u.stored_disk_est)} on disk <span className="font-normal text-ink-3">(≈{fmtBytes(u.stored_bytes_est)} raw) over the last {u.window_days} days</span>
-            </span>
-            <span className="tabular text-ink-2">{u.quota_gb > 0 ? `${fmtPct(pct)} of ${u.quota_gb} GB` : "no quota"}</span>
-          </div>
-          <div className="mt-1 h-2 w-full overflow-hidden rounded bg-surface-3">
-            <div className={clsx("h-2 rounded", tone)} style={{ width: `${Math.min(100, Math.max(u.quota_gb > 0 ? pct : 0, 0))}%` }} />
-          </div>
-          <div className="mt-1 text-[11px] text-ink-3">
-            Retention: logs {u.retention.logs}d · errors {u.retention.errors}d · spans {u.retention.spans}d · metrics {u.retention.metrics}d
-            {u.retention.override_days > 0 && <span className="text-ink-2"> · this project keeps {u.retention.override_days}d</span>}
-            {u.quota_gb > 0 && <span> · over quota, info/debug lines are dropped; errors keep flowing up to 2×</span>}
-          </div>
+      <div>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="text-[15px] font-semibold text-ink">{fmtBytes(u.stored_disk_est)} stored</span>
+          <span className="text-ink-2">{u.quota_gb > 0 ? `${fmtPct(pct)} of the ${u.quota_gb} GB limit` : "No storage limit"}</span>
         </div>
-        <div className="text-right">
-          <div className="text-[10px] uppercase tracking-wide text-ink-3">30 days, raw bytes/day</div>
-          <Sparkline values={daily} width={160} height={28} color="var(--accent)" title="Daily ingest" />
-        </div>
+        {u.quota_gb > 0 && (
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface-3">
+            <div className={clsx("h-2 rounded-full", pct >= 90 ? "bg-critical" : pct >= 70 ? "bg-warning" : "bg-accent")} style={{ width: `${Math.min(100, pct)}%` }} />
+          </div>
+        )}
+        <p className="mt-1.5 text-xs text-ink-3">
+          Over the last {u.window_days} days, after compression (about {fmtBytes(u.stored_bytes_est)} before).
+          {u.quota_gb > 0 && " Above the limit, info and debug messages are dropped first; errors keep coming in."}
+        </p>
       </div>
-      <table className="w-full">
-        <thead className="text-left text-[10px] uppercase tracking-wide text-ink-3">
-          <tr>
-            <th className="py-1 font-medium">source</th>
-            <th className="py-1 text-right font-medium">rows</th>
-            <th className="py-1 text-right font-medium">raw est.</th>
-            <th className="py-1 text-right font-medium">on disk est.</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sources.length === 0 && (
-            <tr>
-              <td colSpan={4} className="py-1 text-ink-3">
-                nothing stored in the window
-              </td>
-            </tr>
-          )}
-          {sources.map(([src, v]) => (
-            <tr key={src} className="border-t border-border">
-              <td className="py-1 text-ink">{SOURCE_LABEL[src] ?? src}</td>
-              <td className="py-1 text-right tabular text-ink-2">{fmtNumber(v.rows)}</td>
-              <td className="py-1 text-right tabular text-ink-2">{fmtBytes(v.bytes_est)}</td>
-              <td className="py-1 text-right tabular text-ink">{fmtBytes(v.disk_est)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {canEdit && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-ink-3">Danger zone</span>
-          <Button size="xs" variant="danger" icon={<UserX size={12} />} onClick={() => setPurge(true)}>
-            Purge a user
-          </Button>
-          <Button size="xs" variant="danger" icon={<Trash2 size={12} />} onClick={() => setConfirmDelete(true)}>
-            Delete project
-          </Button>
+      <div>
+        <div className="mb-1.5 flex items-baseline justify-between">
+          <span className="font-medium text-ink">Received per day</span>
+          <span className="text-xs text-ink-3">last 30 days</span>
         </div>
-      )}
+        <Sparkline values={daily} width={560} height={36} color="var(--accent)" title="Data received per day" />
+      </div>
+      <div>
+        <div className="mb-1.5 font-medium text-ink">What is stored</div>
+        <dl className="divide-y divide-border rounded-lg border border-border">
+          {sources.length === 0 && <div className="px-3 py-2 text-ink-3">Nothing stored yet.</div>}
+          {sources.map(([src, v]) => (
+            <div key={src} className="flex items-center gap-3 px-3 py-2">
+              <dt className="flex-1 text-ink">{SOURCE_LABEL[src] ?? src}</dt>
+              <dd className="w-28 text-right tabular text-ink-3">{fmtNumber(v.rows)} rows</dd>
+              <dd className="w-24 text-right font-medium tabular text-ink">{fmtBytes(v.disk_est)}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <div>
+        <div className="mb-1.5 font-medium text-ink">How long data is kept</div>
+        <p className="text-ink-2">
+          {r.override_days > 0 ? `This project keeps everything for ${r.override_days} days. ` : ""}
+          Messages {r.logs} days · error details {r.errors} days · request steps {r.spans} days · custom measurements {r.metrics} days.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Irreversible actions, kept apart and explained. */
+export function DangerZone({ project, onDeleted }: { project: Project; onDeleted: () => void }) {
+  const { remove, purgeUser } = useProjectMutations();
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [purge, setPurge] = useState(false);
+  return (
+    <div className="space-y-3 p-5">
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
+        <div>
+          <div className="text-[13px] font-medium text-ink">Erase one person's data</div>
+          <p className="mt-0.5 text-[13px] text-ink-3">For privacy requests: removes the messages and error details recorded for one person.</p>
+        </div>
+        <Button variant="danger" icon={<UserX size={14} />} onClick={() => setPurge(true)} className="flex-none">
+          Erase…
+        </Button>
+      </div>
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-critical/30 p-4">
+        <div>
+          <div className="text-[13px] font-medium text-ink">Delete this project</div>
+          <p className="mt-0.5 text-[13px] text-ink-3">Removes all of its data, issues, alerts and saved searches. Its keys stop working at once.</p>
+        </div>
+        <Button variant="danger" icon={<Trash2 size={14} />} onClick={() => setConfirmDelete(true)} className="flex-none">
+          Delete…
+        </Button>
+      </div>
       {confirmDelete && (
         <DeleteDialog
           project={project}
@@ -114,7 +139,7 @@ export function ProjectUsagePanel({ project, canEdit, onDeleted }: { project: Pr
           pending={purgeUser.isPending}
           error={purgeUser.error}
           onClose={() => setPurge(false)}
-          onConfirm={(v) => purgeUser.mutate({ id: project.id, ...v }, { onSuccess: () => (setPurge(false), usage.refetch()) })}
+          onConfirm={(v) => purgeUser.mutate({ id: project.id, ...v }, { onSuccess: () => (setPurge(false), toast.success("Erasing started", "It finishes in the background within a few minutes.")) })}
         />
       )}
     </div>
@@ -126,12 +151,16 @@ function DeleteDialog({ project, pending, error, onClose, onConfirm }: { project
   return (
     <Dialog open onClose={onClose} title={`Delete ${project.name}?`}>
       <p className="text-[13px] text-ink-2">
-        Every log line, error, span, metric, issue, alert rule and saved view of <span className="font-mono text-ink">{project.id}</span> is removed and the API key stops working immediately. The id cannot be reused.
+        Every message, error, request, measurement, issue, alert and saved search of this project is removed, and its access keys stop working at once. This can't be undone, and the project id <span className="font-mono text-ink">{project.id}</span> can't be used again.
       </p>
       <Field label={`Type ${project.id} to confirm`} className="mt-3">
         <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus />
       </Field>
-      {!!error && <div className="mt-2 text-xs text-critical">{String((error as Error).message ?? error)}</div>}
+      {!!error && (
+        <div role="alert" className="mt-2 text-[13px] text-critical-text">
+          {String((error as Error).message ?? error)}
+        </div>
+      )}
       <div className="mt-4 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="danger" disabled={typed !== project.id} loading={pending} onClick={onConfirm}>
@@ -146,21 +175,25 @@ function PurgeUserDialog({ pending, error, onClose, onConfirm }: { pending: bool
   const [hash, setHash] = useState("");
   const [email, setEmail] = useState("");
   return (
-    <Dialog open onClose={onClose} title="Purge a user's data">
-      <p className="text-[13px] text-ink-2">Removes the log lines and error occurrences of one user (data-subject requests). Issue counters keep their totals; spans and metrics carry no user.</p>
+    <Dialog open onClose={onClose} title="Erase one person's data">
+      <p className="text-[13px] text-ink-2">Removes the messages and error details recorded for one person, for example after a privacy request. Issue totals keep their counts; requests and measurements don't record people.</p>
       <div className="mt-3 space-y-3">
-        <Field label="User id hash" hint="the user_id_hash the SDK sends (see any occurrence's User block)">
+        <Field label="Anonymized person id" hint="Shown as 'Person (anonymized)' in an error's User & system tab.">
           <Input value={hash} onChange={(e) => setHash(e.target.value)} className="font-mono" />
         </Field>
-        <Field label="or e-mail" hint="matches occurrences stored with send_default_pii">
+        <Field label="or their e-mail" hint="Only matches if your apps send e-mail addresses.">
           <Input value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
       </div>
-      {!!error && <div className="mt-2 text-xs text-critical">{String((error as Error).message ?? error)}</div>}
+      {!!error && (
+        <div role="alert" className="mt-2 text-[13px] text-critical-text">
+          {String((error as Error).message ?? error)}
+        </div>
+      )}
       <div className="mt-4 flex justify-end gap-2">
         <Button onClick={onClose}>Cancel</Button>
         <Button variant="danger" disabled={!hash.trim() && !email.trim()} loading={pending} onClick={() => onConfirm({ user_id_hash: hash.trim() || undefined, user_email: email.trim() || undefined })}>
-          Purge
+          Erase data
         </Button>
       </div>
     </Dialog>

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 func TestRuleFilterQueriesAreWellFormed(t *testing.T) {
@@ -38,6 +38,28 @@ func TestRuleFilterQueriesAreWellFormed(t *testing.T) {
 	}
 	if args[len(args)-1] != 5 {
 		t.Fatalf("limit must be the last arg, got %v", args[len(args)-1])
+	}
+	if !strings.Contains(q, "uniqIf(user_id_hash, ts >= ? AND ts < ? AND user_id_hash != '') as cur_users") {
+		t.Fatalf("spike query must count people in the current window: %s", q)
+	}
+
+	q, args = tracesWithSpansQuery("p", []string{"a", "b"}, now.Add(-time.Hour), now)
+	if !strings.Contains(q, "trace_id IN (?)") || strings.Contains(q, "has(") || strings.Count(q, "?") != len(args) {
+		t.Fatalf("traces-with-spans query: %s %v", q, args)
+	}
+
+	q, args = regressionEventsQuery(rule, now.Add(-time.Hour), now, 7)
+	if !strings.Contains(q, "FROM issues_activity") || !strings.Contains(q, "kind = 'regression'") || strings.Contains(q, "issues_state") ||
+		strings.Count(q, "?") != len(args) || args[len(args)-1] != 7 {
+		t.Fatalf("comebacks come from the activity log: %s %v", q, args)
+	}
+	q, args = notifiedSubjectsQuery("p", "r", []string{"issue:1"}, time.Time{})
+	if strings.Contains(q, "notified_at") || strings.Count(q, "?") != len(args) {
+		t.Fatalf("no since, no time filter: %s %v", q, args)
+	}
+	q, args = notifiedSubjectsQuery("p", "r", []string{"jump:1"}, now)
+	if !strings.Contains(q, "notified_at >= ?") || strings.Count(q, "?") != len(args) {
+		t.Fatalf("since filter: %s %v", q, args)
 	}
 
 	// No filters -> no dangling AND.

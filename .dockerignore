@@ -1,0 +1,17 @@
+# The image is built from the Go module and the web app only (an allowlist keeps .git,
+# virtualenvs, node_modules and local caches out of the build context).
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
+!web/
+!LICENSE
+!NOTICE
+!THIRD_PARTY_LICENSES.md
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+web/screenshots/
+**/*_test.go
+**/testdata/

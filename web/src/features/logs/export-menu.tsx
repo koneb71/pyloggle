@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Download } from "lucide-react";
 import clsx from "clsx";
-import { Button, Popover, Select } from "@/components/ui";
+import { Button, Field, Popover, Select, buttonClass } from "@/components/ui";
 import { EXPORT_LIMITS, exportUrl, type ExportFormat } from "./export-url";
 
-/** Download the current selection as CSV or NDJSON (streamed by the server, newest first). */
+/** Download the current selection as a spreadsheet (CSV) or JSON lines, streamed by the server. */
 export function ExportMenu({ q, range, disabled }: { q: string; range: { from: string; to: string }; disabled?: boolean }) {
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [limit, setLimit] = useState(10000);
@@ -12,46 +12,47 @@ export function ExportMenu({ q, range, disabled }: { q: string; range: { from: s
   return (
     <Popover
       align="end"
-      width={260}
+      width={300}
       trigger={({ toggle, open }) => (
-        <Button onClick={toggle} active={open} icon={<Download size={13} />} disabled={disabled} title="Export the current selection">
+        <Button onClick={toggle} active={open} icon={<Download size={14} />} disabled={disabled} title="Download the messages you're looking at">
           Export
         </Button>
       )}
     >
       {(close) => (
-        <div className="p-1.5">
-          <div className="px-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-ink-3">Export logs</div>
-          <div className="flex gap-1 px-1 pb-2">
-            {(["csv", "ndjson"] as ExportFormat[]).map((f) => (
+        <div className="p-2">
+          <div className="text-[13px] font-semibold text-ink">Download messages</div>
+          <p className="mb-3 mt-0.5 text-xs text-ink-3">The messages matching this search and time range, newest first.</p>
+          <div className="mb-3 grid grid-cols-2 gap-1.5">
+            {(
+              [
+                ["csv", "Spreadsheet", "CSV, opens in Excel or Sheets"],
+                ["ndjson", "JSON lines", "One message per line, for scripts"],
+              ] as [ExportFormat, string, string][]
+            ).map(([f, label, hint]) => (
               <button
                 key={f}
                 type="button"
                 onClick={() => setFormat(f)}
-                className={clsx("flex-1 rounded-md border px-2 py-1 text-xs font-medium", format === f ? "border-accent bg-accent-soft text-accent" : "border-border text-ink-2 hover:bg-surface-2")}
+                aria-pressed={format === f}
+                className={clsx("rounded-md border px-2.5 py-2 text-left", format === f ? "border-accent bg-accent-soft" : "border-border-strong hover:bg-surface-2")}
               >
-                {f.toUpperCase()}
+                <span className={clsx("block text-[13px] font-medium", format === f ? "text-accent" : "text-ink")}>{label}</span>
+                <span className="block text-[11px] leading-4 text-ink-3">{hint}</span>
               </button>
             ))}
           </div>
-          <label className="block px-1 pb-2 text-xs text-ink-2">
-            <span className="mb-1 block">Rows (newest first)</span>
-            <Select value={limit} onChange={(e) => setLimit(Number(e.target.value))} className="h-7 text-xs">
+          <Field label="How many">
+            <Select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>
               {EXPORT_LIMITS.map((n) => (
                 <option key={n} value={n}>
-                  up to {n.toLocaleString()}
+                  Up to {n.toLocaleString()} messages
                 </option>
               ))}
             </Select>
-          </label>
-          <div className="px-1 pb-1 text-[11px] text-ink-3">{format === "csv" ? "Spreadsheet-safe CSV: attrs and tags as JSON columns." : "One JSON event per line, same shape as the API."}</div>
-          <a
-            href={href}
-            download
-            onClick={() => close()}
-            className="mx-1 mb-0.5 flex h-7 items-center justify-center gap-1.5 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink hover:brightness-110"
-          >
-            <Download size={12} /> Download {format.toUpperCase()}
+          </Field>
+          <a href={href} download onClick={() => close()} className={buttonClass({ variant: "primary", className: "mt-3 w-full" })}>
+            <Download size={14} /> Download
           </a>
         </div>
       )}

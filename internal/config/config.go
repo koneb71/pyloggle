@@ -1,6 +1,9 @@
 package config
 
 import (
+	"encoding/base64"
+	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -11,11 +14,10 @@ type Config struct {
 	ClickHouseDSN string
 	Port          string
 
-	// UI auth mode for the single-page app under /ui/.
-	// Values:
-	// - "azure" (default): Microsoft Entra ID single-tenant login (an OIDC preset)
+	// UI auth mode for the single-page app under /ui/ (PYLOGGLE_UI_AUTH; see inferUIAuthMode):
 	// - "oidc": any OpenID Connect provider (PYLOGGLE_OIDC_*)
-	// - "disabled": bypass UI auth checks (intended for local dev)
+	// - "azure": Microsoft Entra ID single-tenant login (an OIDC preset)
+	// - "disabled": no sign-in, for a trusted network only
 	UIAuthMode string
 
 	// Azure preset (single-tenant; OIDC v2 endpoints). Required when UIAuthMode == "azure".
@@ -40,13 +42,9 @@ type Config struct {
 	// oauth state).
 	UISessionSecret string
 
-	// Optional allowlist (emails, UPNs or subject ids) for project/alert mutations in Azure mode.
-	// Empty keeps the historical behavior: any signed-in user may manage projects.
+	// Optional allowlist (emails, UPNs or subject ids) for project, key and alert changes and
+	// the System page when sign-in is on. Empty: any signed-in user may manage them.
 	UIAdmins []string
-
-	// WebUI live refresh polling interval (HTMX). Used by results containers via hx-trigger="every Ns".
-	// Set via PYLOGGLE_UI_POLL_SECONDS. Defaults to 2.
-	UIPollSeconds int
 
 	// Ingestion protections
 	MaxQueueSize      int
@@ -54,7 +52,7 @@ type Config struct {
 	MaxQueuePerStream int
 	BatchSize         int
 	BatchTimeout      time.Duration
-	SharedSecret      string // optional; if set, requires X-API-Key to match
+	SharedSecret      string // optional 0.1 shared key: sends to the default project
 	AdminToken        string // optional; for project management endpoints
 	DefaultEnv        string
 	DefaultSvc        string
@@ -93,6 +91,10 @@ type Config struct {
 	// MetricsToken, when set, is the bearer token GET /metrics requires (PYLOGGLE_METRICS_TOKEN).
 	MetricsToken string
 
+	// DocsURL is where the app's Help page and "Learn more" links point (PYLOGGLE_DOCS_URL):
+	// the public docs by default, an internal mirror, or empty to hide the links.
+	DocsURL string
+
 	// Alerting (optional)
 	AlertingEnabled      bool
 	AlertingPollInterval time.Duration
@@ -116,13 +118,22 @@ type Config struct {
 	// Telegram notifier (Bot API). If AlertTelegramBotToken is empty, Telegram notifications are disabled.
 	AlertTelegramBotToken  string
 	AlertTelegramTimeout   time.Duration
-	AlertTelegramParseMode string // optional: MarkdownV2 | HTML
+	AlertTelegramParseMode string // HTML (default) | none
+	AlertTelegramAPIURL    string // Bot API base URL; a self-hosted Bot API server, or tests
 }
 
 func FromEnv() Config {
-	uiAuthMode := strings.ToLower(strings.TrimSpace(getenv("PYLOGGLE_UI_AUTH", "azure")))
-	if uiAuthMode != "azure" && uiAuthMode != "disabled" && uiAuthMode != "oidc" {
-		uiAuthMode = "azure"
+	uiAuthMode := inferUIAuthMode()
+	defaultProject, ok := os.LookupEnv("PYLOGGLE_DEFAULT_PROJECT_ID")
+	if !ok {
+		defaultProject = "default" // set it empty to require an access key everywhere
+	}
+	docsURL, ok := os.LookupEnv("PYLOGGLE_DOCS_URL")
+	if !ok {
+		docsURL = DocsHome // set it empty to hide the links to the docs
+	}
+	if docsURL = strings.TrimSpace(docsURL); docsURL != "" && !strings.HasSuffix(docsURL, "/") {
+		docsURL += "/"
 	}
 
 	return Config{
@@ -143,7 +154,6 @@ func FromEnv() Config {
 		OIDCAllowedEmails:  splitList(os.Getenv("PYLOGGLE_OIDC_ALLOWED_EMAILS")),
 		UISessionSecret:    os.Getenv("PYLOGGLE_UI_SESSION_SECRET"),
 		UIAdmins:           splitList(os.Getenv("PYLOGGLE_UI_ADMINS")),
-		UIPollSeconds:      getenvInt("PYLOGGLE_UI_POLL_SECONDS", 2),
 		MaxQueueSize:       getenvInt("INGEST_MAX_QUEUE_SIZE", 10000),
 		MaxStreams:         getenvInt("INGEST_MAX_STREAMS", 200),
 		MaxQueuePerStream:  getenvInt("INGEST_MAX_QUEUE_PER_STREAM", 2000),
@@ -153,7 +163,7 @@ func FromEnv() Config {
 		AdminToken:         os.Getenv("PYLOGGLE_ADMIN_TOKEN"),
 		DefaultEnv:         getenv("PYLOGGLE_DEFAULT_ENV", "prod"),
 		DefaultSvc:         getenv("PYLOGGLE_DEFAULT_SERVICE", "unknown"),
-		DefaultProjID:      getenv("PYLOGGLE_DEFAULT_PROJECT_ID", "default"),
+		DefaultProjID:      strings.TrimSpace(defaultProject),
 
 		RateLimitRPS:    getenvFloat("INGEST_RATE_LIMIT_RPS", 2000),   // per service by default
 		RateLimitBurst:  getenvFloat("INGEST_RATE_LIMIT_BURST", 4000), // allow bursts
@@ -176,6 +186,7 @@ func FromEnv() Config {
 		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_PUBLIC_URL")), "/"),
 		ExportMaxRows:        getenvInt("PYLOGGLE_EXPORT_MAX_ROWS", 100000),
 		MetricsToken:         strings.TrimSpace(os.Getenv("PYLOGGLE_METRICS_TOKEN")),
+		DocsURL:              docsURL,
 
 		AlertingEnabled:      getenvBool("ALERTING_ENABLED", false),
 		AlertingPollInterval: getenvDuration("ALERTING_POLL_INTERVAL", 30*time.Second),
@@ -194,6 +205,7 @@ func FromEnv() Config {
 		AlertTelegramBotToken:  os.Getenv("ALERT_TELEGRAM_BOT_TOKEN"),
 		AlertTelegramTimeout:   getenvDuration("ALERT_TELEGRAM_TIMEOUT", 5*time.Second),
 		AlertTelegramParseMode: os.Getenv("ALERT_TELEGRAM_PARSE_MODE"),
+		AlertTelegramAPIURL:    getenv("ALERT_TELEGRAM_API_URL", "https://api.telegram.org"),
 	}
 }
 
@@ -253,6 +265,75 @@ func getenvBool(k string, def bool) bool {
 	return def
 }
 
+// inferUIAuthMode reads PYLOGGLE_UI_AUTH. When it is unset, a configured Azure tenant means
+// "azure" and a configured OIDC issuer means "oidc"; otherwise (or when both are set) the mode
+// stays empty and Validate asks the operator to choose. There is no silent default: a server
+// that does not know how people sign in must not start.
+func inferUIAuthMode() string {
+	if mode := strings.ToLower(strings.TrimSpace(os.Getenv("PYLOGGLE_UI_AUTH"))); mode != "" {
+		return mode
+	}
+	tenant := strings.TrimSpace(os.Getenv("PYLOGGLE_AZURE_TENANT_ID")) != ""
+	issuer := strings.TrimSpace(os.Getenv("PYLOGGLE_OIDC_ISSUER")) != ""
+	switch {
+	case tenant && !issuer:
+		return "azure"
+	case issuer && !tenant:
+		return "oidc"
+	}
+	return ""
+}
+
+// DocsHome is the public documentation; DocsSignIn is where startup errors about sign-in point.
+const (
+	DocsHome   = "https://koneb71.github.io/pyloggle/"
+	DocsSignIn = DocsHome + "self-hosting/sign-in"
+)
+
+// Validate reports configuration that would make the server unsafe or unusable, every problem
+// at once. main refuses to start when it returns an error.
+func (c Config) Validate() error {
+	var errs []error
+	switch mode := c.UIAuthMode; mode {
+	case "":
+		if strings.TrimSpace(c.AzureTenantID) != "" && strings.TrimSpace(c.OIDCIssuer) != "" {
+			errs = append(errs, errors.New("both PYLOGGLE_AZURE_TENANT_ID and PYLOGGLE_OIDC_ISSUER are set: choose one with PYLOGGLE_UI_AUTH=azure or PYLOGGLE_UI_AUTH=oidc"))
+		} else {
+			errs = append(errs, errors.New("sign-in is not configured: set PYLOGGLE_UI_AUTH to oidc (any OpenID Connect provider) or azure (Microsoft Entra ID) "+
+				"with their settings, or to disabled to run without sign-in on a trusted network only. See "+DocsSignIn))
+		}
+	case "azure", "oidc":
+		if msg := c.OIDC().Missing(c.UISessionSecret); msg != "" {
+			errs = append(errs, errors.New(msg))
+		} else if _, err := DecodeSessionSecret(c.UISessionSecret); err != nil {
+			errs = append(errs, err)
+		}
+	case "disabled":
+	default:
+		errs = append(errs, fmt.Errorf("PYLOGGLE_UI_AUTH=%q is not a sign-in mode: use oidc, azure or disabled", mode))
+	}
+	return errors.Join(errs...)
+}
+
+// DecodeSessionSecret turns PYLOGGLE_UI_SESSION_SECRET into the key that signs session cookies:
+// base64 for 16+ bytes (e.g. `openssl rand -base64 32`), or a raw string of 32+ characters.
+func DecodeSessionSecret(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, errors.New("PYLOGGLE_UI_SESSION_SECRET is required when PYLOGGLE_UI_AUTH is azure or oidc (create one with: openssl rand -base64 32)")
+	}
+	if b, err := base64.StdEncoding.DecodeString(raw); err == nil && len(b) >= 16 {
+		return b, nil
+	}
+	if b, err := base64.RawStdEncoding.DecodeString(raw); err == nil && len(b) >= 16 {
+		return b, nil
+	}
+	if len(raw) < 32 {
+		return nil, errors.New("PYLOGGLE_UI_SESSION_SECRET must be at least 32 characters, or base64 for 16+ bytes (create one with: openssl rand -base64 32)")
+	}
+	return []byte(raw), nil
+}
+
 // OIDCSettings are the effective OpenID Connect parameters for the configured UI auth mode.
 type OIDCSettings struct {
 	Mode           string // azure | oidc | disabled
@@ -291,8 +372,45 @@ func (c Config) OIDC() OIDCSettings {
 		}
 		return OIDCSettings{Mode: mode, Issuer: c.OIDCIssuer, ClientID: c.OIDCClientID, ClientSecret: strings.TrimSpace(c.OIDCClientSecret), Scopes: scopes,
 			RedirectURL: c.OIDCRedirectURL, DisplayName: name, AllowedDomains: c.OIDCAllowedDomains, AllowedEmails: c.OIDCAllowedEmails}
+	case "disabled":
+		return OIDCSettings{Mode: "disabled"}
 	}
-	return OIDCSettings{Mode: "disabled"}
+	// Empty or unknown: Validate stops the server; anything that runs anyway treats it as
+	// "sign-in required" (see webui.loginRequired), never as "disabled".
+	return OIDCSettings{Mode: mode}
+}
+
+// Missing names the settings a sign-in mode still needs, or returns "" when it has them.
+func (o OIDCSettings) Missing(sessionSecret string) string {
+	var need []string
+	if o.Azure {
+		if o.AzureTenant == "" {
+			need = append(need, "PYLOGGLE_AZURE_TENANT_ID")
+		}
+		if o.ClientID == "" {
+			need = append(need, "PYLOGGLE_AZURE_CLIENT_ID")
+		}
+		if o.ClientSecret == "" {
+			need = append(need, "PYLOGGLE_AZURE_CLIENT_SECRET")
+		}
+	} else {
+		if o.Issuer == "" {
+			need = append(need, "PYLOGGLE_OIDC_ISSUER")
+		}
+		if o.ClientID == "" {
+			need = append(need, "PYLOGGLE_OIDC_CLIENT_ID")
+		}
+		if o.ClientSecret == "" {
+			need = append(need, "PYLOGGLE_OIDC_CLIENT_SECRET")
+		}
+	}
+	if strings.TrimSpace(sessionSecret) == "" {
+		need = append(need, "PYLOGGLE_UI_SESSION_SECRET")
+	}
+	if len(need) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("sign-in with %s is turned on but not configured: set %s. See %s", o.Mode, strings.Join(need, ", "), DocsSignIn)
 }
 
 // Enabled reports whether the UI requires a login session.

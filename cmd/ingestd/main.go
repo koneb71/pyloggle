@@ -2,21 +2,41 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata" // recap rules name IANA time zones; the Alpine image has no zoneinfo
 
-	"pyloggle/internal/alerting"
-	"pyloggle/internal/config"
-	"pyloggle/internal/httpserver"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/alerting"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/httpserver"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/version"
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "-version", "--version", "version":
+			fmt.Println("pyloggle ingestd " + version.String())
+			return
+		case "-h", "-help", "--help", "help":
+			fmt.Println("pyloggle ingestd " + version.String() + "\n\nConfigured through environment variables; see " + config.DocsHome + "reference/configuration")
+			return
+		}
+	}
 	cfg := config.FromEnv()
+	log.Printf("pyloggle ingestd %s", version.String())
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("configuration: %v", err)
+	}
+	if cfg.UIAuthMode == "disabled" {
+		log.Printf("WARNING: sign-in is off (PYLOGGLE_UI_AUTH=disabled): anyone who can reach port %s can read and change everything. Use it only on a trusted network.", cfg.Port)
+	}
 
 	ch := connectWithRetry(cfg, 2*time.Minute)
 	defer func() {

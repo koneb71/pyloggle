@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/koneb71/pyloggle/internal/config"
 )
 
 const (
@@ -46,21 +48,7 @@ func uiUserFromContext(ctx context.Context) (uiSessionClaims, bool) {
 }
 
 func (u *UI) uiSecret() ([]byte, error) {
-	raw := strings.TrimSpace(u.cfg.UISessionSecret)
-	if raw == "" {
-		return nil, errors.New("PYLOGGLE_UI_SESSION_SECRET is required when PYLOGGLE_UI_AUTH is azure or oidc")
-	}
-	// Support raw secrets and base64 secrets (common for env vars).
-	if b, err := base64.StdEncoding.DecodeString(raw); err == nil && len(b) >= 16 {
-		return b, nil
-	}
-	if b, err := base64.RawStdEncoding.DecodeString(raw); err == nil && len(b) >= 16 {
-		return b, nil
-	}
-	if len(raw) < 32 {
-		return nil, errors.New("PYLOGGLE_UI_SESSION_SECRET must be at least 32 chars (or base64 for >=16 bytes)")
-	}
-	return []byte(raw), nil
+	return config.DecodeSessionSecret(u.cfg.UISessionSecret)
 }
 
 func newRandomB64(n int) (string, error) {

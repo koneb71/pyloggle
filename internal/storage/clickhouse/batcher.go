@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/metrics"
 )
 
 var errQueueFull = errors.New("queue full")

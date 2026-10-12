@@ -20,10 +20,10 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"pyloggle/internal/config"
-	"pyloggle/internal/ingest"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/ingest"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 func TestParsePythonTracebackChain(t *testing.T) {

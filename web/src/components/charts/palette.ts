@@ -1,4 +1,4 @@
-import { LEVELS, levelVar } from "@/lib/levels";
+import { LEVELS, levelLabel, levelVar } from "@/lib/levels";
 
 export const SERIES_VARS = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`);
 export const MAX_SERIES = 8;
@@ -19,4 +19,11 @@ export function orderSeries(groupBy: string, series: string[]): { kept: string[]
   }
   if (series.length <= MAX_SERIES) return { kept: series, folded: [] };
   return { kept: [...series.slice(0, MAX_SERIES - 1), "Other"], folded: series.slice(MAX_SERIES - 1) };
+}
+
+/** A series name as people read it: level names in words, "" as "empty". */
+export function seriesLabel(groupBy: string, name: string): string {
+  if (name === "") return "empty";
+  if (groupBy === "level" || groupBy === "") return levelLabel(name);
+  return name;
 }

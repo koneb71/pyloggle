@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"pyloggle/internal/model"
+	"github.com/koneb71/pyloggle/internal/model"
 )
 
 // column describes how a field maps to SQL.

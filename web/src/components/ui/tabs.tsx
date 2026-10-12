@@ -5,35 +5,38 @@ export interface TabItem {
   id: string;
   label: ReactNode;
   count?: number;
+  title?: string;
 }
 
 export function Tabs({ items, value, onChange, className, size = "md" }: { items: TabItem[]; value: string; onChange: (id: string) => void; className?: string; size?: "sm" | "md" }) {
   return (
-    <div role="tablist" className={clsx("flex items-end gap-0.5 overflow-x-auto border-b border-border", className)}>
+    <div role="tablist" className={clsx("flex items-end gap-4 overflow-x-auto border-b border-border", className)}>
       {items.map((t) => (
         <button
           key={t.id}
           role="tab"
           type="button"
+          title={t.title}
           aria-selected={value === t.id}
-          onClick={() => onChange(t.id)}
+          // On a phone the tabs scroll sideways: bring a half-hidden tab fully into view.
+          onClick={(e) => (e.currentTarget.scrollIntoView?.({ inline: "nearest", block: "nearest" }), onChange(t.id))}
           className={clsx(
-            "-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 font-medium transition-colors",
-            size === "md" ? "py-2 text-[13px]" : "py-1.5 text-xs",
-            value === t.id ? "border-accent text-ink" : "border-transparent text-ink-2 hover:text-ink",
+            "-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 font-medium transition-colors",
+            size === "md" ? "pb-2.5 pt-1 text-[13px]" : "pb-2 text-xs",
+            value === t.id ? "border-accent text-ink" : "border-transparent text-ink-3 hover:text-ink",
           )}
         >
           {t.label}
-          {t.count !== undefined && <span className="rounded bg-surface-3 px-1.5 text-[11px] tabular text-ink-2">{t.count.toLocaleString()}</span>}
+          {t.count !== undefined && <span className={clsx("rounded-full px-1.5 text-[11px] tabular", value === t.id ? "bg-accent-soft text-accent" : "bg-surface-3 text-ink-2")}>{t.count.toLocaleString()}</span>}
         </button>
       ))}
     </div>
   );
 }
 
-export function SegmentedControl<T extends string>({ options, value, onChange, className }: { options: { value: T; label: ReactNode; title?: string }[]; value: T; onChange: (v: T) => void; className?: string }) {
+export function SegmentedControl<T extends string>({ options, value, onChange, className, label }: { options: { value: T; label: ReactNode; title?: string }[]; value: T; onChange: (v: T) => void; className?: string; label?: string }) {
   return (
-    <div className={clsx("inline-flex rounded-md border border-border bg-surface p-0.5", className)} role="radiogroup">
+    <div className={clsx("inline-flex h-8 items-center rounded-md bg-surface-3/70 p-0.5 pointer-coarse:h-9", className)} role="radiogroup" aria-label={label}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -42,7 +45,10 @@ export function SegmentedControl<T extends string>({ options, value, onChange, c
           aria-checked={value === o.value}
           title={o.title}
           onClick={() => onChange(o.value)}
-          className={clsx("rounded px-2 py-0.5 text-xs font-medium transition-colors", value === o.value ? "bg-surface-3 text-ink shadow-sm" : "text-ink-2 hover:text-ink")}
+          className={clsx(
+            "inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2.5 text-[13px] font-medium transition-colors pointer-coarse:h-8",
+            value === o.value ? "bg-surface text-ink shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2 hover:text-ink",
+          )}
         >
           {o.label}
         </button>

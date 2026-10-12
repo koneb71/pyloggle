@@ -7,7 +7,15 @@ export function levelVar(level: string): string {
   return `var(--lvl-${l})`;
 }
 
-export const STATUS_LABEL: Record<string, string> = { open: "Open", resolved: "Resolved", ignored: "Ignored", regressed: "Regressed" };
+const LEVEL_LABEL: Record<string, string> = { debug: "Debug", info: "Info", warn: "Warning", warning: "Warning", error: "Error", fatal: "Fatal", critical: "Fatal" };
+
+/** "warn" → "Warning": severity names in sentence case. */
+export function levelLabel(level: string): string {
+  const l = (level || "").toLowerCase();
+  return LEVEL_LABEL[l] ?? (l ? l.charAt(0).toUpperCase() + l.slice(1) : "Unknown");
+}
+
+export const STATUS_LABEL: Record<string, string> = { open: "Unresolved", resolved: "Resolved", ignored: "Ignored", regressed: "Came back" };
 
 export function levelRank(level: string): number {
   const i = LEVELS.indexOf(level as (typeof LEVELS)[number]);

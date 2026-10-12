@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"pyloggle/internal/api"
-	"pyloggle/internal/issue"
-	"pyloggle/internal/storage/clickhouse"
-	"pyloggle/internal/tenant"
+	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/tenant"
 )
 
 // Store is everything the UI API reads and writes. *clickhouse.Client implements it; tests use a fake.
@@ -50,6 +50,9 @@ type Store interface {
 	TopIssues(ctx context.Context, projectID, service, env string, from, to time.Time, limit int) ([]api.IssueSummary, error)
 	RequestStats(ctx context.Context, projectID, service, env string, from, to time.Time, bucketSeconds, routeLimit int) (api.RequestStats, error)
 	RequestStatsFromOTel(ctx context.Context, projectID, service, env string, from, to time.Time, bucketSeconds, routeLimit int) (api.RequestStats, bool, error)
+	ServiceHealth(ctx context.Context, projectID, env string, from, to time.Time, limit int) ([]api.ServiceHealth, error)
+	ListReleases(ctx context.Context, projectID string, from, to time.Time, limit int) ([]api.Release, error)
+	IssueSpikeCounts(ctx context.Context, rule api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, limit int) ([]clickhouse.IssueSpikeRow, error)
 	MetricNames(ctx context.Context, projectID string) ([]api.MetricInfo, error)
 	MetricSeries(ctx context.Context, q clickhouse.MetricQuery) (api.MetricSeries, bool, error)
 

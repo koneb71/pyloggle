@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { CalendarClock, ChevronDown, Radio, RefreshCw } from "lucide-react";
+import { CalendarClock, ChevronDown, RefreshCw } from "lucide-react";
 import clsx from "clsx";
-import { Button, Popover, Input, Field } from "@/components/ui";
+import { Button, Popover, Input, Field, IconButton } from "@/components/ui";
 import { QUICK_RANGES, rangeLabel, resolveRange, type Range } from "@/lib/time";
 
 function toLocalInput(d: Date): string {
@@ -9,23 +9,28 @@ function toLocalInput(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/**
+ * Time range control. A relative range ("Last hour") follows the clock and is marked Live;
+ * a custom range is fixed.
+ */
 export function TimeRangePicker({ value, onChange, onRefresh, refreshing, className }: { value: Range; onChange: (r: Range) => void; onRefresh?: () => void; refreshing?: boolean; className?: string }) {
   const live = !value.to;
   return (
     <div className={clsx("inline-flex items-center gap-1", className)}>
       <Popover
         align="end"
-        width={320}
+        width={340}
         trigger={({ toggle, open }) => (
-          <Button onClick={toggle} active={open} icon={live ? <Radio size={13} className="text-good" /> : <CalendarClock size={13} />} title="Time range">
+          <Button onClick={toggle} active={open} icon={live ? <span className="live-dot" aria-hidden /> : <CalendarClock size={14} />} title={live ? "Follows the clock: new data appears as it arrives" : "A fixed time range"}>
             <span className="tabular">{rangeLabel(value)}</span>
-            <ChevronDown size={12} className="text-ink-3" />
+            {live && <span className="text-xs font-normal text-good-text">Live</span>}
+            <ChevronDown size={13} className="text-ink-3" />
           </Button>
         )}
       >
         {(close) => <RangeMenu value={value} onChange={(r) => (onChange(r), close())} />}
       </Popover>
-      {onRefresh && <Button variant="ghost" className="px-1.5" title="Refresh" aria-label="Refresh" onClick={onRefresh} icon={<RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />} />}
+      {onRefresh && <IconButton label="Refresh now" onClick={onRefresh} icon={<RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />} />}
     </div>
   );
 }
@@ -34,15 +39,24 @@ function RangeMenu({ value, onChange }: { value: Range; onChange: (r: Range) => 
   const r = resolveRange(value);
   const [from, setFrom] = useState(toLocalInput(r.from));
   const [to, setTo] = useState(toLocalInput(r.to));
+  const [error, setError] = useState("");
+  const apply = () => {
+    const f = new Date(from);
+    const t = new Date(to);
+    if (isNaN(f.getTime()) || isNaN(t.getTime())) return setError("Enter both a start and an end.");
+    if (f >= t) return setError("The start must be before the end.");
+    setError("");
+    onChange({ from: f.toISOString(), to: t.toISOString() });
+  };
   return (
-    <div className="p-1">
-      <div className="mb-1 px-1 text-[11px] font-medium uppercase tracking-wide text-ink-3">Quick ranges</div>
-      <div className="grid grid-cols-4 gap-1">
+    <div className="p-1.5">
+      <div className="px-1 pb-1.5 text-xs font-medium text-ink-3">Recent</div>
+      <div className="grid grid-cols-2 gap-0.5">
         {QUICK_RANGES.map((q) => (
           <button
             key={q.from}
             type="button"
-            className={clsx("rounded px-2 py-1 text-xs hover:bg-surface-2", value.from === q.from && !value.to ? "bg-accent-soft font-medium text-accent" : "text-ink")}
+            className={clsx("rounded-md px-2 py-1.5 text-left text-[13px] hover:bg-surface-2", value.from === q.from && !value.to ? "bg-accent-soft font-medium text-accent" : "text-ink")}
             onClick={() => onChange({ from: q.from, to: "" })}
           >
             Last {q.label}
@@ -50,25 +64,22 @@ function RangeMenu({ value, onChange }: { value: Range; onChange: (r: Range) => 
         ))}
       </div>
       <div className="my-2 h-px bg-border" />
-      <div className="mb-1 px-1 text-[11px] font-medium uppercase tracking-wide text-ink-3">Custom (local time)</div>
+      <div className="px-1 pb-1.5 text-xs font-medium text-ink-3">Specific dates (your local time)</div>
       <div className="grid grid-cols-2 gap-2 px-1">
         <Field label="From">
-          <Input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
+          <Input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} aria-invalid={!!error || undefined} />
         </Field>
         <Field label="To">
-          <Input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
+          <Input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} aria-invalid={!!error || undefined} />
         </Field>
       </div>
-      <div className="mt-2 flex justify-end gap-1 px-1">
-        <Button
-          variant="primary"
-          onClick={() => {
-            const f = new Date(from);
-            const t = new Date(to);
-            if (isNaN(f.getTime()) || isNaN(t.getTime()) || f >= t) return;
-            onChange({ from: f.toISOString(), to: t.toISOString() });
-          }}
-        >
+      {error && (
+        <div role="alert" className="px-1 pt-2 text-xs text-critical-text">
+          {error}
+        </div>
+      )}
+      <div className="mt-2.5 flex justify-end px-1 pb-0.5">
+        <Button variant="primary" onClick={apply}>
           Apply
         </Button>
       </div>

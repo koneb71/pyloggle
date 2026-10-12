@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 // KeyStore is what the resolver needs from storage (*clickhouse.Client in production).

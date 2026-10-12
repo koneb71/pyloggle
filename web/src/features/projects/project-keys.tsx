@@ -1,113 +1,89 @@
 import { useState } from "react";
-import { KeyRound, Plus, ShieldOff } from "lucide-react";
+import { KeyRound, Plus } from "lucide-react";
 import clsx from "clsx";
 import { useProjectKeys, useProjectMutations } from "@/api/hooks";
 import type { APIKey, Project } from "@/api/types";
-import { Badge, Button, Checkbox, Dialog, Field, Input, Skeleton, TimeAgo } from "@/components/ui";
+import { Badge, Button, Checkbox, Dialog, EmptyState, ErrorState, Field, Input, Skeleton, TimeAgo } from "@/components/ui";
+import { SCOPE_WORDS, scopeLabel } from "./project-words";
 
-const SCOPE_HELP: Record<string, string> = {
-  ingest: "send logs, errors, traces and metrics",
-  read: "query logs, issues, traces and metrics",
-  write: "change issue state, comments, saved views and alert rules",
-};
-
-/** The keys of one project: who can send, who can read, who can change things. */
-export function ProjectKeysPanel({ project, canEdit, onCreated }: { project: Project; canEdit: boolean; onCreated: (key: APIKey, secret: string) => void }) {
-  const keys = useProjectKeys(project.id, canEdit);
+/** The access keys of one project: who can send data, who can look, who can change things. */
+export function ProjectKeysPanel({ project, onCreated }: { project: Project; onCreated: (key: APIKey, secret: string) => void }) {
+  const keys = useProjectKeys(project.id);
   const { revokeKey } = useProjectMutations();
   const [creating, setCreating] = useState(false);
   const [confirm, setConfirm] = useState<APIKey | null>(null);
-  if (!canEdit) return null;
-  if (keys.isPending) return <Skeleton rows={2} className="p-3" />;
-  if (keys.isError) return <div className="px-3 py-2 text-xs text-critical">Keys unavailable: {String(keys.error)}</div>;
+  if (keys.isPending) return <Skeleton rows={3} className="p-5" />;
+  if (keys.isError) return <ErrorState error={keys.error} retry={() => keys.refetch()} title="Couldn't load the access keys" />;
   const items = keys.data?.items ?? [];
   const active = items.filter((k) => !k.revoked_at);
-  const revoked = items.filter((k) => k.revoked_at);
+  const disabled = items.filter((k) => k.revoked_at);
   return (
-    <div className="space-y-2 border-t border-border bg-surface-2/40 px-3 py-3 text-xs">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-[13px] font-medium text-ink">
-          <KeyRound size={13} className="text-ink-3" /> API keys
-          <span className="font-normal text-ink-3">
-            · {active.length} active{revoked.length > 0 && `, ${revoked.length} revoked`}
-          </span>
-        </div>
-        <Button size="xs" variant="primary" icon={<Plus size={12} />} onClick={() => setCreating(true)}>
+    <div className="space-y-4 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[13px] text-ink-2">Apps and scripts use an access key to send data to this project or read from it. Give each app its own key, so you can disable one without touching the others.</p>
+        <Button variant="primary" icon={<Plus size={14} />} onClick={() => setCreating(true)} className="flex-none">
           New key
         </Button>
       </div>
       {items.length === 0 ? (
-        <div className="text-ink-3">No keys yet. Create one to send data or to query this project from scripts.</div>
+        <EmptyState icon={<KeyRound size={18} />} title="No access keys yet" hint="Create one to connect an app or a script." className="py-8" />
       ) : (
-        <table className="w-full">
-          <thead className="text-left text-[10px] uppercase tracking-wide text-ink-3">
-            <tr>
-              <th className="py-1 font-medium">name</th>
-              <th className="py-1 font-medium">key</th>
-              <th className="py-1 font-medium">scopes</th>
-              <th className="py-1 font-medium">created</th>
-              <th className="py-1 font-medium">last used</th>
-              <th className="py-1" />
-            </tr>
-          </thead>
-          <tbody>
-            {[...active, ...revoked].map((k) => (
-              <tr key={k.id} className={clsx("border-t border-border/60", k.revoked_at && "text-ink-3")}>
-                <td className="py-1.5 pr-2">
-                  <span className={clsx("font-medium", k.revoked_at ? "line-through" : "text-ink")}>{k.name}</span>
-                  {k.revoked_at && (
-                    <span className="ml-1.5 text-[11px]">
-                      revoked <TimeAgo iso={k.revoked_at} />
+        <ul className="divide-y divide-border rounded-lg border border-border">
+          {[...active, ...disabled].map((k) => (
+            <li key={k.id} className={clsx("flex items-start gap-3 px-4 py-3", k.revoked_at && "bg-surface-2/60")}>
+              <KeyRound size={15} className={clsx("mt-0.5 flex-none", k.revoked_at ? "text-ink-3" : "text-accent")} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={clsx("text-[13px] font-medium", k.revoked_at ? "text-ink-3 line-through" : "text-ink")}>{k.name}</span>
+                  {k.key_prefix ? (
+                    <code className="font-mono text-[11px] text-ink-3">{k.key_prefix}…</code>
+                  ) : (
+                    <Badge tone="outline" title="Created before keys showed their first characters">
+                      Older key
+                    </Badge>
+                  )}
+                  {k.revoked_at && <Badge>Disabled</Badge>}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {k.scopes.map((s) => (
+                    <Badge key={s} tone={k.revoked_at ? "neutral" : "accent"} title={`${SCOPE_WORDS[s]?.explain ?? s} (${s})`}>
+                      {scopeLabel(s)}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="mt-1 text-xs text-ink-3">
+                  {k.revoked_at ? (
+                    <>
+                      Disabled <TimeAgo iso={k.revoked_at} />
                       {k.revoked_by && ` by ${k.revoked_by}`}
-                    </span>
+                    </>
+                  ) : (
+                    <>
+                      Created <TimeAgo iso={k.created_at} />
+                      {k.created_by && k.created_by !== "migration" && ` by ${k.created_by}`} · {k.last_used_at ? <>last used <TimeAgo iso={k.last_used_at} /></> : "never used"}
+                    </>
                   )}
-                </td>
-                <td className="py-1.5 pr-2 font-mono text-[11px]">{k.key_prefix ? `${k.key_prefix}…` : "0.2 key"}</td>
-                <td className="py-1.5 pr-2">
-                  <div className="flex flex-wrap gap-1">
-                    {k.scopes.map((s) => (
-                      <Badge key={s} tone={k.revoked_at ? "neutral" : "outline"} title={SCOPE_HELP[s]}>
-                        {s}
-                      </Badge>
-                    ))}
-                  </div>
-                </td>
-                <td className="py-1.5 pr-2 whitespace-nowrap">
-                  <TimeAgo iso={k.created_at} />
-                  {k.created_by && k.created_by !== "migration" && <span className="text-ink-3"> by {k.created_by}</span>}
-                </td>
-                <td className="py-1.5 pr-2 whitespace-nowrap">{k.last_used_at ? <TimeAgo iso={k.last_used_at} /> : <span className="text-ink-3">never</span>}</td>
-                <td className="py-1.5 text-right">
-                  {!k.revoked_at && (
-                    <Button size="xs" variant="ghost" icon={<ShieldOff size={12} />} aria-label={`Revoke ${k.name}`} title="Revoke key" onClick={() => setConfirm(k)} />
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              </div>
+              {!k.revoked_at && (
+                <Button size="xs" variant="danger" onClick={() => setConfirm(k)}>
+                  Disable key
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
-      {creating && (
-        <NewKeyDialog
-          project={project}
-          scopes={keys.data?.scopes ?? ["ingest", "read", "write"]}
-          onClose={() => setCreating(false)}
-          onCreated={(key, secret) => (onCreated(key, secret), setCreating(false))}
-        />
-      )}
+      {creating && <NewKeyDialog project={project} scopes={keys.data?.scopes ?? ["ingest", "read", "write"]} onClose={() => setCreating(false)} onCreated={(key, secret) => (onCreated(key, secret), setCreating(false))} />}
       {confirm && (
-        <Dialog open onClose={() => setConfirm(null)} title={`Revoke "${confirm.name}"?`}>
+        <Dialog open onClose={() => setConfirm(null)} title={`Disable "${confirm.name}"?`}>
           <p className="text-[13px] text-ink-2">
-            Requests with this key fail from the next one. Every SDK, exporter or script using <code className="rounded bg-surface-2 px-1 font-mono text-xs">{confirm.key_prefix || "it"}…</code> must switch to another key first.
+            Anything still using this key{confirm.key_prefix && <> (it starts with <code className="rounded bg-surface-2 px-1 font-mono text-xs">{confirm.key_prefix}</code>)</>} stops working right away. Move those apps and scripts to another key first. This can't be undone.
           </p>
           <div className="mt-4 flex justify-end gap-2">
             <Button onClick={() => setConfirm(null)}>Cancel</Button>
-            <Button
-              variant="danger"
-              loading={revokeKey.isPending}
-              onClick={() => revokeKey.mutate({ id: project.id, key_id: confirm.id }, { onSuccess: () => setConfirm(null) })}
-            >
-              Revoke key
+            <Button variant="danger" loading={revokeKey.isPending} onClick={() => revokeKey.mutate({ id: project.id, key_id: confirm.id }, { onSuccess: () => setConfirm(null) })}>
+              Disable key
             </Button>
           </div>
         </Dialog>
@@ -119,30 +95,43 @@ export function ProjectKeysPanel({ project, canEdit, onCreated }: { project: Pro
 function NewKeyDialog({ project, scopes, onClose, onCreated }: { project: Project; scopes: string[]; onClose: () => void; onCreated: (key: APIKey, secret: string) => void }) {
   const { createKey } = useProjectMutations();
   const [name, setName] = useState("");
-  const [picked, setPicked] = useState<string[]>(["ingest", "read"]);
+  const [picked, setPicked] = useState<string[]>(["ingest"]);
   const toggle = (s: string) => setPicked((p) => (p.includes(s) ? p.filter((x) => x !== s) : [...p, s]));
   return (
-    <Dialog open onClose={onClose} title={`New API key for ${project.name}`}>
+    <Dialog open onClose={onClose} title={`New access key for ${project.name}`}>
       <form
-        className="space-y-3"
+        className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           createKey.mutate({ id: project.id, name: name.trim(), scopes: picked }, { onSuccess: (r) => onCreated(r.key, r.api_key) });
         }}
       >
-        <Field label="Name" hint="where the key lives: an app, a CI job, a dashboard">
+        <Field label="Name" hint="Where the key will be used: an app, a CI job, a dashboard.">
           <Input required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="checkout-api (production)" maxLength={100} />
         </Field>
         <fieldset>
-          <legend className="mb-1 block text-xs font-medium text-ink-2">Scopes</legend>
-          <div className="space-y-1.5">
+          <legend className="mb-2 block text-[13px] font-medium text-ink">What it can do</legend>
+          <div className="space-y-2">
             {scopes.map((s) => (
-              <Checkbox key={s} checked={picked.includes(s)} onChange={() => toggle(s)} label={<span>{s} <span className="text-ink-3">· {SCOPE_HELP[s]}</span></span>} />
+              <Checkbox
+                key={s}
+                checked={picked.includes(s)}
+                onChange={() => toggle(s)}
+                label={
+                  <span>
+                    <span className="font-medium">{scopeLabel(s)}</span> <span className="text-ink-3">· {SCOPE_WORDS[s]?.explain ?? s}</span>
+                  </span>
+                }
+              />
             ))}
           </div>
-          <div className="mt-1 text-[11px] text-ink-3">An SDK or an OpenTelemetry exporter needs only ingest. A read-only key is what you hand to a script or a dashboard.</div>
+          <p className="mt-2 text-xs text-ink-3">An app or an OpenTelemetry exporter needs only "Send data". Give scripts and dashboards "View".</p>
         </fieldset>
-        {createKey.isError && <div className="text-xs text-critical">{(createKey.error as Error).message}</div>}
+        {createKey.isError && (
+          <div role="alert" className="text-[13px] text-critical-text">
+            {(createKey.error as Error).message}
+          </div>
+        )}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" loading={createKey.isPending} disabled={picked.length === 0 || !name.trim()}>

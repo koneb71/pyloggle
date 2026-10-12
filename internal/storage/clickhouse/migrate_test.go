@@ -48,8 +48,8 @@ func TestSplitStatements(t *testing.T) {
 	}
 	for _, s := range stmts {
 		up := strings.ToUpper(s)
-		if strings.HasPrefix(up, "USE ") {
-			t.Fatalf("USE must be skipped: %q", s)
+		if strings.HasPrefix(up, "USE ") || strings.HasPrefix(up, "CREATE DATABASE") {
+			t.Fatalf("USE and CREATE DATABASE must be skipped: %q", firstLine(s))
 		}
 		if strings.Contains(s, "--") {
 			t.Fatalf("comments must be stripped: %q", firstLine(s))

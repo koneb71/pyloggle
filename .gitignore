@@ -83,11 +83,20 @@ docker-compose.override.yml
 
 
 
+# --- Node (web UI and docs site) ---
+node_modules/
+coverage/
+
 # --- Web UI build output (embedded into the Go binary; keep the placeholder) ---
 web/dist/*
 !web/dist/.gitkeep
-web/node_modules/
 web/screenshots/
+# Personal helper scripts next to the screenshot tooling.
+web/scripts/_*.mjs
 
-# --- Local footprint/screenshot artifacts ---
-screenshots/
+# --- Docs site build output ---
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
+# --- Local footprint/screenshot artifacts (the docs' screenshots in docs/images/ are kept) ---
+/screenshots/

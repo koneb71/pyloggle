@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/api"
 )
 
 // API keys with scopes. project_api_keys is a ReplacingMergeTree keyed by (project_id, id):

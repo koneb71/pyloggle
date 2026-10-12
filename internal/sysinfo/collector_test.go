@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/metrics"
-	"pyloggle/internal/storage/clickhouse"
+	"github.com/koneb71/pyloggle/internal/metrics"
+	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 )
 
 type fakeSource struct {

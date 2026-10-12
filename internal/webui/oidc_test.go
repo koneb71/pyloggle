@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"pyloggle/internal/config"
+	"github.com/koneb71/pyloggle/internal/config"
 )
 
 // fakeProvider is a minimal OpenID Connect provider: discovery, a JWKS with one RSA and one
@@ -380,6 +380,20 @@ func TestOIDCAllowListsAndEmailFallbacks(t *testing.T) {
 	state, q = startLogin(t, u)
 	if rec = finishLogin(t, u, state, q); rec.Code != http.StatusForbidden {
 		t.Fatalf("bare username: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	// An address the provider says is unverified is not trusted, nor is a user name in its
+	// place: anyone could have typed it. Some providers send the flag as a string.
+	for _, verified := range []any{false, "false"} {
+		p.claims = map[string]any{"email": "grace@example.com", "email_verified": verified, "preferred_username": "grace@example.com"}
+		state, q = startLogin(t, u)
+		if rec = finishLogin(t, u, state, q); rec.Code != http.StatusForbidden || sessionCookie(rec) != nil || !strings.Contains(rec.Body.String(), "did not confirm") {
+			t.Fatalf("unverified e-mail %#v: code=%d body=%s", verified, rec.Code, rec.Body.String())
+		}
+	}
+	p.claims = map[string]any{"email": "grace@example.com", "email_verified": "true"}
+	state, q = startLogin(t, u)
+	if rec = finishLogin(t, u, state, q); rec.Code != http.StatusFound {
+		t.Fatalf("verified e-mail: code=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
