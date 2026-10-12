@@ -14,11 +14,10 @@ type Config struct {
 	ClickHouseDSN string
 	Port          string
 
-	// UI auth mode for the single-page app under /ui/.
-	// Values:
-	// - "azure" (default): Microsoft Entra ID single-tenant login (an OIDC preset)
+	// UI auth mode for the single-page app under /ui/ (PYLOGGLE_UI_AUTH; see inferUIAuthMode):
 	// - "oidc": any OpenID Connect provider (PYLOGGLE_OIDC_*)
-	// - "disabled": bypass UI auth checks (intended for local dev)
+	// - "azure": Microsoft Entra ID single-tenant login (an OIDC preset)
+	// - "disabled": no sign-in, for a trusted network only
 	UIAuthMode string
 
 	// Azure preset (single-tenant; OIDC v2 endpoints). Required when UIAuthMode == "azure".
@@ -43,11 +42,9 @@ type Config struct {
 	// oauth state).
 	UISessionSecret string
 
-	// Optional allowlist (emails, UPNs or subject ids) for project/alert mutations in Azure mode.
-	// Empty keeps the historical behavior: any signed-in user may manage projects.
+	// Optional allowlist (emails, UPNs or subject ids) for project, key and alert changes and
+	// the System page when sign-in is on. Empty: any signed-in user may manage them.
 	UIAdmins []string
-
-	// WebUI live refresh polling interval (HTMX). Used by results containers via hx-trigger="every Ns".
 
 	// Ingestion protections
 	MaxQueueSize      int
@@ -55,7 +52,7 @@ type Config struct {
 	MaxQueuePerStream int
 	BatchSize         int
 	BatchTimeout      time.Duration
-	SharedSecret      string // optional; if set, requires X-API-Key to match
+	SharedSecret      string // optional 0.1 shared key: sends to the default project
 	AdminToken        string // optional; for project management endpoints
 	DefaultEnv        string
 	DefaultSvc        string
