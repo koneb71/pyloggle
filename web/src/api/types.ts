@@ -292,6 +292,10 @@ export interface AlertRule {
   slack_webhook_urls?: string[];
   created_at: string;
   updated_at: string;
+  /** daily_recap: the local hour (0-23) to send at. */
+  send_hour?: number;
+  /** daily_recap: the IANA time zone that defines "yesterday". */
+  timezone?: string;
 }
 
 export interface AlertFiring {

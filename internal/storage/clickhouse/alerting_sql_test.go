@@ -48,6 +48,20 @@ func TestRuleFilterQueriesAreWellFormed(t *testing.T) {
 		t.Fatalf("traces-with-spans query: %s %v", q, args)
 	}
 
+	q, args = regressionEventsQuery(rule, now.Add(-time.Hour), now, 7)
+	if !strings.Contains(q, "FROM issues_activity") || !strings.Contains(q, "kind = 'regression'") || strings.Contains(q, "issues_state") ||
+		strings.Count(q, "?") != len(args) || args[len(args)-1] != 7 {
+		t.Fatalf("comebacks come from the activity log: %s %v", q, args)
+	}
+	q, args = notifiedSubjectsQuery("p", "r", []string{"issue:1"}, time.Time{})
+	if strings.Contains(q, "notified_at") || strings.Count(q, "?") != len(args) {
+		t.Fatalf("no since, no time filter: %s %v", q, args)
+	}
+	q, args = notifiedSubjectsQuery("p", "r", []string{"jump:1"}, now)
+	if !strings.Contains(q, "notified_at >= ?") || strings.Count(q, "?") != len(args) {
+		t.Fatalf("since filter: %s %v", q, args)
+	}
+
 	// No filters -> no dangling AND.
 	q, args = countErrorOccurrencesQuery(api.AlertRule{ProjectID: "p"}, now.Add(-time.Minute), now)
 	if strings.Contains(q, "AND service") || len(args) != 3 {

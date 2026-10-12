@@ -1106,3 +1106,33 @@ func TestProjectKeysAPI(t *testing.T) {
 		t.Fatalf("anonymous in azure mode: %d", rec.Code)
 	}
 }
+
+func TestRecapRuleValidation(t *testing.T) {
+	u, _, _ := newTestUI("disabled")
+	h := map[string]string{"X-Pyloggle-Request": "1"}
+	rule := func(extra map[string]any) map[string]any {
+		r := map[string]any{"name": "Morning recap", "condition_type": "daily_recap", "send_hour": 8, "enabled": true, "telegram_chat_ids": []string{"1"}}
+		for k, v := range extra {
+			r[k] = v
+		}
+		return map[string]any{"rule": r}
+	}
+	rec, out := do(t, u, "POST", "/ui/api/alerts/rules", rule(map[string]any{"timezone": "Asia/Manila"}), h)
+	saved, _ := out["rule"].(map[string]any)
+	if rec.Code != 200 || saved["timezone"] != "Asia/Manila" || saved["send_hour"] != float64(8) || saved["time_window_seconds"] != float64(86400) {
+		t.Fatalf("recap rule: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "POST", "/ui/api/alerts/rules", rule(nil), h)
+	if saved, _ := out["rule"].(map[string]any); rec.Code != 200 || saved["timezone"] != "UTC" {
+		t.Fatalf("time zone defaults to UTC: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, out := do(t, u, "POST", "/ui/api/alerts/rules", rule(map[string]any{"timezone": "Mars/Olympus"}), h); rec.Code != 400 || out["error"] != "bad_timezone" {
+		t.Fatalf("unknown time zone: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, out := do(t, u, "POST", "/ui/api/alerts/rules", rule(map[string]any{"send_hour": 24}), h); rec.Code != 400 || out["error"] != "bad_send_hour" {
+		t.Fatalf("hour 24: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, out := do(t, u, "GET", "/ui/api/alerts/rules/recap-preview?timezone=Nope/Nope", nil, nil); rec.Code != 400 || out["error"] != "bad_timezone" {
+		t.Fatalf("preview checks the time zone: %d %s", rec.Code, rec.Body.String())
+	}
+}

@@ -55,6 +55,31 @@ and where. No migrations.
   `top_issues` and `samples`, with counts of people but never who they are, request URLs or
   the steps. *Alerts sent* in the UI shows the same summary sentence.
 
+### Alerts only once, and a recap of yesterday
+
+- Each thing alerts a rule once, recorded in a new `alert_notified` table (migration 016):
+  - a new problem alerts once;
+  - a problem that came back alerts once per comeback;
+  - a problem that jumps alerts at most once a day;
+  - too-many-errors and message-search rules alert when an incident starts, stay quiet while it
+    lasts, and alert again only after a check finds things back to normal.
+
+  "Wait before alerting again" still sets the shortest gap between two messages from a rule.
+  Nothing is recorded when every notifier failed, so the alert is retried.
+- **Fixed:** a "came back" rule alerted again every time someone assigned, commented on or
+  snoozed a problem that had come back, because it read every saved change. It now reads the
+  comebacks themselves from the activity log.
+- **New rule kind, "a recap of yesterday, every day":**
+  - Sent at a chosen hour in a chosen time zone, by e-mail, Slack, Telegram or webhook.
+  - Covers errors compared with the day before, new problems, problems that came back, the ones
+    that happened most, apps that need a look (failing, struggling or silent), incidents still
+    going on, and the alerts sent.
+  - It goes out once per local day, also after a restart, and on quiet days too.
+  - *Test this alert* shows the recap without sending it.
+  - Webhooks get it as `kind: "daily_recap"` with a `recap` object.
+- **Upgrade note:** problems already inside a rule's window when you upgrade may alert one last
+  time.
+
 ### Fixed
 
 - The Requests search showed the logs search help.
