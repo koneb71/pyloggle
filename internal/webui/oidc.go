@@ -245,7 +245,11 @@ func (u *UI) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if !u.allowedUser(claims) {
 		u.clearOAuthState(w, r)
-		http.Error(w, "this account ("+claims.Email+") is not allowed to use this pyloggle instance", http.StatusForbidden)
+		msg := "This account (" + claims.Email + ") is not allowed to use this Pyloggle server. Ask your administrator to add it."
+		if claims.Email == "" {
+			msg = "This Pyloggle server only lets in listed e-mail addresses, and your sign-in provider did not confirm yours. Ask your administrator."
+		}
+		http.Error(w, msg, http.StatusForbidden)
 		return
 	}
 	now := time.Now()
@@ -285,20 +289,37 @@ func (u *UI) allowedUser(c verifiedUser) bool {
 }
 
 type idTokenClaims struct {
-	Issuer            string `json:"iss"`
-	Subject           string `json:"sub"`
-	Nonce             string `json:"nonce"`
-	TenantID          string `json:"tid"`
-	Name              string `json:"name"`
-	PreferredUsername string `json:"preferred_username"`
-	Email             string `json:"email"`
-	UPN               string `json:"upn"`
-	Oid               string `json:"oid"`
-	Audience          any    `json:"aud"`
-	ExpiresAtUnix     int64  `json:"exp"`
-	NotBeforeUnix     int64  `json:"nbf"`
-	IssuedAtUnix      int64  `json:"iat"`
+	Issuer            string   `json:"iss"`
+	Subject           string   `json:"sub"`
+	Nonce             string   `json:"nonce"`
+	TenantID          string   `json:"tid"`
+	Name              string   `json:"name"`
+	PreferredUsername string   `json:"preferred_username"`
+	Email             string   `json:"email"`
+	EmailVerified     flexBool `json:"email_verified"`
+	UPN               string   `json:"upn"`
+	Oid               string   `json:"oid"`
+	Audience          any      `json:"aud"`
+	ExpiresAtUnix     int64    `json:"exp"`
+	NotBeforeUnix     int64    `json:"nbf"`
+	IssuedAtUnix      int64    `json:"iat"`
 }
+
+// flexBool reads a JSON boolean that some providers send as a string ("true" / "false").
+type flexBool struct{ set, value bool }
+
+func (b *flexBool) UnmarshalJSON(data []byte) error {
+	switch strings.Trim(strings.ToLower(string(data)), `"`) {
+	case "true":
+		*b = flexBool{set: true, value: true}
+	case "false":
+		*b = flexBool{set: true, value: false}
+	}
+	return nil
+}
+
+// isFalse reports an explicit false; a missing claim is not false.
+func (b flexBool) isFalse() bool { return b.set && !b.value }
 
 type verifiedUser struct {
 	Sub               string
@@ -417,12 +438,17 @@ func (u *UI) verifyIDToken(ctx context.Context, ep oidcEndpoints, idToken, expec
 	if sub == "" {
 		return verifiedUser{}, errors.New("missing subject")
 	}
-	email := strings.TrimSpace(claims.Email)
-	if email == "" {
-		email = strings.TrimSpace(claims.PreferredUsername)
-	}
-	if email == "" {
-		email = strings.TrimSpace(claims.UPN)
+	// The e-mail address feeds the allow-lists. When the provider says it is unverified, anyone
+	// could have typed it, and a user name in its place is no better: use none.
+	email := ""
+	if !claims.EmailVerified.isFalse() {
+		email = strings.TrimSpace(claims.Email)
+		if email == "" {
+			email = strings.TrimSpace(claims.PreferredUsername)
+		}
+		if email == "" {
+			email = strings.TrimSpace(claims.UPN)
+		}
 	}
 	if !strings.Contains(email, "@") {
 		email = ""
