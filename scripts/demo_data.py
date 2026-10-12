@@ -269,7 +269,7 @@ def timelines(now, count=150):
         call_ms = total * (0.55 if slow else 0.35)
         checkout.append(span(trace, call, root, "GET /stock/{sku}", 3, call_start, call_ms,
                              {"http.request.method": "GET", "http.response.status_code": 503 if failed else 200, "server.address": "inventory"},
-                             2 if failed else 0, "503" if failed else ""))
+                             2 if failed else 0, "Service Unavailable" if failed else ""))
         inner = hexid(16)
         inventory.append(span(trace, inner, call, "GET /stock/{sku}", 2, call_start + 0.002, call_ms - 4,
                               {"http.request.method": "GET", "http.route": "/stock/{sku}", "http.response.status_code": 503 if failed else 200},

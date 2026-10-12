@@ -9,6 +9,9 @@ data to someone else or running a large monitoring stack.
 
 ## What you get
 
+![The Overview page: what needs attention, the headline numbers, and recent versions](../images/screenshots/overview-light.png#gh-light-mode-only)
+![The Overview page: what needs attention, the headline numbers, and recent versions](../images/screenshots/overview-dark.png#gh-dark-mode-only)
+
 - **Errors you can act on.** Errors with the same cause are grouped into one *issue*, with the
   full story: the line of your code that failed, the values of its variables, the steps just
   before the error, the web request, and how many people it hit. Mark it fixed, and Pyloggle
