@@ -28,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
       -ldflags="-s -w -X github.com/koneb71/pyloggle/internal/version.Version=${VERSION} -X github.com/koneb71/pyloggle/internal/version.Commit=${COMMIT}" \
       -o /out/ingestd ./cmd/ingestd
 
-FROM alpine:3.20
+FROM alpine:3.24
 LABEL org.opencontainers.image.title="Pyloggle" \
       org.opencontainers.image.description="Self-hosted error tracking and logs for Python apps" \
       org.opencontainers.image.source="https://github.com/koneb71/pyloggle" \
