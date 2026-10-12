@@ -5,7 +5,7 @@ NPM ?= npm
 PY ?= python3
 VENV ?= python-sdk/.venv
 
-.PHONY: help build web go-build test go-test py-test web-test golden screenshots footprint dev-api dev-web compose-up compose-down clean
+.PHONY: help build web go-build test go-test py-test web-test golden licenses screenshots footprint dev-api dev-web compose-up compose-down clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -38,6 +38,9 @@ web-test: ## Web unit tests + typecheck
 golden: ## Regenerate the SDK v0.2 golden NDJSON consumed by the Go decoder tests
 	cd python-sdk && .venv/bin/python tests/gen_golden.py
 
+licenses: ## Regenerate THIRD_PARTY_LICENSES.md and web/public/licenses.txt (needs web/node_modules)
+	$(PY) scripts/third_party_licenses.py
+
 screenshots: ## Screenshot every UI page (light + dark) with Playwright; needs a running stack
 	cd web && $(NPM) run screenshots
 
@@ -57,4 +60,4 @@ compose-down: ## Stop the compose stack
 	cd deploy && docker compose down
 
 clean: ## Remove build artifacts
-	rm -rf bin web/dist/assets web/dist/index.html
+	rm -rf bin dist web/dist/assets web/dist/index.html web/dist/licenses.txt

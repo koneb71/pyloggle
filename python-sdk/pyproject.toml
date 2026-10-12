@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69.0"]
+requires = ["setuptools>=77.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,14 +8,32 @@ version = "0.3.0"
 description = "Lightweight log + error tracking SDK for Pyloggle (structured tracebacks, breadcrumbs, Flask/FastAPI/Django/Celery/logging integrations)"
 readme = "README.md"
 requires-python = ">=3.9"
-authors = [{name = "Pyloggle"}]
-license = {text = "MIT"}
+authors = [{name = "koneb71"}]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["logging", "error tracking", "exceptions", "observability", "flask", "fastapi", "django", "celery", "opentelemetry"]
 dependencies = []
 classifiers = [
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: System :: Logging",
   "Topic :: Software Development :: Debuggers",
+  "Typing :: Typed",
 ]
+
+[project.urls]
+Homepage = "https://github.com/koneb71/pyloggle"
+Documentation = "https://koneb71.github.io/pyloggle/"
+Source = "https://github.com/koneb71/pyloggle"
+Issues = "https://github.com/koneb71/pyloggle/issues"
+Changelog = "https://github.com/koneb71/pyloggle/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 flask = ["flask>=2.3"]
