@@ -56,7 +56,8 @@ about each.
 - **Docker Compose publishes the port on `127.0.0.1` only** and runs the published image
   (`PYLOGGLE_VERSION` pins one), building from source only when the image is not available.
 - `PYLOGGLE_UI_POLL_SECONDS` is removed; it had no effect since 0.2.
-- The Go module is `github.com/koneb71/pyloggle`.
+- The Go module is `github.com/koneb71/pyloggle`, and building from source needs Go 1.26 (the
+  Docker image and the release binaries already use it).
 
 ### Look and language
 

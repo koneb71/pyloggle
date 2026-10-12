@@ -70,8 +70,8 @@ machines reached Pyloggle on port 8080 directly, put a reverse proxy in front of
 - The first migration no longer creates a database named `pyloggle` when `CLICKHOUSE_DSN`
   names another one. If your DSN uses a different database, an empty `pyloggle` database may
   be left over from earlier versions; check that it is empty before you drop it.
-- The Go module is now `github.com/koneb71/pyloggle`. This matters only if you build from
-  source with your own flags or keep a fork.
+- The Go module is now `github.com/koneb71/pyloggle`, and building from source needs Go 1.26.
+  This matters only if you build from source with your own flags or keep a fork.
 - `ingestd -version` prints the version; the server logs it when it starts.
 
 ## What is new
