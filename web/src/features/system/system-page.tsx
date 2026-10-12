@@ -3,10 +3,10 @@ import { ExternalLink } from "lucide-react";
 import clsx from "clsx";
 import { get } from "@/api/client";
 import type { Me, TimeSeriesPoint } from "@/api/types";
-import { PageHeader } from "@/components/shell/app-shell";
 import { TrendChart } from "@/components/charts/trend-chart";
-import { Card, CardHeader, EmptyState, ErrorState, Skeleton, StatTile, TimeAgo } from "@/components/ui";
-import { fmtBytes, fmtNumber, fmtPct, fmtTs } from "@/lib/time";
+import { Card, DataTable, EmptyState, Page, QueryState, Section, Skeleton, StatTile, TimeAgo, buttonClass, type Column } from "@/components/ui";
+import { fmtBytes, fmtNumber, fmtPct, fmtWhen } from "@/lib/time";
+import { alertKindLabel } from "@/features/alerts/alert-words";
 
 interface SystemInfo {
   version: string;
@@ -36,164 +36,195 @@ interface SystemInfo {
   alerting: { enabled: boolean; interval_s: number; rules_enabled: number; last_run?: string | null; evaluations: Record<string, number>; firings: Record<string, number>; notify_failures: Record<string, number> };
 }
 
-const OUTCOME_LABEL: Record<string, string> = { accepted: "accepted", quota: "dropped: storage quota", rate_limit: "dropped: rate limit", sampled: "dropped: sampling", queue_full: "dropped: queue full" };
+const OUTCOME_LABEL: Record<string, string> = {
+  accepted: "Saved",
+  quota: "Dropped: project over its storage limit",
+  rate_limit: "Dropped: too many per second",
+  sampled: "Dropped on purpose (sampling)",
+  queue_full: "Dropped: server too busy",
+};
 
-function fmtUptime(s: number): string {
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
-  return `${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+const KIND_LABEL: Record<string, string> = { logs: "Messages", errors: "Error details", spans: "Request steps", metrics: "Custom measurements" };
+
+/** Storage tables in words; the real table name stays visible underneath. */
+const TABLE_LABEL: Record<string, string> = {
+  logs_raw: "Messages",
+  error_occurrences: "Error details",
+  spans: "Request steps",
+  metric_points: "Custom measurements",
+  metrics_catalog: "Measurement names",
+  issues_agg: "Issue summaries",
+  issues_state: "Issue status",
+  issues_activity: "Issue activity",
+  issues_stats: "Issue statistics (old)",
+  issue_counts_hourly: "Errors per hour",
+  log_counts_minutely: "Messages per minute",
+  request_stats_minutely: "Requests per minute",
+  releases: "Versions",
+  alert_rules: "Alert rules",
+  alert_firings: "Alerts sent",
+  saved_searches: "Saved searches",
+  projects: "Projects",
+  project_api_keys: "Access keys",
+  project_api_key_usage: "Access key use",
+  project_usage_daily: "Storage per day",
+  admin_audit: "Admin activity",
+  pyloggle_settings: "Server settings",
+  schema_migrations: "Database upgrades",
+};
+
+function counts(m: Record<string, number>, label: (k: string) => string = (k) => k): string {
+  const e = Object.entries(m);
+  return e.length ? e.map(([k, v]) => `${label(k)} ${fmtNumber(v)}`).join(" · ") : "none";
 }
 
-/** Operator view: the same numbers /metrics exposes, refreshed every 15 seconds. */
+function fmtUptime(s: number): string {
+  if (s < 60) return "less than a minute";
+  if (s < 120) return "1 minute";
+  if (s < 3600) return `${Math.floor(s / 60)} minutes`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+  const d = Math.floor(s / 86400);
+  return `${d} ${d === 1 ? "day" : "days"} ${Math.floor((s % 86400) / 3600)} h`;
+}
+
+/** Operator view in plain words: the numbers /metrics exposes, refreshed every 15 seconds. */
 export function SystemPage({ me }: { me: Me }) {
   const q = useQuery({ queryKey: ["system"], queryFn: () => get<SystemInfo>("/system"), refetchInterval: 15_000, enabled: me.is_admin });
-  if (!me.is_admin) return <EmptyState title="Admins only" hint="The System page is limited to PYLOGGLE_UI_ADMINS." />;
   const d = q.data;
   const totalEvents = d ? Object.values(d.ingest.events).reduce((n, v) => n + v, 0) : 0;
   const dropped = d ? totalEvents - (d.ingest.events.accepted ?? 0) : 0;
   const diskPct = d && d.clickhouse.disk.total > 0 ? ((d.clickhouse.disk.total - d.clickhouse.disk.free) / d.clickhouse.disk.total) * 100 : 0;
+  const notifyFailures = d ? Object.values(d.alerting.notify_failures).reduce((n, v) => n + v, 0) : 0;
   return (
-    <>
-      <PageHeader title="System" sub={d ? `ingestd ${d.version} · ${d.go_version} · up ${fmtUptime(d.uptime_s)}` : "ingestd health"}>
-        <a href="/metrics" target="_blank" rel="noreferrer" className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 text-xs font-medium text-ink hover:bg-surface-2">
-          <ExternalLink size={12} /> /metrics
-        </a>
-      </PageHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-[1400px] flex-col gap-3 p-4">
-          {q.isError && <ErrorState error={q.error} retry={() => q.refetch()} />}
-          {q.isPending ? (
-            <Skeleton rows={8} className="p-3" />
-          ) : d ? (
+    <Page
+      title="System"
+      description={d ? `Health of the Pyloggle server itself, for administrators. Version ${d.version}, running for ${fmtUptime(d.uptime_s)}.` : "Health of the Pyloggle server itself, for administrators."}
+      actions={
+        me.is_admin && (
+          <a href="/metrics" target="_blank" rel="noreferrer" className={buttonClass({ className: "gap-1.5" })}>
+            <ExternalLink size={14} /> Raw metrics (Prometheus)
+          </a>
+        )
+      }
+    >
+      {!me.is_admin ? (
+        <Card>
+          <EmptyState title="For administrators only" hint="Ask an administrator if you need to see the server's health." />
+        </Card>
+      ) : (
+        <QueryState query={q} skeleton={<Skeleton rows={8} />}>
+          {(d) => (
             <>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-                <StatTile label="ClickHouse" value={d.clickhouse.up ? "up" : "down"} hint={d.clickhouse.up ? d.clickhouse.version : d.clickhouse.error || "no sample yet"} tone={d.clickhouse.up ? "good" : "critical"} />
-                <StatTile label="Disk used" value={d.clickhouse.disk.total ? fmtPct(diskPct) : "–"} hint={d.clickhouse.disk.total ? `${fmtBytes(d.clickhouse.disk.free)} free of ${fmtBytes(d.clickhouse.disk.total)}` : "default disk unknown"} tone={diskPct >= 90 ? "critical" : diskPct >= 75 ? "warning" : undefined} />
-                <StatTile label="Events processed" value={fmtNumber(totalEvents)} hint="since start, every door" />
-                <StatTile label="Dropped" value={fmtNumber(dropped)} hint={totalEvents ? `${fmtPct((dropped / totalEvents) * 100)} of events` : "nothing yet"} tone={dropped > 0 ? "warning" : undefined} />
-                <StatTile label="Mutations pending" value={fmtNumber(d.clickhouse.mutations_pending)} hint="deletes and trims in flight" tone={d.clickhouse.mutations_pending > 5 ? "warning" : undefined} />
-                <StatTile label="Ingest streams" value={fmtNumber(d.ingest.streams.active)} hint={d.ingest.streams.overflow ? `${fmtNumber(d.ingest.streams.overflow)} overflowed` : "no overflow"} tone={d.ingest.streams.overflow ? "warning" : undefined} />
+                <StatTile label="Database" value={d.clickhouse.up ? "Running" : "Down"} hint={d.clickhouse.up ? `ClickHouse ${d.clickhouse.version}` : d.clickhouse.error || "Not checked yet"} tone={d.clickhouse.up ? "good" : "critical"} />
+                <StatTile label="Disk space used" value={d.clickhouse.disk.total ? fmtPct(diskPct) : "—"} hint={d.clickhouse.disk.total ? `${fmtBytes(d.clickhouse.disk.free)} free of ${fmtBytes(d.clickhouse.disk.total)}` : "Unknown"} tone={diskPct >= 90 ? "critical" : diskPct >= 75 ? "warning" : undefined} />
+                <StatTile label="Received" value={fmtNumber(totalEvents)} hint="since the server started" />
+                <StatTile label="Dropped" value={fmtNumber(dropped)} hint={totalEvents ? `${fmtPct((dropped / totalEvents) * 100)} of what arrived` : "Nothing yet"} tone={dropped > 0 ? "warning" : undefined} />
+                <StatTile label="Cleanup tasks running" value={fmtNumber(d.clickhouse.mutations_pending)} hint="deletions and trims in progress" tone={d.clickhouse.mutations_pending > 5 ? "warning" : undefined} />
+                <StatTile label="Open connections" value={fmtNumber(d.ingest.streams.active)} hint={d.ingest.streams.overflow ? `${fmtNumber(d.ingest.streams.overflow)} turned away` : "apps sending right now"} tone={d.ingest.streams.overflow ? "warning" : undefined} />
               </div>
-              <div className="grid gap-3 lg:grid-cols-2">
-                <Card>
-                  <CardHeader title="Ingest rate" sub="log lines per minute, every project, last hour" />
-                  <div className="p-2">
-                    <TrendChart points={d.ingest.rate} height={180} color="var(--accent)" label="lines" />
-                  </div>
-                </Card>
-                <Card>
-                  <CardHeader title="Write queues" sub="rows waiting for ClickHouse, per kind" />
-                  <div className="space-y-2 p-3 text-xs">
+              <div className="grid gap-5 lg:grid-cols-2">
+                <Section title="Incoming data" description="Messages received per minute, all projects, last hour.">
+                  <TrendChart points={d.ingest.rate} height={180} color="var(--accent)" label="messages" />
+                </Section>
+                <Section title="Waiting to be saved" description="What is queued for the database, by kind. Full queues drop data.">
+                  <div className="space-y-4 text-[13px]">
                     {d.ingest.queues.map((qu) => {
                       const pct = qu.capacity ? (qu.depth / qu.capacity) * 100 : 0;
                       return (
                         <div key={qu.kind}>
-                          <div className="flex items-baseline justify-between">
-                            <span className="font-medium text-ink">{qu.kind}</span>
-                            <span className="tabular text-ink-3">
-                              {fmtNumber(qu.depth)} / {fmtNumber(qu.capacity)} · {fmtNumber(qu.written)} written · {fmtNumber(qu.dropped)} dropped · {fmtNumber(qu.flush_failures)} failed flushes
+                          <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <span className="font-medium text-ink">{KIND_LABEL[qu.kind] ?? qu.kind}</span>
+                            <span className="text-xs tabular text-ink-3">
+                              {fmtNumber(qu.depth)} waiting of {fmtNumber(qu.capacity)} · {fmtNumber(qu.written)} saved
+                              {qu.dropped > 0 && <span className="text-warning-text"> · {fmtNumber(qu.dropped)} dropped</span>}
+                              {qu.flush_failures > 0 && <span className="text-critical-text"> · {fmtNumber(qu.flush_failures)} failed saves</span>}
                             </span>
                           </div>
-                          <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-surface-3">
-                            <div className={clsx("h-1.5 rounded", pct >= 80 ? "bg-critical" : "bg-accent")} style={{ width: `${Math.max(pct > 0 ? 1 : 0, Math.min(100, pct))}%` }} />
+                          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+                            <div className={clsx("h-1.5 rounded-full", pct >= 80 ? "bg-critical" : "bg-accent")} style={{ width: `${Math.max(pct > 0 ? 1 : 0, Math.min(100, pct))}%` }} />
                           </div>
                         </div>
                       );
                     })}
-                    {d.ingest.queues.length === 0 && <div className="text-ink-3">no queues reported</div>}
+                    {d.ingest.queues.length === 0 && <div className="text-ink-3">No queues reported.</div>}
                   </div>
-                </Card>
+                </Section>
               </div>
-              <div className="grid gap-3 lg:grid-cols-2">
-                <Card>
-                  <CardHeader title="Events by outcome" sub="since start" />
-                  <table className="w-full text-xs">
-                    <tbody>
-                      {Object.entries(d.ingest.events)
-                        .sort((a, b) => b[1] - a[1])
-                        .map(([k, v]) => (
-                          <tr key={k} className="border-t border-border">
-                            <td className={clsx("px-3 py-1.5", k === "accepted" ? "text-ink" : "text-serious")}>{OUTCOME_LABEL[k] ?? k}</td>
-                            <td className="px-3 py-1.5 text-right tabular text-ink">{fmtNumber(v)}</td>
-                            <td className="px-3 py-1.5 text-right tabular text-ink-3">{totalEvents ? fmtPct((v / totalEvents) * 100) : ""}</td>
-                          </tr>
-                        ))}
-                      {Object.entries(d.ingest.rejected).map(([k, v]) => (
-                        <tr key={"rej-" + k} className="border-t border-border">
-                          <td className="px-3 py-1.5 text-critical">undecodable ({k})</td>
-                          <td className="px-3 py-1.5 text-right tabular text-ink">{fmtNumber(v)}</td>
-                          <td />
-                        </tr>
+              <div className="grid gap-5 lg:grid-cols-2">
+                <Section title="What happened to incoming data" description="Since the server started." flush>
+                  <ul className="divide-y divide-border text-[13px]">
+                    {Object.entries(d.ingest.events)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([k, v]) => (
+                        <li key={k} className="flex items-center gap-3 px-4 py-2">
+                          <span className={clsx("flex-1", k === "accepted" ? "text-ink" : "text-warning-text")}>{OUTCOME_LABEL[k] ?? k}</span>
+                          <span className="w-16 text-right text-xs tabular text-ink-3">{totalEvents ? fmtPct((v / totalEvents) * 100) : ""}</span>
+                          <span className="w-20 text-right tabular text-ink">{fmtNumber(v)}</span>
+                        </li>
                       ))}
-                      {Object.keys(d.ingest.events).length === 0 && (
-                        <tr>
-                          <td className="px-3 py-2 text-ink-3" colSpan={3}>
-                            nothing ingested since start
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </Card>
-                <Card>
-                  <CardHeader title="Alerting" sub={d.alerting.enabled ? `every ${d.alerting.interval_s}s · ${d.alerting.rules_enabled} rules enabled` : "disabled (ALERTING_ENABLED=false)"} />
-                  <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 px-3 py-2 text-xs">
-                    <dt className="text-ink-3">last run</dt>
-                    <dd className="text-ink">{d.alerting.last_run ? <TimeAgo iso={d.alerting.last_run} withAbsolute /> : "never"}</dd>
-                    <dt className="text-ink-3">evaluations</dt>
-                    <dd className="tabular text-ink">{Object.entries(d.alerting.evaluations).map(([k, v]) => `${k} ${fmtNumber(v)}`).join(" · ") || "0"}</dd>
-                    <dt className="text-ink-3">firings</dt>
-                    <dd className="tabular text-ink">{Object.entries(d.alerting.firings).map(([k, v]) => `${k} ${fmtNumber(v)}`).join(" · ") || "0"}</dd>
-                    <dt className="text-ink-3">notify failures</dt>
-                    <dd className={clsx("tabular", Object.keys(d.alerting.notify_failures).length ? "text-critical" : "text-ink")}>{Object.entries(d.alerting.notify_failures).map(([k, v]) => `${k} ${fmtNumber(v)}`).join(" · ") || "0"}</dd>
-                    <dt className="text-ink-3">retention</dt>
+                    {Object.entries(d.ingest.rejected).map(([k, v]) => (
+                      <li key={"rej-" + k} className="flex items-center gap-3 px-4 py-2">
+                        <span className="flex-1 text-critical-text">Couldn't be read ({k})</span>
+                        <span className="w-20 text-right tabular text-ink">{fmtNumber(v)}</span>
+                      </li>
+                    ))}
+                    {Object.keys(d.ingest.events).length === 0 && <li className="px-4 py-3 text-ink-3">Nothing received since the server started.</li>}
+                  </ul>
+                </Section>
+                <Section title="Alerts engine" description={d.alerting.enabled ? `Checks the rules every ${d.alerting.interval_s} seconds.` : "Switched off (setting ALERTING_ENABLED)."}>
+                  <dl className="grid grid-cols-[max-content_1fr] gap-x-6 gap-y-2 text-[13px]">
+                    <dt className="text-ink-3">Rules turned on</dt>
+                    <dd className="text-ink">{d.alerting.rules_enabled}</dd>
+                    <dt className="text-ink-3">Last check</dt>
+                    <dd className="text-ink">{d.alerting.last_run ? <TimeAgo iso={d.alerting.last_run} /> : "Never"}</dd>
+                    <dt className="text-ink-3">Checks done</dt>
+                    <dd className="text-ink">{counts(d.alerting.evaluations, alertKindLabel)}</dd>
+                    <dt className="text-ink-3">Alerts sent</dt>
+                    <dd className="text-ink">{counts(d.alerting.firings, alertKindLabel)}</dd>
+                    <dt className="text-ink-3">Failed to send</dt>
+                    <dd className={notifyFailures ? "text-critical-text" : "text-ink"}>{counts(d.alerting.notify_failures)}</dd>
+                    <dt className="text-ink-3">Data is kept for</dt>
                     <dd className="text-ink">
-                      logs {d.retention.logs}d · errors {d.retention.errors}d · spans {d.retention.spans}d · metrics {d.retention.metrics}d · stats {d.retention.stats}d
+                      messages {d.retention.logs} days · error details {d.retention.errors} days · request steps {d.retention.spans} days · measurements {d.retention.metrics} days · statistics {d.retention.stats} days
                     </dd>
                   </dl>
-                </Card>
+                </Section>
               </div>
-              <Card>
-                <CardHeader title="Tables" sub={d.clickhouse.sampled_at ? `active parts, sampled ${fmtTs(d.clickhouse.sampled_at)}` : "no sample yet"} />
-                {d.clickhouse.tables.length === 0 ? (
-                  <EmptyState title="No table statistics" hint={d.clickhouse.error || "The collector samples ClickHouse once a minute."} className="py-6" />
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead className="text-left text-[10px] uppercase tracking-wide text-ink-3">
-                      <tr className="border-b border-border">
-                        <th className="px-3 py-1.5 font-medium">table</th>
-                        <th className="px-3 py-1.5 text-right font-medium">rows</th>
-                        <th className="px-3 py-1.5 text-right font-medium">on disk</th>
-                        <th className="px-3 py-1.5 text-right font-medium">uncompressed</th>
-                        <th className="px-3 py-1.5 text-right font-medium">ratio</th>
-                        <th className="px-3 py-1.5 text-right font-medium">parts</th>
-                        <th className="px-3 py-1.5 font-medium">oldest partition</th>
-                        <th className="px-3 py-1.5 text-right font-medium">retention</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {[...d.clickhouse.tables]
-                        .sort((a, b) => b.bytes - a.bytes)
-                        .map((t) => (
-                          <tr key={t.name} className="border-b border-border hover:bg-surface-2">
-                            <td className="px-3 py-1 font-mono text-ink">{t.name}</td>
-                            <td className="px-3 py-1 text-right tabular text-ink-2">{fmtNumber(t.rows)}</td>
-                            <td className="px-3 py-1 text-right tabular text-ink">{fmtBytes(t.bytes)}</td>
-                            <td className="px-3 py-1 text-right tabular text-ink-2">{fmtBytes(t.uncompressed)}</td>
-                            <td className="px-3 py-1 text-right tabular text-ink-3">{t.uncompressed ? `${(t.uncompressed / Math.max(1, t.bytes)).toFixed(1)}×` : ""}</td>
-                            <td className="px-3 py-1 text-right tabular text-ink-2">{t.parts}</td>
-                            <td className="px-3 py-1 font-mono text-ink-3">{t.oldest_partition}</td>
-                            <td className="px-3 py-1 text-right tabular text-ink-3">{t.retention_days ? `${t.retention_days}d` : ""}</td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                )}
-              </Card>
+              <Section title="Storage by table" description={d.clickhouse.sampled_at ? `Checked ${fmtWhen(d.clickhouse.sampled_at)}.` : "Not checked yet."} flush>
+                <DataTable
+                  label="Storage by table"
+                  columns={tableColumns}
+                  rows={[...d.clickhouse.tables].sort((a, b) => b.bytes - a.bytes)}
+                  rowKey={(t) => t.name}
+                  stickyHeader={false}
+                  empty={<EmptyState title="No table statistics yet" hint={d.clickhouse.error || "The server checks the database once a minute."} className="py-6" />}
+                />
+              </Section>
             </>
-          ) : null}
-        </div>
-      </div>
-    </>
+          )}
+        </QueryState>
+      )}
+    </Page>
   );
 }
+
+type Table = SystemInfo["clickhouse"]["tables"][number];
+
+const tableColumns: Column<Table>[] = [
+  {
+    id: "name",
+    header: "What it holds",
+    cell: (t) => (
+      <div className="min-w-0">
+        <div className="truncate text-ink">{TABLE_LABEL[t.name] ?? t.name}</div>
+        <div className="truncate font-mono text-[11px] text-ink-3">{t.name}</div>
+      </div>
+    ),
+  },
+  { id: "rows", header: "Rows", width: "100px", align: "right", cell: (t) => <span className="text-ink-2">{fmtNumber(t.rows)}</span> },
+  { id: "bytes", header: "On disk", width: "100px", align: "right", cell: (t) => <span className="font-medium text-ink">{fmtBytes(t.bytes)}</span> },
+  { id: "ratio", header: "Compression", width: "110px", align: "right", cell: (t) => <span className="text-ink-3">{t.uncompressed ? `${(t.uncompressed / Math.max(1, t.bytes)).toFixed(1)}× smaller` : "—"}</span> },
+  { id: "oldest", header: "Oldest data", width: "120px", cell: (t) => <span className="font-mono text-[12px] text-ink-3">{t.oldest_partition || "—"}</span> },
+  { id: "retention", header: "Kept for", width: "90px", align: "right", cell: (t) => <span className="text-ink-3">{t.retention_days ? `${t.retention_days} days` : "—"}</span> },
+];

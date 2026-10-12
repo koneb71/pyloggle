@@ -11,7 +11,7 @@ export function ContextDialog({ eventId, onClose, onFilter }: { eventId: string;
   const [sel, setSel] = useState<LogEvent | null>(null);
   const items = useMemo(() => (ctx.data ? [...ctx.data.before, ctx.data.anchor, ...ctx.data.after] : []), [ctx.data]);
   return (
-    <Dialog open onClose={onClose} title={ctx.data ? `Surrounding messages from ${ctx.data.anchor.service}` : "Surrounding messages"} wide className="max-w-6xl">
+    <Dialog open onClose={onClose} title={ctx.data ? `Surrounding messages from ${ctx.data.anchor.service}` : "Surrounding messages"} maxWidth={1152}>
       <p className="mb-3 text-[13px] text-ink-3">The highlighted row is the message you opened. Click a row to see its details.</p>
       {ctx.isError ? (
         <ErrorState error={ctx.error} retry={() => ctx.refetch()} />
