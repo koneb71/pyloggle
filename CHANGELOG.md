@@ -31,6 +31,12 @@ and where. No migrations.
 - Alerts: rules read and are edited as sentences, with a *Test this alert* button.
 - Projects: a *Connect your app* guide (Python, Django, FastAPI, OpenTelemetry) with the
   server's address filled in; settings, keys and storage in a side drawer.
+- **Help** page (`g h`, at the bottom of the sidebar): guides from the documentation, the
+  *Connect your app* steps, search examples you can click, every keyboard shortcut, the words
+  the app uses and what engineers call them, and this server's version and sign-in. Alerts,
+  Projects, System and the search help link to the matching documentation page.
+  `PYLOGGLE_DOCS_URL` points those links at an internal copy of the docs, or hides them when
+  empty; `/me` now reports `version` and `features.docs_url`.
 
 ### Alerts with context
 

@@ -91,6 +91,10 @@ type Config struct {
 	// MetricsToken, when set, is the bearer token GET /metrics requires (PYLOGGLE_METRICS_TOKEN).
 	MetricsToken string
 
+	// DocsURL is where the app's Help page and "Learn more" links point (PYLOGGLE_DOCS_URL):
+	// the public docs by default, an internal mirror, or empty to hide the links.
+	DocsURL string
+
 	// Alerting (optional)
 	AlertingEnabled      bool
 	AlertingPollInterval time.Duration
@@ -123,6 +127,13 @@ func FromEnv() Config {
 	defaultProject, ok := os.LookupEnv("PYLOGGLE_DEFAULT_PROJECT_ID")
 	if !ok {
 		defaultProject = "default" // set it empty to require an access key everywhere
+	}
+	docsURL, ok := os.LookupEnv("PYLOGGLE_DOCS_URL")
+	if !ok {
+		docsURL = DocsHome // set it empty to hide the links to the docs
+	}
+	if docsURL = strings.TrimSpace(docsURL); docsURL != "" && !strings.HasSuffix(docsURL, "/") {
+		docsURL += "/"
 	}
 
 	return Config{
@@ -175,6 +186,7 @@ func FromEnv() Config {
 		PublicURL:            strings.TrimRight(strings.TrimSpace(os.Getenv("PYLOGGLE_PUBLIC_URL")), "/"),
 		ExportMaxRows:        getenvInt("PYLOGGLE_EXPORT_MAX_ROWS", 100000),
 		MetricsToken:         strings.TrimSpace(os.Getenv("PYLOGGLE_METRICS_TOKEN")),
+		DocsURL:              docsURL,
 
 		AlertingEnabled:      getenvBool("ALERTING_ENABLED", false),
 		AlertingPollInterval: getenvDuration("ALERTING_POLL_INTERVAL", 30*time.Second),
@@ -272,8 +284,11 @@ func inferUIAuthMode() string {
 	return ""
 }
 
-// DocsSignIn is where startup errors about sign-in point.
-const DocsSignIn = "https://koneb71.github.io/pyloggle/self-hosting/sign-in"
+// DocsHome is the public documentation; DocsSignIn is where startup errors about sign-in point.
+const (
+	DocsHome   = "https://koneb71.github.io/pyloggle/"
+	DocsSignIn = DocsHome + "self-hosting/sign-in"
+)
 
 // Validate reports configuration that would make the server unsafe or unusable, every problem
 // at once. main refuses to start when it returns an error.

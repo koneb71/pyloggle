@@ -4,12 +4,14 @@ export type Level = "debug" | "info" | "warn" | "error" | "fatal" | string;
 export type Status = "open" | "resolved" | "ignored";
 
 export interface Me {
+  /** The server's version, such as 1.0.0. */
+  version?: string;
   auth_mode: "disabled" | "azure" | "oidc" | string;
   user?: { sub: string; name?: string; email?: string };
   is_admin: boolean;
   project?: { id: string; name: string };
   projects: { id: string; name: string }[];
-  features: { alerting: boolean; traces?: boolean; public_url?: string; auth_provider?: string; slack_default?: boolean };
+  features: { alerting: boolean; traces?: boolean; public_url?: string; auth_provider?: string; slack_default?: boolean; docs_url?: string };
 }
 
 export interface IssueSummary {

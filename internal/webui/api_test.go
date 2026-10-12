@@ -456,6 +456,15 @@ func TestMeAndDefaultProject(t *testing.T) {
 	if out["project"].(map[string]any)["id"] != "default" || len(out["projects"].([]any)) != 2 || out["auth_mode"] != "disabled" {
 		t.Fatalf("me: %s", rec.Body.String())
 	}
+	// The Help page shows the version and links to the docs, unless the docs address is empty.
+	if out["version"] == "" || out["features"].(map[string]any)["docs_url"] != "https://koneb71.github.io/pyloggle/" {
+		t.Fatalf("me version/docs: %s", rec.Body.String())
+	}
+	u.cfg.DocsURL = ""
+	_, out = do(t, u, "GET", "/ui/api/me", nil, nil)
+	if _, ok := out["features"].(map[string]any)["docs_url"]; ok {
+		t.Fatalf("an empty PYLOGGLE_DOCS_URL hides the docs links")
+	}
 }
 
 func TestDatabaseOutageIsNotNoProject(t *testing.T) {

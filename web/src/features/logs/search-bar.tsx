@@ -9,6 +9,7 @@ import { fieldLabel, isCodeLike } from "@/lib/fields";
 import { levelLabel } from "@/lib/levels";
 import { fmtNumber } from "@/lib/time";
 import { FACET_TO_FIELD } from "./log-fields";
+import { LearnMore } from "@/components/learn-more";
 
 export interface SearchExample {
   query: string;
@@ -366,6 +367,9 @@ function SearchHelp({ examples, onPick }: { examples: SearchExample[]; onPick: (
               </li>
             ))}
           </ul>
+          <div className="mt-2 border-t border-border px-1 pt-2 text-xs">
+            <LearnMore doc="search">Every field and rule</LearnMore>
+          </div>
         </div>
       )}
     </Popover>

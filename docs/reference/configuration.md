@@ -25,6 +25,7 @@ Most servers only need a few: `CLICKHOUSE_DSN`, the [sign-in](#sign-in) settings
 | `CLICKHOUSE_DSN` | `clickhouse://localhost:9000/pyloggle?dial_timeout=10s&read_timeout=20s` | Where ClickHouse is, in the native protocol (port 9000): `clickhouse://user:password@host:9000/database`. The database must exist; Pyloggle creates its tables in it. |
 | `INGEST_PORT` | `8080` | The port the server listens on, for everything: data from your apps, the app, the API and `/metrics`. |
 | `PYLOGGLE_PUBLIC_URL` | | The address people use to reach Pyloggle, such as `https://logs.example.com`. Links in alerts and the addresses on the Projects page use it. Without it, alerts carry no links and the Projects page uses the address in your browser. |
+| `PYLOGGLE_DOCS_URL` | `https://koneb71.github.io/pyloggle/` | Where the app's **Help** page and "Learn more" links point. Set it to an internal copy of the docs, or to an empty value to hide the links. |
 | `PYLOGGLE_AUTO_MIGRATE` | `true` | Create and update the database tables when the server starts. Turn it off only if you apply the schema yourself. |
 | `PYLOGGLE_MIGRATE_REBUILD` | `true` | Only for upgrades from 0.1: rebuild the tables with one partition per day, copying the data still inside the retention window. `false` changes them in place instead. |
 

@@ -16,6 +16,7 @@ import { ProjectsPage } from "@/features/projects/projects-page";
 import { TracesPage } from "@/features/traces/traces-page";
 import { TracePage } from "@/features/traces/trace-page";
 import { SystemPage } from "@/features/system/system-page";
+import { HelpPage } from "@/features/help/help-page";
 
 export function App() {
   const me = useMe();
@@ -73,6 +74,7 @@ export function App() {
         <Route path="/alerts" element={<NeedsProject me={me.data}><AlertsPage me={me.data} /></NeedsProject>} />
         <Route path="/projects" element={<ProjectsPage me={me.data} />} />
         <Route path="/system" element={<SystemPage me={me.data} />} />
+        <Route path="/help" element={<HelpPage me={me.data} />} />
         <Route path="*" element={<Navigate to="/overview" replace />} />
       </Route>
     </Routes>
