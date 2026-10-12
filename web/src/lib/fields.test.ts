@@ -32,7 +32,7 @@ describe("isCodeLike", () => {
     }
   });
   it("keeps ordinary fields in the text face", () => {
-    for (const k of ["service", "env", "level", "message", "user.email", "http.status", "team"]) {
+    for (const k of ["service", "env", "level", "message", "user.email", "http.status", "team", "release"]) {
       expect(isCodeLike(k), k).toBe(false);
     }
   });

@@ -40,10 +40,10 @@ export const useIssueTrend = (id: string | undefined, range: { from?: string; to
 export const useOccurrence = (eventId: string | undefined) =>
   useQuery({ queryKey: ["occurrence", eventId], queryFn: () => get<Occurrence>(`/events/${eventId}`), enabled: !!eventId });
 
-export const useOccurrences = (id: string | undefined, limit = 50) =>
+export const useOccurrences = (id: string | undefined, limit = 50, range: { from?: string; to?: string } = {}) =>
   useQuery({
-    queryKey: ["occurrences", id, limit],
-    queryFn: () => get<{ items: Occurrence[]; next_before?: string }>(`/issues/${id}/occurrences`, { limit }),
+    queryKey: ["occurrences", id, limit, range],
+    queryFn: () => get<{ items: Occurrence[]; next_before?: string }>(`/issues/${id}/occurrences`, { limit, ...range }),
     enabled: !!id,
   });
 

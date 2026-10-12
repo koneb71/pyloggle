@@ -3,7 +3,7 @@ import clsx from "clsx";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { ChainedException, Frame, Occurrence } from "@/api/types";
 import { Badge, Button, CopyButton, SegmentedControl } from "@/components/ui";
-import { lastSegments } from "@/lib/format";
+import { lastSegments, pluralize } from "@/lib/format";
 
 interface Section {
   key: string;
@@ -33,9 +33,9 @@ function sections(o: Occurrence): Section[] {
 
 function relationText(c: ChainedException): string {
   const rel = c.relation || (c.is_cause ? "cause" : "context");
-  if (rel === "cause") return "The above exception was the direct cause of the following exception:";
-  if (rel === "group") return "Part of an exception group raised below:";
-  return "During handling of the above exception, another exception occurred:";
+  if (rel === "cause") return "The error above caused the one below.";
+  if (rel === "group") return "Part of a group of errors raised below.";
+  return "While handling the error above, another error happened.";
 }
 
 export function ExceptionView({ occ }: { occ: Occurrence }) {
@@ -46,28 +46,33 @@ export function ExceptionView({ occ }: { occ: Occurrence }) {
   const raw = useMemo(() => renderRaw(secs), [secs]);
   if (!occ.exception_type && (occ.frames ?? []).length === 0) {
     return (
-      <div className="rounded-md border border-border bg-surface-2 p-3 text-xs text-ink-2">
-        No exception attached. This issue groups <span className="font-medium text-ink">{occ.level}</span>-level log lines from <span className="font-mono">{occ.logger || occ.service}</span>.
+      <div className="rounded-md border border-border bg-surface-2 px-4 py-3 text-[13px] text-ink-2">
+        <div className="font-medium text-ink">{occ.message || "An error message was logged"}</div>
+        <div className="mt-1">
+          This issue comes from error messages your app logged{occ.logger ? <> (from <span className="font-mono text-xs">{occ.logger}</span>)</> : null}, not from a crash, so there is no code trace. See the <span className="font-medium">Messages</span> tab for what was logged around it.
+        </div>
       </div>
     );
   }
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="text-xs text-ink-3">
-          {secs.reduce((n, s) => n + s.frames.length, 0)} frames{secs.length > 1 && ` · ${secs.length - 1} chained`}
+        <div className="text-[13px] text-ink-3">
+          {pluralize(secs.reduce((n, s) => n + s.frames.length, 0), "code step")}
+          {secs.length > 1 && ` · caused by ${pluralize(secs.length - 1, "earlier error")}`}
         </div>
         <div className="flex items-center gap-1">
           <SegmentedControl
+            label="Which code to show"
             value={effectiveMode}
             onChange={setMode}
             options={[
-              { value: "app", label: "In-app", title: "Only frames from your code" },
-              { value: "all", label: "All frames" },
-              { value: "raw", label: "Raw" },
+              { value: "app", label: "Your code", title: hasInApp ? "Only lines from your own project" : "No lines from your own project were recorded" },
+              { value: "all", label: "All code", title: "Your code and the libraries it called" },
+              { value: "raw", label: "Plain text", title: "The traceback as Python prints it" },
             ]}
           />
-          <CopyButton text={raw} label="Copy traceback" size="sm" />
+          <CopyButton text={raw} label="Copy error details" size="sm" showLabel />
         </div>
       </div>
       {effectiveMode === "raw" ? (
@@ -76,7 +81,7 @@ export function ExceptionView({ occ }: { occ: Occurrence }) {
         <div className="space-y-4">
           {secs.map((s, i) => (
             <div key={s.key}>
-              {s.heading && <div className="mb-2 text-center text-[11px] italic text-ink-3">{s.heading}</div>}
+              {s.heading && <div className="mb-2 text-center text-xs text-ink-3">{s.heading}</div>}
               <ExceptionHeader s={s} primary={i === secs.length - 1} />
               <FrameList frames={s.frames} appOnly={effectiveMode === "app"} />
             </div>
@@ -89,16 +94,13 @@ export function ExceptionView({ occ }: { occ: Occurrence }) {
 
 function ExceptionHeader({ s, primary }: { s: Section; primary: boolean }) {
   return (
-    <div className={clsx("mb-1.5 rounded-md border px-3 py-2", primary ? "border-critical/30 bg-surface" : "border-border bg-surface")}>
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-mono text-[13px] font-semibold text-ink">
-          {s.module && s.module !== "builtins" ? `${s.module}.` : ""}
-          {s.type || "Error"}
-        </span>
-        {s.message && <span className="min-w-0 break-words font-mono text-xs text-ink-2">{s.message}</span>}
+    <div className={clsx("mb-2 rounded-md border px-3 py-2.5", primary ? "border-critical/30 bg-critical/[0.04]" : "border-border bg-surface")}>
+      <div className="text-[14px] font-semibold text-ink" title={s.module && s.module !== "builtins" ? `${s.module}.${s.type}` : undefined}>
+        {s.type || "Error"}
       </div>
+      {s.message && <div className="mt-0.5 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-ink-2">{s.message}</div>}
       {s.notes && s.notes.length > 0 && (
-        <ul className="mt-1 list-disc pl-5 text-xs text-ink-2">
+        <ul className="mt-1 list-disc pl-5 text-[13px] text-ink-2">
           {s.notes.map((n, i) => (
             <li key={i}>{n}</li>
           ))}
@@ -112,7 +114,7 @@ function FrameList({ frames, appOnly }: { frames: Frame[]; appOnly: boolean }) {
   // Frames arrive oldest-first (crash site last). Show the crash site first.
   const ordered = useMemo(() => [...frames].reverse(), [frames]);
   const [showHidden, setShowHidden] = useState(false);
-  if (ordered.length === 0) return <div className="px-1 text-xs text-ink-3">no frames</div>;
+  if (ordered.length === 0) return <div className="px-1 text-[13px] text-ink-3">No code steps were recorded for this error.</div>;
   const rows: { f: Frame; idx: number }[] = ordered.map((f, idx) => ({ f, idx }));
   const visible = appOnly && !showHidden ? rows.filter((r) => r.f.in_app !== false) : rows;
   const hidden = rows.length - visible.length;
@@ -122,9 +124,9 @@ function FrameList({ frames, appOnly }: { frames: Frame[]; appOnly: boolean }) {
         <FrameRow key={idx} f={f} defaultOpen={idx === 0 || (f.in_app === true && idx < 4)} />
       ))}
       {hidden > 0 && (
-        <li className="bg-surface-2 px-3 py-1.5 text-xs text-ink-3">
+        <li className="bg-surface-2 px-3 py-1.5">
           <Button size="xs" variant="ghost" onClick={() => setShowHidden(true)}>
-            Show {hidden} library frame{hidden === 1 ? "" : "s"}
+            Show {pluralize(hidden, "line")} from libraries
           </Button>
         </li>
       )}
@@ -140,16 +142,16 @@ function FrameRow({ f, defaultOpen }: { f: Frame; defaultOpen: boolean }) {
   const start = f.lineno - (f.pre_context?.length ?? 0);
   return (
     <li className={clsx("bg-surface", !inApp && "bg-surface-2/60")}>
-      <button type="button" className="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-surface-2" onClick={() => setOpen(!open)} disabled={!hasCtx && !hasVars}>
-        <span className="text-ink-3">{hasCtx || hasVars ? open ? <ChevronDown size={12} /> : <ChevronRight size={12} /> : <span className="inline-block w-3" />}</span>
-        <span className={clsx("min-w-0 flex-1 truncate font-mono text-xs", inApp ? "text-ink" : "text-ink-2")} title={f.abs_path || f.filename}>
-          <span className={inApp ? "font-medium" : ""}>{f.module || lastSegments(f.filename, 2)}</span>
+      <button type="button" aria-expanded={hasCtx || hasVars ? open : undefined} className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-2" onClick={() => setOpen(!open)} disabled={!hasCtx && !hasVars}>
+        <span className="text-ink-3">{hasCtx || hasVars ? open ? <ChevronDown size={13} /> : <ChevronRight size={13} /> : <span className="inline-block w-[13px]" />}</span>
+        <span className={clsx("min-w-0 flex-1 truncate text-[13px]", inApp ? "text-ink" : "text-ink-2")} title={f.abs_path || f.filename}>
+          <span className={clsx("font-mono text-[12px]", inApp && "font-medium")}>{f.function || "<module>"}</span>
           <span className="text-ink-3"> in </span>
-          <span className={clsx(inApp ? "text-accent" : "text-ink-2")}>{f.function || "<module>"}</span>
-          <span className="text-ink-3"> at line </span>
+          <span className="font-mono text-[12px]">{lastSegments(f.filename, 2) || f.module}</span>
+          <span className="text-ink-3"> line </span>
           <span className="tabular">{f.lineno}</span>
         </span>
-        {!inApp && <Badge tone="outline">lib</Badge>}
+        {!inApp && <Badge tone="outline" title="Code from a library, not your project">Library</Badge>}
       </button>
       {open && (hasCtx || hasVars) && (
         <div className="border-t border-border">
@@ -175,7 +177,7 @@ function FrameRow({ f, defaultOpen }: { f: Frame; defaultOpen: boolean }) {
           )}
           {hasVars && (
             <div className="border-t border-border bg-surface-2/60 px-3 py-1.5">
-              <div className="mb-0.5 text-[10px] font-medium uppercase tracking-wide text-ink-3">Local variables</div>
+              <div className="mb-1 text-xs font-medium text-ink-3">Values at this point</div>
               <dl className="grid grid-cols-[max-content_1fr] gap-x-3 font-mono text-xs">
                 {Object.entries(f.vars!).map(([k, v]) => (
                   <div key={k} className="contents">
