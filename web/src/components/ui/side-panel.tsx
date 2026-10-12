@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import clsx from "clsx";
 import { X } from "lucide-react";
+import { createPortal } from "react-dom";
 import { IconButton } from "./button";
 
 /** Right-hand detail panel. Rendered inline (not a portal) so it participates in page layout. */
@@ -25,5 +26,34 @@ export function SidePanel({ open, onClose, title, children, width = 520, actions
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
     </aside>
+  );
+}
+
+/** A panel that slides over the page from the right, for details and settings on reading pages. */
+export function Drawer({ open, onClose, title, description, actions, children, width = 640 }: { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; actions?: ReactNode; children: ReactNode; width?: number }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement) && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  if (!open) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[55] flex justify-end bg-black/30" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <aside role="dialog" aria-modal aria-label={typeof title === "string" ? title : "Details"} className="toast-in flex h-full w-full flex-col border-l border-border bg-surface shadow-[var(--shadow)]" style={{ maxWidth: width }}>
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+          <div className="min-w-0">
+            <h2 className="truncate text-[17px] font-semibold text-ink">{title}</h2>
+            {description && <div className="mt-0.5 text-[13px] text-ink-3">{description}</div>}
+          </div>
+          <div className="flex flex-none items-center gap-1.5">
+            {actions}
+            <IconButton label="Close" icon={<X size={15} />} onClick={onClose} />
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      </aside>
+    </div>,
+    document.body,
   );
 }

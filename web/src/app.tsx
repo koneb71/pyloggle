@@ -24,8 +24,11 @@ export function App() {
   const qc = useQueryClient();
 
   useEffect(() => {
+    // A 401 while signed in means the session ended: drop it so the sign-in screen shows.
+    // Without a session there is nothing to drop; resetting again would refetch /me forever.
     setUnauthorizedHandler(() => {
-      qc.removeQueries({ queryKey: ["me"] });
+      if (qc.getQueryData(["me"]) === undefined) return;
+      qc.resetQueries({ queryKey: ["me"] });
       if (!loc.pathname.startsWith("/login")) nav(`/login?next=${encodeURIComponent(loc.pathname + loc.search)}`, { replace: true });
     });
   }, [nav, loc.pathname, loc.search, qc]);
@@ -50,7 +53,7 @@ export function App() {
   if (unauthorized || !me.data) {
     return (
       <Routes>
-        <Route path="*" element={<LoginPage me={undefined} />} />
+        <Route path="*" element={<LoginPage me={undefined} loginUrl={unauthorized ? (me.error as ApiRequestError).body.login_url : undefined} />} />
       </Routes>
     );
   }

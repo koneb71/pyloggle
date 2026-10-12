@@ -1,4 +1,4 @@
-import type { AlertFiring } from "@/api/types";
+import type { AlertFiring, AlertRule } from "@/api/types";
 
 /** What each kind of alert watches for, in plain words. */
 export const ALERT_KIND: Record<string, { label: string; sentence: string }> = {
@@ -17,4 +17,108 @@ export function alertKindLabel(kind: string): string {
 export function firingRuleName(f: AlertFiring): string {
   const p = f.payload as { rule?: { name?: string } } | null;
   return p?.rule?.name || "Alert";
+}
+
+export const COMPARISON_WORDS: { value: string; label: string; symbol: string }[] = [
+  { value: "gt", label: "more than", symbol: ">" },
+  { value: "gte", label: "at least", symbol: "≥" },
+  { value: "lt", label: "fewer than", symbol: "<" },
+  { value: "lte", label: "at most", symbol: "≤" },
+  { value: "eq", label: "exactly", symbol: "=" },
+];
+
+export function comparisonWords(op?: string): string {
+  return COMPARISON_WORDS.find((c) => c.value === (op || "gt"))?.label ?? "more than";
+}
+
+/** "5 minutes", "1 hour", "90 seconds": a window or wait in words. */
+export function secondsWords(sec: number): string {
+  const unit = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  if (sec <= 0) return "no time";
+  if (sec % 3600 === 0) return unit(sec / 3600, "hour");
+  if (sec % 60 === 0) return unit(sec / 60, "minute");
+  return unit(sec, "second");
+}
+
+function trimNumber(n: number): string {
+  return Number.isInteger(n) ? n.toLocaleString() : (+n.toFixed(2)).toLocaleString();
+}
+
+/** What a rule watches, as one sentence starting after "Alert when". */
+export function ruleCondition(r: Pick<AlertRule, "condition_type" | "threshold" | "query" | "comparison" | "time_window_seconds">): string {
+  const win = secondsWords(r.time_window_seconds);
+  switch (r.condition_type) {
+    case "error_rate":
+      return `errors happen more than ${trimNumber(r.threshold * 60)} times a minute`;
+    case "issue_spike":
+      return `one problem happens ${trimNumber(r.threshold)} more times than in the ${win} before`;
+    case "new_issue":
+      return "a new problem appears";
+    case "regression":
+      return "a problem marked as fixed comes back";
+    case "log_query":
+      return `${comparisonWords(r.comparison)} ${trimNumber(r.threshold)} ${r.threshold === 1 ? "message matches" : "messages match"} "${r.query ?? ""}"`;
+  }
+  return r.condition_type;
+}
+
+/** Where a rule looks: "in api / production, POST /orders" or "in all apps". */
+export function ruleScope(r: Pick<AlertRule, "service" | "env" | "http_route" | "http_method">): string {
+  const where = [r.service || "all apps", r.env].filter(Boolean).join(" / ");
+  const route = r.http_route ? `, ${[r.http_method, r.http_route].filter(Boolean).join(" ")}` : "";
+  return `in ${where}${route}`;
+}
+
+/** Who hears about it: "e-mails 2 people · Slack · Telegram · 1 webhook". */
+export function ruleRecipients(r: Pick<AlertRule, "notification_emails" | "webhook_urls" | "telegram_chat_ids" | "slack_webhook_urls">): string {
+  const parts: string[] = [];
+  const n = (r.notification_emails ?? []).length;
+  if (n) parts.push(`e-mails ${n === 1 ? "1 person" : `${n} people`}`);
+  if ((r.slack_webhook_urls ?? []).length) parts.push("Slack");
+  if ((r.telegram_chat_ids ?? []).length) parts.push("Telegram");
+  const w = (r.webhook_urls ?? []).length;
+  if (w) parts.push(w === 1 ? "1 webhook" : `${w} webhooks`);
+  return parts.length ? parts.join(" · ") : "nobody yet";
+}
+
+/** The form edits minutes and per-minute rates; rules store seconds and per-second rates. */
+export interface RuleForm {
+  windowMinutes: number;
+  cooldownMinutes: number;
+  /** error_rate: errors per minute; other kinds: the threshold as stored. */
+  threshold: number;
+}
+
+export function formFromRule(r: Pick<AlertRule, "condition_type" | "threshold" | "time_window_seconds" | "cooldown_seconds">): RuleForm {
+  return {
+    windowMinutes: Math.max(1, Math.round((r.time_window_seconds || 300) / 60)),
+    cooldownMinutes: Math.round((r.cooldown_seconds ?? 900) / 60),
+    threshold: r.condition_type === "error_rate" ? +(r.threshold * 60).toFixed(4) : r.threshold,
+  };
+}
+
+export function ruleFromForm(conditionType: string, f: RuleForm): Pick<AlertRule, "threshold" | "time_window_seconds" | "cooldown_seconds"> {
+  return {
+    time_window_seconds: Math.max(1, Math.round(f.windowMinutes)) * 60,
+    cooldown_seconds: Math.max(0, Math.round(f.cooldownMinutes)) * 60,
+    threshold: conditionType === "error_rate" ? f.threshold / 60 : f.threshold,
+  };
+}
+
+/** One sentence about what an alert reported, from its stored payload. */
+export function firingSummary(f: AlertFiring): string {
+  const p = (f.payload ?? {}) as { count?: number; error_count?: number; spikes?: unknown[]; issues?: unknown[] };
+  switch (f.condition_type) {
+    case "log_query":
+      return `${(f.count ?? p.count ?? 0).toLocaleString()} matching messages`;
+    case "error_rate":
+      return `${(p.error_count ?? f.count ?? 0).toLocaleString()} errors`;
+    case "issue_spike":
+      return p.spikes?.length ? `${p.spikes.length === 1 ? "1 problem" : `${p.spikes.length} problems`} jumped` : "A problem jumped";
+    case "new_issue":
+      return p.issues?.length ? `${p.issues.length === 1 ? "1 new problem" : `${p.issues.length} new problems`}` : "New problem";
+    case "regression":
+      return p.issues?.length ? `${p.issues.length === 1 ? "1 problem" : `${p.issues.length} problems`} came back` : "A problem came back";
+  }
+  return "";
 }

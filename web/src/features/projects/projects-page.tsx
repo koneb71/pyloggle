@@ -1,446 +1,276 @@
 import { useState } from "react";
-import { useLocation } from "react-router";
-import {
-  Check,
-  ChevronDown,
-  ChevronRight,
-  HardDrive,
-  KeyRound,
-  Pencil,
-  Plus,
-} from "lucide-react";
-import { useAudit, useProjectMutations, useProjects } from "@/api/hooks";
+import { useLocation, useNavigate } from "react-router";
+import { KeyRound, Pencil, Plus, Settings2 } from "lucide-react";
+import { useAudit, useOverview, useProjectMutations, useProjects } from "@/api/hooks";
 import type { APIKey, Me, Project } from "@/api/types";
-import { PageHeader } from "@/components/shell/app-shell";
-import {
-  Badge,
-  Button,
-  Card,
-  CardHeader,
-  CopyButton,
-  Dialog,
-  EmptyState,
-  ErrorState,
-  Field,
-  Input,
-  Skeleton,
-  TimeAgo,
-} from "@/components/ui";
-import { fmtTs } from "@/lib/time";
+import { Badge, Button, Card, CopyButton, DataTable, Dialog, Drawer, EmptyState, Field, Input, Page, QueryState, Section, Skeleton, Tabs, TimeAgo, type Column } from "@/components/ui";
+import { fmtWhen } from "@/lib/time";
 import { ProjectKeysPanel } from "./project-keys";
-import { ProjectUsagePanel } from "./project-usage";
+import { DangerZone, StoragePanel, UsageBar } from "./project-usage";
+import { ConnectGuide } from "./connect-guide";
+import { auditWords, limitsWords, scopeLabel } from "./project-words";
+
+interface Revealed {
+  projectId: string;
+  key: string;
+  name?: string;
+  scopes?: string[];
+}
 
 export function ProjectsPage({ me }: { me: Me }) {
   const projects = useProjects();
   const { select } = useProjectMutations();
+  const nav = useNavigate();
   const [editing, setEditing] = useState<Partial<Project> | null>(null);
-  const [revealed, setRevealed] = useState<{
-    id: string;
-    key: string;
-    action: string;
-    name?: string;
-    scopes?: string[];
-  } | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState<Revealed | null>(null);
+  const [drawer, setDrawer] = useState<{ id: string; tab: string } | null>(null);
   const first = new URLSearchParams(useLocation().search).get("first") === "1";
-  const canEdit = me.is_admin;
+  const isAdmin = me.is_admin;
+  const audit = useAudit(isAdmin);
+  const recent = useOverview({ from: "-7d" });
   const items = projects.data?.items ?? [];
-  const audit = useAudit(canEdit);
+  const drawerProject = items.find((p) => p.id === drawer?.id);
+  const serverUrl = me.features.public_url || window.location.origin;
+  const current = me.project;
+  const empty = !!current && recent.data?.overview.events === 0;
+  const guideKey = revealed && revealed.projectId === current?.id && (!revealed.scopes || revealed.scopes.includes("ingest")) ? revealed.key : undefined;
+
+  const columns: Column<Project>[] = [
+    {
+      id: "name",
+      header: "Project",
+      cell: (p) => (
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-surface-3 text-[13px] font-semibold uppercase text-ink-2">{p.name.slice(0, 1)}</span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="truncate font-medium text-ink">{p.name}</span>
+              {current?.id === p.id && <Badge tone="accent">Current</Badge>}
+            </div>
+            <div className="truncate text-xs text-ink-3">{p.description || <span className="font-mono text-[11px]">{p.id}</span>}</div>
+          </div>
+        </div>
+      ),
+    },
+    { id: "limits", header: "Limits", width: "minmax(180px,1fr)", cell: (p) => <span className="text-[13px] text-ink-2">{limitsWords(p)}</span> },
+    ...(isAdmin ? [{ id: "storage", header: "Storage used", width: "160px", cell: (p: Project) => <UsageBar project={p} /> }] : []),
+    { id: "created", header: "Created", width: "120px", cell: (p) => <TimeAgo iso={p.created_at} className="text-ink-3" /> },
+    {
+      id: "actions",
+      header: <span className="sr-only">Actions</span>,
+      width: isAdmin ? "176px" : "84px",
+      align: "right",
+      cell: (p) => (
+        <div className="flex items-center gap-1.5">
+          {current?.id !== p.id && (
+            <Button size="xs" onClick={() => select.mutate(p.id, { onSuccess: () => nav("/overview") })} loading={select.isPending && select.variables === p.id}>
+              Open
+            </Button>
+          )}
+          {isAdmin && (
+            <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => setDrawer({ id: p.id, tab: "keys" })}>
+              Settings
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <>
-      <PageHeader
-        title="Projects"
-        sub="Each project has its own keys, quota and data"
-      >
-        {canEdit && (
-          <Button
-            variant="primary"
-            icon={<Plus size={13} />}
-            onClick={() => setEditing({})}
-          >
+    <Page
+      title="Projects"
+      description="A project keeps one team's or app's data separate, with its own access keys and storage limits."
+      actions={
+        isAdmin && (
+          <Button variant="primary" icon={<Plus size={14} />} onClick={() => setEditing({})}>
             New project
           </Button>
-        )}
-      </PageHeader>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-[1100px] flex-col gap-3 p-4">
-          {revealed && (
-            <Card className="border-good/50 p-3">
-              <div className="flex items-start gap-3">
-                <KeyRound size={16} className="mt-0.5 text-good" />
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium text-ink">
-                    API key {revealed.action} for {revealed.id}
-                    {revealed.name && (
-                      <span className="font-normal text-ink-2">
-                        {" "}
-                        · {revealed.name}
-                        {revealed.scopes && ` (${revealed.scopes.join(", ")})`}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-ink-3">
-                    Copy it now: it is shown once and only its hash is stored.
-                  </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <code className="select-all break-all rounded bg-surface-2 px-2 py-1 font-mono text-xs text-ink">
-                      {revealed.key}
-                    </code>
-                    <CopyButton text={revealed.key} size="sm" />
-                  </div>
-                  {(!revealed.scopes || revealed.scopes.includes("ingest")) ? (
-                    <pre className="mt-2 overflow-x-auto rounded bg-surface-2 p-2 font-mono text-[11px] text-ink-2">{`PYLOGGLE_INGEST_URL=${me.features.public_url || window.location.origin}\nPYLOGGLE_API_KEY=${revealed.key}\nPYLOGGLE_PROJECT_ID=${revealed.id}`}</pre>
-                  ) : (
-                    <pre className="mt-2 overflow-x-auto rounded bg-surface-2 p-2 font-mono text-[11px] text-ink-2">{`curl -H 'X-API-Key: ${revealed.key}' '${me.features.public_url || window.location.origin}/v1/q/issues?status=open'`}</pre>
-                  )}
-                </div>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => setRevealed(null)}
-                >
-                  Dismiss
-                </Button>
-              </div>
-            </Card>
-          )}
-          {projects.isError && (
-            <ErrorState
-              error={projects.error}
-              retry={() => projects.refetch()}
+        )
+      }
+    >
+      {revealed && <NewKeyCard revealed={revealed} serverUrl={serverUrl} onDismiss={() => setRevealed(null)} />}
+      {current && empty && <ConnectGuide serverUrl={serverUrl} projectId={current.id} apiKey={guideKey} prominent />}
+
+      <Section title="All projects" description={projects.data ? `${items.length === 1 ? "1 project" : `${items.length} projects`}. Open one to see its data.` : undefined} flush>
+        <QueryState
+          query={projects}
+          isEmpty={(d) => d.items.length === 0}
+          skeleton={<Skeleton rows={4} className="p-4" />}
+          empty={
+            <EmptyState
+              title={first ? "Welcome! Create your first project" : "No projects yet"}
+              hint="A project holds the data of one app or team, with its own access keys."
+              action={
+                isAdmin ? (
+                  <Button variant="primary" onClick={() => setEditing({})}>
+                    Create a project
+                  </Button>
+                ) : (
+                  <span className="text-[13px] text-ink-3">Ask an administrator to create one.</span>
+                )
+              }
             />
-          )}
-          {projects.isPending ? (
-            <Skeleton rows={4} className="p-3" />
-          ) : items.length === 0 ? (
-            <Card>
-              <EmptyState
-                title={
-                  first ? "Welcome — create your first project" : "No projects"
-                }
-                hint="A project is a tenant: its own API keys, quota, issues and logs."
-                action={
-                  canEdit ? (
-                    <Button variant="primary" onClick={() => setEditing({})}>
-                      Create project
-                    </Button>
-                  ) : (
-                    <span className="text-xs text-ink-3">
-                      Ask a PYLOGGLE_UI_ADMINS member to create one.
-                    </span>
-                  )
-                }
-              />
-            </Card>
-          ) : (
-            <Card>
-              <CardHeader title="All projects" sub={`${items.length} total`} />
+          }
+        >
+          {(d) => <DataTable label="Projects" columns={columns} rows={d.items} rowKey={(p) => p.id} stickyHeader={false} />}
+        </QueryState>
+      </Section>
+
+      {current && !empty && <ConnectGuide serverUrl={serverUrl} projectId={current.id} apiKey={guideKey} />}
+
+      {isAdmin && (
+        <Section title="Admin activity" description="Who changed projects, keys and data, newest first." flush>
+          <QueryState query={audit} compact isEmpty={(d) => d.items.length === 0} skeleton={<Skeleton rows={3} className="p-4" />} empty={<p className="px-4 py-3 text-[13px] text-ink-3">Nothing yet.</p>}>
+            {(d) => (
               <ul className="divide-y divide-border">
-                {items.map((p) => {
-                  const active = me.project?.id === p.id;
-                  const open = expanded === p.id;
-                  return (
-                    <li key={p.id}>
-                      <div className="flex items-start gap-3 px-3 py-2.5">
-                        <button
-                          type="button"
-                          className="mt-1.5 flex h-4 w-4 flex-none items-center justify-center rounded text-ink-3 hover:bg-surface-3 hover:text-ink"
-                          aria-label={open ? "Hide details" : "Show details"}
-                          onClick={() => setExpanded(open ? null : p.id)}
-                        >
-                          {open ? (
-                            <ChevronDown size={13} />
-                          ) : (
-                            <ChevronRight size={13} />
-                          )}
-                        </button>
-                        <span className="flex h-7 w-7 flex-none items-center justify-center rounded bg-surface-3 text-xs font-semibold uppercase text-ink-2">
-                          {p.name.slice(0, 1)}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium text-ink">
-                              {p.name}
-                            </span>
-                            <span className="font-mono text-xs text-ink-3">
-                              {p.id}
-                            </span>
-                            {active && (
-                              <Badge tone="accent">
-                                <Check size={10} /> active
-                              </Badge>
-                            )}
-                          </div>
-                          {p.description && (
-                            <div className="text-xs text-ink-2">
-                              {p.description}
-                            </div>
-                          )}
-                          <div className="mt-0.5 text-[11px] text-ink-3">
-                            {p.max_events_per_second
-                              ? `${p.max_events_per_second} events/s`
-                              : "no rate limit"}{" "}
-                            ·{" "}
-                            {p.max_storage_gb
-                              ? `${p.max_storage_gb} GB quota`
-                              : "no storage cap"}{" "}
-                            ·{" "}
-                            {p.retention_days
-                              ? `keeps ${p.retention_days} days`
-                              : "server retention"}{" "}
-                            · created <TimeAgo iso={p.created_at} />
-                          </div>
-                        </div>
-                        <div className="flex flex-none items-center gap-1">
-                          <Button
-                            size="xs"
-                            variant={open ? "subtle" : "ghost"}
-                            icon={<HardDrive size={12} />}
-                            onClick={() => setExpanded(open ? null : p.id)}
-                            title="API keys and storage usage"
-                          >
-                            Details
-                          </Button>
-                          {!active && (
-                            <Button
-                              size="xs"
-                              onClick={() => select.mutate(p.id)}
-                              loading={
-                                select.isPending && select.variables === p.id
-                              }
-                            >
-                              Switch to
-                            </Button>
-                          )}
-                          {canEdit && (
-                            <Button
-                              size="xs"
-                              variant="ghost"
-                              icon={<Pencil size={12} />}
-                              aria-label={`Edit ${p.name}`}
-                              onClick={() => setEditing(p)}
-                            />
-                          )}
-                        </div>
-                      </div>
-                      {open && (
-                        <>
-                          <ProjectKeysPanel
-                            project={p}
-                            canEdit={canEdit}
-                            onCreated={(key: APIKey, secret: string) =>
-                              setRevealed({
-                                id: p.id,
-                                key: secret,
-                                action: "created",
-                                name: key.name,
-                                scopes: key.scopes,
-                              })
-                            }
-                          />
-                          <ProjectUsagePanel
-                            project={p}
-                            canEdit={canEdit}
-                            onDeleted={() => (
-                              setExpanded(null),
-                              projects.refetch()
-                            )}
-                          />
-                        </>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </Card>
-          )}
-          {canEdit && (audit.data?.items.length ?? 0) > 0 && (
-            <Card>
-              <CardHeader
-                title="Admin audit"
-                sub="project, key and purge actions"
-              />
-              <ul className="divide-y divide-border text-xs">
-                {audit.data!.items.map((a, i) => (
-                  <li
-                    key={i}
-                    className="flex flex-wrap items-center gap-2 px-3 py-1.5"
-                  >
-                    <span className="tabular text-ink-3">{fmtTs(a.ts)}</span>
-                    <Badge tone="outline">{a.action}</Badge>
-                    <span className="text-ink">{a.actor}</span>
-                    {a.project_id && (
-                      <span className="font-mono text-ink-2">
-                        {a.project_id}
-                      </span>
-                    )}
-                    {a.target && (
-                      <span className="font-mono text-ink-3">{a.target}</span>
-                    )}
-                    {a.details && (
-                      <span className="text-ink-3">{a.details}</span>
-                    )}
+                {d.items.map((a, i) => (
+                  <li key={i} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-4 py-2.5 text-[13px]">
+                    <span className="font-medium text-ink">{a.actor === "ui" ? "Local user" : a.actor}</span>
+                    <span className="text-ink-2">{auditWords(a)}</span>
+                    {a.project_id && <span className="text-ink-3">in {items.find((p) => p.id === a.project_id)?.name ?? a.project_id}</span>}
+                    {a.target && <span className="font-mono text-[11px] text-ink-3">{a.target}</span>}
+                    {a.details && <span className="text-xs text-ink-3">· {a.details}</span>}
+                    <span className="ml-auto text-xs tabular text-ink-3">{fmtWhen(a.ts)}</span>
                   </li>
                 ))}
               </ul>
-            </Card>
-          )}
-          <Card className="p-3 text-xs text-ink-2">
-            <div className="mb-1 font-medium text-ink">Send data</div>
-            <div>
-              Python:{" "}
-              <code className="rounded bg-surface-2 px-1 font-mono">
-                pip install pyloggle
-              </code>{" "}
-              then{" "}
-              <code className="rounded bg-surface-2 px-1 font-mono">
-                pyloggle.init()
-              </code>{" "}
-              with the env vars above. OpenTelemetry: point an OTLP/HTTP
-              exporter at{" "}
-              <code className="rounded bg-surface-2 px-1 font-mono">
-                {(me.features.public_url || window.location.origin) +
-                  "/v1/logs"}
-              </code>{" "}
-              with header{" "}
-              <code className="rounded bg-surface-2 px-1 font-mono">
-                X-API-Key
-              </code>
-              .
-            </div>
-          </Card>
-        </div>
-      </div>
-      {editing && (
-        <ProjectDialog
-          project={editing}
-          onClose={() => setEditing(null)}
-          onCreated={(id, key) => setRevealed({ id, key, action: "created" })}
-        />
+            )}
+          </QueryState>
+        </Section>
       )}
-    </>
+
+      {drawerProject && (
+        <Drawer
+          open
+          onClose={() => setDrawer(null)}
+          title={drawerProject.name}
+          description={
+            <>
+              <span className="font-mono text-[12px]">{drawerProject.id}</span> · {limitsWords(drawerProject)}
+            </>
+          }
+          actions={
+            <Button size="xs" icon={<Pencil size={13} />} onClick={() => setEditing(drawerProject)}>
+              Edit
+            </Button>
+          }
+        >
+          <div className="px-5 pt-2">
+            <Tabs
+              value={drawer!.tab}
+              onChange={(t) => setDrawer({ id: drawerProject.id, tab: t })}
+              items={[
+                { id: "keys", label: "Access keys" },
+                { id: "storage", label: "Storage" },
+                { id: "danger", label: "Danger zone" },
+              ]}
+            />
+          </div>
+          {drawer!.tab === "keys" ? (
+            <ProjectKeysPanel project={drawerProject} onCreated={(key: APIKey, secret: string) => (setRevealed({ projectId: drawerProject.id, key: secret, name: key.name, scopes: key.scopes }), setDrawer(null))} />
+          ) : drawer!.tab === "storage" ? (
+            <StoragePanel project={drawerProject} />
+          ) : (
+            <DangerZone project={drawerProject} onDeleted={() => (setDrawer(null), projects.refetch())} />
+          )}
+        </Drawer>
+      )}
+      {editing && <ProjectDialog project={editing} onClose={() => setEditing(null)} onCreated={(id, key) => setRevealed({ projectId: id, key, name: "Default key", scopes: ["ingest"] })} />}
+    </Page>
   );
 }
 
-function ProjectDialog({
-  project,
-  onClose,
-  onCreated,
-}: {
-  project: Partial<Project>;
-  onClose: () => void;
-  onCreated: (id: string, key: string) => void;
-}) {
+/** A key is shown once: say so, make it easy to copy, and point at the next step. */
+function NewKeyCard({ revealed, serverUrl, onDismiss }: { revealed: Revealed; serverUrl: string; onDismiss: () => void }) {
+  const sends = !revealed.scopes || revealed.scopes.includes("ingest");
+  return (
+    <Card className="border-good/40 bg-good/[0.05] p-4">
+      <div className="flex items-start gap-3">
+        <KeyRound size={18} className="mt-0.5 flex-none text-good-text" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px] font-semibold text-ink">
+            Your new access key{revealed.name ? `: ${revealed.name}` : ""}
+          </div>
+          <p className="mt-0.5 text-[13px] text-ink-2">
+            Copy it now. It is shown only this once; Pyloggle keeps only a fingerprint of it.
+            {revealed.scopes && ` It can: ${revealed.scopes.map(scopeLabel).join(", ")}.`}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <code className="min-w-0 select-all break-all rounded-md border border-border bg-surface px-3 py-2 font-mono text-[12px] text-ink">{revealed.key}</code>
+            <CopyButton text={revealed.key} label="Copy key" size="sm" showLabel />
+          </div>
+          <p className="mt-2 text-xs text-ink-3">
+            {sends ? "Next: put it in your app's settings, as shown under Connect your app." : <>To use it from a script: <code className="font-mono">{`curl -H 'X-API-Key: …' '${serverUrl}/v1/q/issues?status=open'`}</code></>}
+          </p>
+        </div>
+        <Button size="xs" variant="ghost" onClick={onDismiss}>
+          I've saved it
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+function ProjectDialog({ project, onClose, onCreated }: { project: Partial<Project>; onClose: () => void; onCreated: (id: string, key: string) => void }) {
   const { create, update } = useProjectMutations();
   const isNew = !project.id;
-  const [p, setP] = useState<Partial<Project>>({
-    max_events_per_second: 0,
-    max_storage_gb: 0,
-    retention_days: 0,
-    ...project,
-  });
+  const [p, setP] = useState<Partial<Project>>({ max_events_per_second: 0, max_storage_gb: 0, retention_days: 0, ...project });
+  const [idTouched, setIdTouched] = useState(false);
   const upd = (patch: Partial<Project>) => setP((x) => ({ ...x, ...patch }));
   const m = isNew ? create : update;
   return (
-    <Dialog
-      open
-      onClose={onClose}
-      title={isNew ? "New project" : `Edit ${project.name}`}
-    >
+    <Dialog open onClose={onClose} title={isNew ? "New project" : `Edit ${project.name}`}>
       <form
-        className="space-y-3"
+        className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
-          const body = {
-            ...p,
-            max_events_per_second: Number(p.max_events_per_second) || 0,
-            max_storage_gb: Number(p.max_storage_gb) || 0,
-            retention_days: Number(p.retention_days) || 0,
-          };
-          if (isNew)
-            create.mutate(body, {
-              onSuccess: (r) => (onCreated(r.project.id, r.api_key), onClose()),
-            });
+          const body = { ...p, max_events_per_second: Number(p.max_events_per_second) || 0, max_storage_gb: Number(p.max_storage_gb) || 0, retention_days: Number(p.retention_days) || 0 };
+          if (isNew) create.mutate(body, { onSuccess: (r) => (onCreated(r.project.id, r.api_key), onClose()) });
           else update.mutate({ ...body, id: p.id! }, { onSuccess: onClose });
         }}
       >
-        <Field
-          label="Project id"
-          hint="lowercase letters, digits, dashes; used in PYLOGGLE_PROJECT_ID"
-        >
-          <Input
-            required
-            disabled={!isNew}
-            value={p.id ?? ""}
-            onChange={(e) =>
-              upd({
-                id: e.target.value.toLowerCase().replace(/[^a-z0-9-_]/g, "-"),
-              })
-            }
-            placeholder="my-service"
-          />
-        </Field>
         <Field label="Name">
-          <Input
-            required
-            value={p.name ?? ""}
-            onChange={(e) => upd({ name: e.target.value })}
-          />
+          <Input required autoFocus value={p.name ?? ""} onChange={(e) => upd({ name: e.target.value, ...(isNew && !idTouched ? { id: slug(e.target.value) } : {}) })} placeholder="Checkout" />
         </Field>
-        <Field label="Description">
-          <Input
-            value={p.description ?? ""}
-            onChange={(e) => upd({ description: e.target.value })}
-          />
+        <Field label="Project id" hint="Used in your apps' settings. Lowercase letters, digits and dashes; it can't be changed later.">
+          <Input required disabled={!isNew} value={p.id ?? ""} onChange={(e) => (setIdTouched(true), upd({ id: slug(e.target.value) }))} placeholder="checkout" className="font-mono text-[12px]" />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Max events / second" hint="0 = unlimited">
-            <Input
-              type="number"
-              min={0}
-              value={p.max_events_per_second ?? 0}
-              onChange={(e) =>
-                upd({ max_events_per_second: Number(e.target.value) })
-              }
-            />
+        <Field label="Description" hint="Optional.">
+          <Input value={p.description ?? ""} onChange={(e) => upd({ description: e.target.value })} placeholder="Payments and checkout services" />
+        </Field>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Messages per second" hint="0 for no limit">
+            <Input type="number" min={0} value={p.max_events_per_second ?? 0} onChange={(e) => upd({ max_events_per_second: Number(e.target.value) })} />
           </Field>
-          <Field
-            label="Storage quota (GB)"
-            hint="0 = unlimited; estimated bytes over the retention window"
-          >
-            <Input
-              type="number"
-              min={0}
-              value={p.max_storage_gb ?? 0}
-              onChange={(e) => upd({ max_storage_gb: Number(e.target.value) })}
-            />
+          <Field label="Storage limit (GB)" hint="0 for no limit">
+            <Input type="number" min={0} value={p.max_storage_gb ?? 0} onChange={(e) => upd({ max_storage_gb: Number(e.target.value) })} />
+          </Field>
+          <Field label="Keep data for (days)" hint="0 for the server's default">
+            <Input type="number" min={0} value={p.retention_days ?? 0} onChange={(e) => upd({ retention_days: Number(e.target.value) })} />
           </Field>
         </div>
-        <Field
-          label="Retention (days)"
-          hint="0 = server default; a shorter value removes this project's older rows every night"
-        >
-          <Input
-            type="number"
-            min={0}
-            value={p.retention_days ?? 0}
-            onChange={(e) => upd({ retention_days: Number(e.target.value) })}
-            className="w-40"
-          />
-        </Field>
         {m.isError && (
-          <div className="text-xs text-critical">
+          <div role="alert" className="text-[13px] text-critical-text">
             {(m.error as Error).message}
           </div>
         )}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" loading={m.isPending}>
-            {isNew ? "Create project" : "Save"}
+            {isNew ? "Create project" : "Save changes"}
           </Button>
         </div>
       </form>
     </Dialog>
   );
+}
+
+function slug(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
 }

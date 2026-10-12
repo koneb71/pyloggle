@@ -127,7 +127,7 @@ func (u *UI) logout(w http.ResponseWriter, r *http.Request) {
 	u.clearUIProjectID(w)
 	u.clearOAuthState(w, r)
 	if !u.loginRequired() {
-		http.Redirect(w, r, "/ui/issues", http.StatusFound)
+		http.Redirect(w, r, "/ui/", http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/ui/login", http.StatusFound)
