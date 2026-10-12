@@ -5,7 +5,7 @@ NPM ?= npm
 PY ?= python3
 VENV ?= python-sdk/.venv
 
-.PHONY: help build web go-build test go-test py-test web-test golden licenses screenshots footprint dev-api dev-web compose-up compose-down clean
+.PHONY: help build web go-build test go-test py-test web-test golden licenses screenshots footprint dev-db dev-api dev-web docs-dev compose-up compose-down clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -47,11 +47,17 @@ screenshots: ## Screenshot every UI page (light + dark) with Playwright; needs a
 footprint: ## Measure RSS/disk of the running compose stack under a synthetic burst
 	./scripts/footprint.sh
 
-dev-api: ## Run ingestd locally against the compose ClickHouse (UI auth disabled)
+dev-db: ## Start only ClickHouse, published on 127.0.0.1:9000, for dev-api and the integration tests
+	cd deploy && docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d clickhouse
+
+dev-api: ## Run ingestd locally against the compose ClickHouse (sign-in off; start it with make dev-db)
 	PYLOGGLE_UI_AUTH=disabled CLICKHOUSE_DSN="clickhouse://pyloggle:pyloggle@localhost:9000/pyloggle" $(GO) run ./cmd/ingestd
 
 dev-web: ## Run the Vite dev server (proxies /ui/api and /v1 to :8080)
 	cd web && $(NPM) run dev
+
+docs-dev: ## Run the documentation site locally (http://localhost:5173/pyloggle/)
+	cd docs && $(NPM) ci && $(NPM) run dev
 
 compose-up: ## Start ClickHouse + ingestd via docker compose
 	cd deploy && docker compose up --build -d
