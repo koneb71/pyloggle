@@ -631,12 +631,20 @@ func TestAPIKeyMirror(t *testing.T) {
 	if rec.Code != 401 {
 		t.Fatalf("unknown bearer key: %d", rec.Code)
 	}
-	// Without a key the default project applies to reads.
+	// With sign-in on, reads need a key too (1.0; 0.3 served the default project).
 	req = httptest.NewRequest("GET", "/v1/q/logs?q=service:api", nil)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 200 || store.lastLogQuery.ProjectID != "default" {
-		t.Fatalf("mirror: %d %s (%+v)", rec.Code, rec.Body.String(), store.lastLogQuery)
+	if rec.Code != 401 || !strings.Contains(rec.Body.String(), "api_key_required") {
+		t.Fatalf("keyless read with sign-in on: %d %s", rec.Code, rec.Body.String())
+	}
+	// Without sign-in, a keyless read uses the default project.
+	open, openStore, _ := newTestUI("disabled")
+	req = httptest.NewRequest("GET", "/v1/q/logs?q=service:api", nil)
+	rec = httptest.NewRecorder()
+	open.APIKeyAPIHandler().ServeHTTP(rec, req)
+	if rec.Code != 200 || openStore.lastLogQuery.ProjectID != "default" {
+		t.Fatalf("keyless read without sign-in: %d %s (%+v)", rec.Code, rec.Body.String(), openStore.lastLogQuery)
 	}
 	req = httptest.NewRequest("POST", "/v1/q/issues/i1/state", strings.NewReader(`{"status":"resolved"}`))
 	rec = httptest.NewRecorder()

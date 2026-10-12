@@ -65,7 +65,8 @@ func NewForTest(cfg config.Config, store Store, keys KeyResolver, states *issue.
 }
 
 // loginRequired reports whether the UI is behind an OIDC login (azure preset or generic).
-func (u *UI) loginRequired() bool { return u.cfg.OIDC().Enabled() }
+// loginRequired fails closed: only an explicit "disabled" turns sign-in off.
+func (u *UI) loginRequired() bool { return u.cfg.OIDC().Mode != "disabled" }
 
 func (u *UI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/ui" {

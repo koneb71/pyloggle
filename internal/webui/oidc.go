@@ -116,20 +116,7 @@ func (u *UI) oidcRedirectURL(r *http.Request) string {
 }
 
 func (u *UI) oidcConfigError() string {
-	o := u.cfg.OIDC()
-	if strings.TrimSpace(u.cfg.UISessionSecret) == "" {
-		return "PYLOGGLE_UI_SESSION_SECRET is required for the UI login"
-	}
-	if o.Azure {
-		if o.AzureTenant == "" || o.ClientID == "" || o.ClientSecret == "" {
-			return "Azure UI auth is enabled but not configured. Set PYLOGGLE_AZURE_TENANT_ID, PYLOGGLE_AZURE_CLIENT_ID, PYLOGGLE_AZURE_CLIENT_SECRET, PYLOGGLE_UI_SESSION_SECRET."
-		}
-		return ""
-	}
-	if o.Issuer == "" || o.ClientID == "" || o.ClientSecret == "" {
-		return "OIDC UI auth is enabled but not configured. Set PYLOGGLE_OIDC_ISSUER, PYLOGGLE_OIDC_CLIENT_ID, PYLOGGLE_OIDC_CLIENT_SECRET, PYLOGGLE_UI_SESSION_SECRET."
-	}
-	return ""
+	return u.cfg.OIDC().Missing(u.cfg.UISessionSecret)
 }
 
 // oidcStart redirects the browser to the provider with PKCE, a nonce and a signed state cookie.
