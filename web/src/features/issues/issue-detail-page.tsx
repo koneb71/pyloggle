@@ -217,7 +217,7 @@ function ThisTime({ occ }: { occ: Occurrence }) {
               <dt className="w-24 flex-none text-ink-3">{k}</dt>
               <dd className="flex min-w-0 flex-1 items-center gap-1 text-ink">
                 <span className="min-w-0 truncate">{v}</span>
-                {copy && <CopyButton text={copy} label={`Copy ${k}`} className="invisible group-hover:visible" />}
+                {copy && <CopyButton text={copy} label={`Copy ${k}`} className="invisible pointer-coarse:visible group-hover:visible" />}
               </dd>
             </div>
           ))}

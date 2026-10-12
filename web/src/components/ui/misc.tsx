@@ -1,4 +1,4 @@
-import { Children, useEffect, useState, type ReactNode } from "react";
+import { Children, isValidElement, useEffect, useState, type ReactNode } from "react";
 import clsx from "clsx";
 import { Check, Copy, Inbox, X } from "lucide-react";
 import { ago, fmtTs } from "@/lib/time";
@@ -97,19 +97,36 @@ export function Pagination({ offset, limit, count, onChange }: { offset: number;
   );
 }
 
-/** Secondary facts in one muted line: "api · production · v1.4.0 · 2 min ago". Empty items are skipped. */
+/**
+ * Secondary facts in one muted line: "api · production · v1.4.0 · 2 min ago". Empty items are
+ * skipped. Each item carries its dot in a 12px gutter on its left, and the row is shifted left
+ * by that gutter and clipped: the dot of whichever item starts a line (the first one, or one
+ * that wrapped on a narrow screen) falls outside and is never seen.
+ */
 export function MetaLine({ children, className }: { children: ReactNode; className?: string }) {
   const items = Children.toArray(children).filter((c) => c !== "");
   return (
-    <div className={clsx("flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-3", className)}>
-      {items.map((c, i) => (
-        <span key={i} className="inline-flex min-w-0 items-center gap-1.5">
-          {i > 0 && <span aria-hidden className="text-ink-3/70">·</span>}
-          <span className="min-w-0 truncate">{c}</span>
-        </span>
-      ))}
+    <div className={clsx("min-w-0 overflow-x-clip text-xs text-ink-3", className)}>
+      <div className="-ml-3 flex min-w-0 flex-wrap items-center gap-y-0.5">
+        {items.map((c, i) => {
+          const item = isValidElement<{ className?: string; children?: ReactNode }>(c) && c.type === MetaItem ? c.props : null;
+          return (
+            <span key={i} className={clsx("relative inline-flex min-w-0 items-center pl-3", item?.className)}>
+              <span aria-hidden className="absolute left-1 text-ink-3/70">
+                ·
+              </span>
+              <span className="min-w-0 truncate">{item ? item.children : c}</span>
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
+}
+
+/** A MetaLine item with classes of its own, such as "sm:hidden" for a fact only a phone needs. */
+export function MetaItem({ children }: { children: ReactNode; className?: string }) {
+  return <>{children}</>;
 }
 
 /** The footer of a growing list: "120 shown · Show earlier", with its own error and loading state. */

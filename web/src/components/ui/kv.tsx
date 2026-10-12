@@ -75,7 +75,7 @@ function Row({ label, technical, v, mono, children }: { label: string; technical
       </dt>
       <dd className="flex min-w-0 items-start gap-1 py-1">
         <span className={clsx("min-w-0 flex-1 whitespace-pre-wrap break-words text-ink", mono && "break-all font-mono text-[12px] leading-5")}>{v}</span>
-        <span className="invisible -my-0.5 flex flex-none items-center group-hover/kv:visible group-focus-within/kv:visible">{children}</span>
+        <span className="invisible pointer-coarse:visible -my-0.5 flex flex-none items-center group-hover/kv:visible group-focus-within/kv:visible">{children}</span>
       </dd>
     </div>
   );

@@ -297,10 +297,50 @@ kbd {
   animation: toast-in 0.16s ease-out;
 }
 
+/* The phone menu slides in from the left over a fading backdrop. */
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: none;
+  }
+}
+.slide-in-left {
+  animation: slide-in-left 0.18s ease-out;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.fade-in {
+  animation: fade-in 0.18s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .skeleton,
   .live-dot,
-  .toast-in {
+  .toast-in,
+  .slide-in-left,
+  .fade-in {
     animation: none;
   }
+}
+
+/*
+ * Touch screens. iOS zooms the page into any field whose text is smaller than 16px, so fields
+ * use 16px there; and taps get no gray flash, since every control has its own pressed style.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+html {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }

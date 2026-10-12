@@ -68,11 +68,12 @@ export function AnalyticsView({ q, range, state, onState, onFilter, onZoom }: An
           </span>
         ),
     },
-    { id: "rows", header: "Messages", width: "110px", align: "right", cell: (g) => <span className={g.total ? "font-medium text-ink" : "text-ink-2"}>{fmtNumber(g.rows)}</span> },
+    { id: "rows", header: "Messages", width: "110px", align: "right", hideBelow: state.metric === "count" ? undefined : "sm", cell: (g) => <span className={g.total ? "font-medium text-ink" : "text-ink-2"}>{fmtNumber(g.rows)}</span> },
     {
       id: "share",
       header: "Share",
       width: "180px",
+      hideBelow: "lg",
       cell: (g) =>
         g.total ? (
           <span className="w-full text-right text-xs text-ink-3">100%</span>

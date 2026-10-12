@@ -34,6 +34,30 @@ describe("DataTable", () => {
     expect(table.parentElement?.className).toContain("overflow-x-auto");
     expect(screen.getAllByRole("rowgroup")[0].className).not.toContain("sticky");
   });
+  it("gives each screen size its own tracks when columns step out or step in", () => {
+    const responsive: Column<R>[] = [
+      { id: "name", header: "Name", cell: (r) => r.name },
+      { id: "n", header: "Times", cell: (r) => r.n, width: "80px", align: "right", hideBelow: "md" },
+      { id: "m", header: "Compact", cell: () => "+", width: "32px", showBelow: "sm" },
+    ];
+    render(
+      <MemoryRouter>
+        <DataTable columns={responsive} rows={[{ id: "a", name: "A", n: 1 }]} rowKey={(r) => r.id} />
+      </MemoryRouter>,
+    );
+    const [head, row] = screen.getAllByRole("row");
+    // Phones: the compact column, not Times. From sm: neither. From md up: Times.
+    expect(head.style.getPropertyValue("--cols-base")).toBe("minmax(0,1fr) 32px");
+    expect(head.style.getPropertyValue("--cols-sm")).toBe("minmax(0,1fr)");
+    expect(head.style.getPropertyValue("--cols-md")).toBe("minmax(0,1fr) 80px");
+    expect(head.style.getPropertyValue("--cols-xl")).toBe("minmax(0,1fr) 80px");
+    expect(row.style.getPropertyValue("--cols-base")).toBe(head.style.getPropertyValue("--cols-base"));
+    expect(row.className).toContain("md:grid-cols-(--cols-md)");
+    expect(screen.getByRole("columnheader", { name: "Times" }).className).toContain("max-md:hidden");
+    const cells = screen.getAllByRole("cell");
+    expect(cells[1].className).toContain("max-md:hidden");
+    expect(cells[2].className).toContain("sm:hidden");
+  });
   it("shows the error instead of the empty text", () => {
     render(
       <MemoryRouter>

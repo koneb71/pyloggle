@@ -11,6 +11,9 @@ import { ChevronLeft } from "lucide-react";
  *   content at a comfortable width.
  * - "full" pages (Logs, Requests) are workspaces: the header stays put and the content fills
  *   the rest of the window and scrolls inside itself.
+ *
+ * The title keeps at least 18rem; when the actions don't fit beside it they move below it and
+ * wrap, so a phone shows the title at full width with the actions underneath.
  */
 export function Page({
   title,
@@ -33,7 +36,7 @@ export function Page({
 }) {
   const header = (
     <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-[1_1_18rem]">
         {back && (
           <Link to={back.to} className="mb-1 inline-flex items-center gap-0.5 text-[13px] text-ink-3 hover:text-ink">
             <ChevronLeft size={14} />
@@ -43,22 +46,22 @@ export function Page({
         <h1 className={clsx("font-semibold tracking-tight text-ink", width === "full" ? "text-lg leading-7" : "text-xl leading-7")}>{title}</h1>
         {description && <div className="mt-0.5 text-[13px] text-ink-3">{description}</div>}
       </div>
-      {actions && <div className="flex flex-none flex-wrap items-center gap-2">{actions}</div>}
+      {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 
   if (width === "full") {
     return (
       <div className={clsx("flex min-h-0 flex-1 flex-col", className)}>
-        <header className="flex-none border-b border-border bg-surface px-5 py-3">{header}</header>
-        {toolbar && <div className="flex-none border-b border-border bg-surface px-5 py-2.5">{toolbar}</div>}
+        <header className="flex-none border-b border-border bg-surface px-4 py-3 sm:px-5">{header}</header>
+        {toolbar && <div className="flex-none border-b border-border bg-surface px-4 py-2.5 sm:px-5">{toolbar}</div>}
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </div>
     );
   }
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className={clsx("mx-auto w-full max-w-[1280px] px-6 pb-12 pt-6", className)}>
+      <div className={clsx("mx-auto w-full max-w-[1280px] px-4 pb-12 pt-4 sm:px-6 sm:pt-6", className)}>
         {header}
         {toolbar && <div className="mt-4">{toolbar}</div>}
         <div className="mt-5 flex flex-col gap-5">{children}</div>

@@ -18,7 +18,8 @@ export function Tabs({ items, value, onChange, className, size = "md" }: { items
           type="button"
           title={t.title}
           aria-selected={value === t.id}
-          onClick={() => onChange(t.id)}
+          // On a phone the tabs scroll sideways: bring a half-hidden tab fully into view.
+          onClick={(e) => (e.currentTarget.scrollIntoView?.({ inline: "nearest", block: "nearest" }), onChange(t.id))}
           className={clsx(
             "-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 font-medium transition-colors",
             size === "md" ? "pb-2.5 pt-1 text-[13px]" : "pb-2 text-xs",
@@ -35,7 +36,7 @@ export function Tabs({ items, value, onChange, className, size = "md" }: { items
 
 export function SegmentedControl<T extends string>({ options, value, onChange, className, label }: { options: { value: T; label: ReactNode; title?: string }[]; value: T; onChange: (v: T) => void; className?: string; label?: string }) {
   return (
-    <div className={clsx("inline-flex h-8 items-center rounded-md bg-surface-3/70 p-0.5", className)} role="radiogroup" aria-label={label}>
+    <div className={clsx("inline-flex h-8 items-center rounded-md bg-surface-3/70 p-0.5 pointer-coarse:h-9", className)} role="radiogroup" aria-label={label}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -45,7 +46,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, c
           title={o.title}
           onClick={() => onChange(o.value)}
           className={clsx(
-            "inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2.5 text-[13px] font-medium transition-colors",
+            "inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2.5 text-[13px] font-medium transition-colors pointer-coarse:h-8",
             value === o.value ? "bg-surface text-ink shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2 hover:text-ink",
           )}
         >

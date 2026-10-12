@@ -17,6 +17,7 @@ one request from start to finish.
 - **The filters sidebar** lists the most common values of each field with counts: severity,
   app, environment, code module, server, version, and for web requests the method, response code
   and route. Click a value to show only it; add any detail your app sends under *Extra details*.
+  On a phone, the **Filters** button opens it over the list.
 - The search reads back as chips in plain words ("Severity is Error"), so you can check it.
 - **The chart** shows how many messages arrived over time, colored by severity or another field.
   Drag across it to zoom in.

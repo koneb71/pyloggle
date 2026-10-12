@@ -7,14 +7,15 @@ export function Card({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return <div className={clsx("rounded-lg border border-border bg-surface", className)} {...rest} />;
 }
 
+/** A card's title row. Like the page header, actions that don't fit beside the title go under it. */
 export function CardHeader({ title, actions, className, sub }: { title: ReactNode; actions?: ReactNode; className?: string; sub?: ReactNode }) {
   return (
-    <div className={clsx("flex items-start justify-between gap-3 border-b border-border px-4 py-3", className)}>
-      <div className="min-w-0">
+    <div className={clsx("flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-border px-4 py-3", className)}>
+      <div className="min-w-0 flex-[1_1_12rem]">
         <h3 className="truncate text-[14px] font-semibold leading-5 text-ink">{title}</h3>
         {sub && <div className="mt-0.5 text-xs text-ink-3">{sub}</div>}
       </div>
-      {actions && <div className="flex flex-none items-center gap-1.5">{actions}</div>}
+      {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">{actions}</div>}
     </div>
   );
 }

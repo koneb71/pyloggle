@@ -44,7 +44,7 @@ licenses: ## Regenerate THIRD_PARTY_LICENSES.md and web/public/licenses.txt (nee
 screenshots: ## Screenshot every UI page (light + dark) with Playwright; needs a running stack
 	cd web && $(NPM) run screenshots
 
-DOC_SHOTS ?= overview,issues,issue,issue-steps,logs,logs-details,logs-similar,logs-charts,requests,request,dashboards,alerts,alert-form,projects,project-settings,system,help
+DOC_SHOTS ?= overview,issues,issue,issue-steps,logs,logs-details,logs-similar,logs-charts,requests,request,dashboards,alerts,alert-form,projects,project-settings,system,help,phone
 PYLOGGLE_URL ?= http://127.0.0.1:8080
 
 demo-data: ## Fill a running server (PYLOGGLE_URL, sign-in off) with two days of demo data

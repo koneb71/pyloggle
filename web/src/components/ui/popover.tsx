@@ -2,7 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 
-/** A minimal click-to-open popover anchored to its trigger. Closes on outside click / Escape. */
+/**
+ * A minimal click-to-open popover anchored to its trigger. Closes on an outside tap or click,
+ * and on Escape. It never leaves the window: on a narrow screen it slides back into view.
+ */
 export function Popover({
   trigger,
   children,
@@ -41,9 +44,26 @@ export function Popover({
     else setPos({ top, left: r.left + window.scrollX });
   }, [isOpen, align]);
 
+  // Once its size is known: a panel that would cross a side of the window moves inside it, and
+  // one that would run off the bottom opens above its trigger when there is room there.
+  useLayoutEffect(() => {
+    const el = panel.current;
+    const a = anchor.current?.getBoundingClientRect();
+    if (!isOpen || !pos || !el || !a) return;
+    const { offsetWidth: w, offsetHeight: h } = el;
+    const vw = document.documentElement.clientWidth;
+    const left = pos.right === undefined ? pos.left - window.scrollX : vw - pos.right - w;
+    const fitted = Math.min(Math.max(8, left), Math.max(8, vw - w - 8));
+    const above = a.bottom + 4 + h > window.innerHeight - 8 && a.top - 4 - h >= 8;
+    const top = (above ? a.top - 4 - h : a.bottom + 4) + window.scrollY;
+    const moveX = Math.abs(fitted - left) > 0.5;
+    if (moveX || Math.abs(top - pos.top) > 0.5) setPos(moveX ? { top, left: fitted + window.scrollX } : { ...pos, top });
+  }, [isOpen, pos]);
+
   useEffect(() => {
     if (!isOpen) return;
-    const onDown = (e: MouseEvent) => {
+    // Pointer events, not mouse events: iOS sends no mousedown for a tap on a plain area.
+    const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
       if (panel.current?.contains(t) || anchor.current?.contains(t)) return;
       setOpen(false);
@@ -51,10 +71,10 @@ export function Popover({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
-    document.addEventListener("mousedown", onDown);
+    document.addEventListener("pointerdown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
-      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("pointerdown", onDown);
       document.removeEventListener("keydown", onKey);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,7 +92,7 @@ export function Popover({
           <div
             ref={panel}
             role="dialog"
-            className={clsx("absolute z-50 rounded-lg border border-border bg-surface p-1 text-ink shadow-[var(--shadow)]", className)}
+            className={clsx("absolute z-[70] rounded-lg border border-border bg-surface p-1 text-ink shadow-[var(--shadow)]", className)}
             style={{ top: pos.top, left: pos.right === undefined ? pos.left : undefined, right: pos.right, width, maxWidth: "calc(100vw - 16px)" }}
           >
             {typeof children === "function" ? children(close) : children}
@@ -90,7 +110,7 @@ export function MenuItem({ children, onClick, danger, icon, disabled }: { childr
       disabled={disabled}
       onClick={onClick}
       className={clsx(
-        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-surface-2 disabled:opacity-50",
+        "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-surface-2 disabled:opacity-50 pointer-coarse:py-2.5 pointer-coarse:text-sm",
         danger ? "text-critical" : "text-ink",
       )}
     >

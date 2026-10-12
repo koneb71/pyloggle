@@ -9,7 +9,7 @@ const field =
 const widthOf = (className?: string) => (/(^|\s)(w-|min-w-|max-w-|flex-1)/.test(className ?? "") ? "" : "w-full");
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...rest }, ref) {
-  return <input ref={ref} className={clsx(field, widthOf(className), "h-8", className)} {...rest} />;
+  return <input ref={ref} className={clsx(field, widthOf(className), "h-8 pointer-coarse:h-9", className)} {...rest} />;
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...rest }, ref) {
@@ -18,7 +18,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
 
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select({ className, children, ...rest }, ref) {
   return (
-    <select ref={ref} className={clsx(field, widthOf(className), "h-8 cursor-pointer appearance-none bg-no-repeat pr-7", className)} style={{ backgroundImage: chevron, backgroundPosition: "right 9px center", backgroundSize: "10px" }} {...rest}>
+    <select ref={ref} className={clsx(field, widthOf(className), "h-8 pointer-coarse:h-9 cursor-pointer appearance-none bg-no-repeat pr-7", className)} style={{ backgroundImage: chevron, backgroundPosition: "right 9px center", backgroundSize: "10px" }} {...rest}>
       {children}
     </select>
   );
@@ -57,7 +57,7 @@ export const SearchInput = forwardRef<HTMLInputElement, Omit<InputHTMLAttributes
   return (
     <div className={clsx("relative", widthOf(className), className)}>
       <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden />
-      <input ref={ref} type="search" value={value} onChange={(e) => onChange(e.target.value)} className={clsx(field, "h-8 w-full pl-8 pr-7 [&::-webkit-search-cancel-button]:hidden")} {...rest} />
+      <input ref={ref} type="search" value={value} onChange={(e) => onChange(e.target.value)} className={clsx(field, "h-8 w-full pl-8 pr-7 pointer-coarse:h-9 [&::-webkit-search-cancel-button]:hidden")} {...rest} />
       {value && (
         <button type="button" aria-label="Clear search" className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-ink-3 hover:bg-surface-2 hover:text-ink" onClick={() => onChange("")}>
           <X size={13} />

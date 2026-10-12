@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Columns3, PanelLeft, Radio, WrapText } from "lucide-react";
+import { ArrowUp, Columns3, PanelLeft, Radio, SlidersHorizontal, WrapText } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLogHistogram, useLogs } from "@/api/hooks";
 import { get, ApiRequestError } from "@/api/client";
 import type { LogEvent, LogsResponse } from "@/api/types";
 import { TimeRangePicker } from "@/components/shell/time-range-picker";
 import { TimelineHistogram } from "@/components/charts/timeline-histogram";
-import { Button, Checkbox, EmptyState, ErrorState, IconButton, Input, LoadMore, Page, Popover, SegmentedControl, Select, Skeleton, UpdatingDot, friendlyError } from "@/components/ui";
+import { Button, Checkbox, EmptyState, ErrorState, IconButton, Input, LoadMore, Page, Popover, SegmentedControl, Select, Sheet, Skeleton, UpdatingDot, friendlyError } from "@/components/ui";
 import { useRange } from "@/lib/use-range";
 import { useUrlState } from "@/lib/url";
 import { addTerm } from "@/lib/query";
 import { pluralize } from "@/lib/format";
 import { fieldLabel } from "@/lib/fields";
-import { useMediaQuery } from "@/lib/use-media";
+import { useMediaQuery, useSmallScreen } from "@/lib/use-media";
 import { SearchBar } from "./search-bar";
 import { FacetsPanel } from "./facets-panel";
 import { LogTable } from "./log-list";
@@ -123,8 +123,12 @@ export function LogsPage() {
   const items = useMemo(() => [...fresh, ...(logs.data?.items ?? []), ...older], [fresh, logs.data, older]);
   const selected = useMemo(() => items.find((i) => i.event_id === selId), [items, selId]);
   // Below 1280px there is room for the list and one side panel: details win over filters.
+  // On a phone there is room for neither: the filters open as a sheet over the list.
   const roomy = useMediaQuery("(min-width: 1280px)");
-  const facetsVisible = showFacets && (roomy || !selected);
+  const small = useSmallScreen();
+  const [filtersSheet, setFiltersSheet] = useState(false);
+  const closeFiltersSheet = useCallback(() => setFiltersSheet(false), []);
+  const facetsVisible = !small && showFacets && (roomy || !selected);
   const toggleFacets = () => {
     if (facetsVisible) set({ facets_panel: "0" });
     else set({ facets_panel: undefined, ...(roomy ? {} : { sel: undefined }) });
@@ -210,18 +214,24 @@ export function LogsPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex-none border-b border-border bg-surface px-4 pb-2 pt-2.5">
             <div className="flex flex-wrap items-center gap-2">
-              <IconButton label={facetsVisible ? "Hide filters" : "Show filters"} icon={<PanelLeft size={15} />} active={facetsVisible} onClick={toggleFacets} />
+              {small ? (
+                <Button icon={<SlidersHorizontal size={14} />} onClick={() => setFiltersSheet(true)}>
+                  Filters
+                </Button>
+              ) : (
+                <IconButton label={facetsVisible ? "Hide filters" : "Show filters"} icon={<PanelLeft size={15} />} active={facetsVisible} onClick={toggleFacets} />
+              )}
               <SegmentedControl
                 label="View"
                 value={view as "list" | "patterns" | "analytics"}
                 onChange={(v) => set({ view: v === "list" ? undefined : v, sel: undefined })}
                 options={[
                   { value: "list", label: "Messages" },
-                  { value: "patterns", label: "Similar messages", title: "Messages grouped by their shape" },
+                  { value: "patterns", label: small ? "Similar" : "Similar messages", title: "Messages grouped by their shape" },
                   { value: "analytics", label: "Charts", title: "Count or measure messages over time" },
                 ]}
               />
-              {view !== "analytics" && (
+              {view !== "analytics" && !small && (
                 <label className="ml-2 flex items-center gap-2 text-[13px] text-ink-3">
                   Color chart by
                   <Select value={groupBy} onChange={(e) => set({ group_by: e.target.value === "level" ? undefined : e.target.value })} className="w-auto min-w-32" aria-label="Color the chart by">
@@ -250,7 +260,7 @@ export function LogsPage() {
               (hist.isError && !hist.data ? (
                 <ErrorState compact error={hist.error} retry={() => hist.refetch()} title="Couldn't load the chart" />
               ) : (
-                <TimelineHistogram data={hist.data} loading={hist.isPending} height={140} onZoom={zoom} className="mt-2.5" />
+                <TimelineHistogram data={hist.data} loading={hist.isPending} height={small ? 88 : 140} onZoom={zoom} className="mt-2.5" />
               ))}
           </div>
           {view === "analytics" ? (
@@ -303,6 +313,20 @@ export function LogsPage() {
           <LogDetailPanel event={selected} onClose={() => set({ sel: undefined }, true)} onFilter={addFilter} onExclude={addFilter} onPickColumn={(c) => !cols.includes(c) && set({ cols: [...cols, c].join(",") })} />
         )}
       </div>
+      {small && (
+        <Sheet
+          open={filtersSheet}
+          onClose={closeFiltersSheet}
+          label="Filters"
+          footer={
+            <Button variant="primary" size="md" className="w-full" onClick={closeFiltersSheet}>
+              {histTotal !== undefined ? `Show ${pluralize(histTotal, "message")}` : "Done"}
+            </Button>
+          }
+        >
+          <FacetsPanel q={q} range={range} onChange={setQuery} extraFacets={pinnedFacets} onExtraFacets={(f) => set({ facets: f.join(",") || undefined })} onClose={closeFiltersSheet} />
+        </Sheet>
+      )}
     </Page>
   );
 }

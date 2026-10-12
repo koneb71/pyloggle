@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router";
 import { KeyRound, Pencil, Plus, Settings2 } from "lucide-react";
 import { useAudit, useOverview, useProjectMutations, useProjects } from "@/api/hooks";
 import type { APIKey, Me, Project } from "@/api/types";
-import { Badge, Button, Card, CopyButton, DataTable, Dialog, Drawer, EmptyState, Field, Input, Page, QueryState, Section, Skeleton, Tabs, TimeAgo, type Column } from "@/components/ui";
+import { Badge, Button, Card, CopyButton, DataTable, Dialog, Drawer, EmptyState, Field, IconButton, Input, Page, QueryState, Section, Skeleton, Tabs, TimeAgo, type Column } from "@/components/ui";
 import { fmtWhen } from "@/lib/time";
 import { ProjectKeysPanel } from "./project-keys";
 import { DangerZone, StoragePanel, UsageBar } from "./project-usage";
@@ -39,7 +39,7 @@ export function ProjectsPage({ me }: { me: Me }) {
     {
       id: "name",
       header: "Project",
-      width: "minmax(200px,1.6fr)",
+      width: "minmax(160px,1.6fr)",
       cell: (p) => (
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-surface-3 text-[13px] font-semibold uppercase text-ink-2">{p.name.slice(0, 1)}</span>
@@ -53,30 +53,47 @@ export function ProjectsPage({ me }: { me: Me }) {
         </div>
       ),
     },
-    { id: "limits", header: "Limits", width: "minmax(140px,1fr)", cell: (p) => <span className="text-[13px] text-ink-2">{limitsWords(p)}</span> },
-    ...(isAdmin ? [{ id: "storage", header: "Storage used", width: "160px", cell: (p: Project) => <UsageBar project={p} /> }] : []),
-    { id: "created", header: "Created", width: "104px", cell: (p) => <TimeAgo iso={p.created_at} className="text-ink-3" /> },
+    { id: "limits", header: "Limits", width: "minmax(140px,1fr)", hideBelow: "lg", cell: (p) => <span className="text-[13px] text-ink-2">{limitsWords(p)}</span> },
+    ...(isAdmin ? [{ id: "storage", header: "Storage used", width: "160px", hideBelow: "lg" as const, cell: (p: Project) => <UsageBar project={p} /> }] : []),
+    { id: "created", header: "Created", width: "104px", hideBelow: "md", cell: (p) => <TimeAgo iso={p.created_at} className="text-ink-3" /> },
     {
       id: "actions",
       header: <span className="sr-only">Actions</span>,
       width: isAdmin ? "176px" : "84px",
       align: "right",
-      cell: (p) => (
-        <div className="flex items-center gap-1.5">
-          {current?.id !== p.id && (
-            <Button size="xs" onClick={() => select.mutate(p.id, { onSuccess: () => nav("/overview") })} loading={select.isPending && select.variables === p.id}>
-              Open
-            </Button>
-          )}
-          {isAdmin && (
+      hideBelow: "sm",
+      cell: (p) => projectActions(p),
+    },
+    {
+      // On a phone the same buttons, with Settings as an icon.
+      id: "actions-compact",
+      header: <span className="sr-only">Actions</span>,
+      width: isAdmin ? "96px" : "64px",
+      align: "right",
+      showBelow: "sm",
+      cell: (p) => projectActions(p, true),
+    },
+  ];
+
+  function projectActions(p: Project, compact = false) {
+    return (
+      <div className="flex items-center gap-1.5">
+        {current?.id !== p.id && (
+          <Button size="xs" onClick={() => select.mutate(p.id, { onSuccess: () => nav("/overview") })} loading={select.isPending && select.variables === p.id}>
+            Open
+          </Button>
+        )}
+        {isAdmin &&
+          (compact ? (
+            <IconButton size="xs" label={`Settings for ${p.name}`} icon={<Settings2 size={14} />} onClick={() => setDrawer({ id: p.id, tab: "keys" })} />
+          ) : (
             <Button size="xs" variant="ghost" icon={<Settings2 size={13} />} onClick={() => setDrawer({ id: p.id, tab: "keys" })}>
               Settings
             </Button>
-          )}
-        </div>
-      ),
-    },
-  ];
+          ))}
+      </div>
+    );
+  }
 
   return (
     <Page
@@ -114,7 +131,7 @@ export function ProjectsPage({ me }: { me: Me }) {
             />
           }
         >
-          {(d) => <DataTable label="Projects" columns={columns} rows={d.items} rowKey={(p) => p.id} stickyHeader={false} minWidth={isAdmin ? 880 : 610} />}
+          {(d) => <DataTable label="Projects" columns={columns} rows={d.items} rowKey={(p) => p.id} stickyHeader={false} />}
         </QueryState>
       </Section>
 
@@ -157,7 +174,7 @@ export function ProjectsPage({ me }: { me: Me }) {
             </Button>
           }
         >
-          <div className="px-5 pt-2">
+          <div className="px-4 pt-2 sm:px-5">
             <Tabs
               value={drawer!.tab}
               onChange={(t) => setDrawer({ id: drawerProject.id, tab: t })}
@@ -202,10 +219,13 @@ function NewKeyCard({ revealed, serverUrl, onDismiss }: { revealed: Revealed; se
             <CopyButton text={revealed.key} label="Copy key" size="sm" showLabel />
           </div>
           <p className="mt-2 text-xs text-ink-3">
-            {sends ? "Next: put it in your app's settings, as shown under Connect your app." : <>To use it from a script: <code className="font-mono">{`curl -H 'X-API-Key: …' '${serverUrl}/v1/q/issues?status=open'`}</code></>}
+            {sends ? "Next: put it in your app's settings, as shown under Connect your app." : <>To use it from a script: <code className="break-all font-mono">{`curl -H 'X-API-Key: …' '${serverUrl}/v1/q/issues?status=open'`}</code></>}
           </p>
+          <Button size="xs" className="mt-3 sm:hidden" onClick={onDismiss}>
+            I've saved it
+          </Button>
         </div>
-        <Button size="xs" variant="ghost" onClick={onDismiss}>
+        <Button size="xs" variant="ghost" className="max-sm:hidden" onClick={onDismiss}>
           I've saved it
         </Button>
       </div>

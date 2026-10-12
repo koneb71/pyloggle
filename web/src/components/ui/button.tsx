@@ -24,14 +24,15 @@ const variants: Record<Variant, string> = {
   ghost: "bg-transparent text-ink-2 border-transparent hover:bg-surface-2 hover:text-ink",
   danger: "bg-surface text-critical-text border-border-strong hover:bg-critical/10",
 };
+// On touch screens every size grows a step, so a fingertip finds it; mouse users see no change.
 const sizes: Record<Size, string> = {
-  xs: "h-6 text-xs",
-  sm: "h-8 text-[13px]",
-  md: "h-9 text-sm",
+  xs: "h-6 text-xs pointer-coarse:h-8",
+  sm: "h-8 text-[13px] pointer-coarse:h-9",
+  md: "h-9 text-sm pointer-coarse:h-10",
 };
 // Padding and width are separate from height so a square button never fights a padding class.
 const pads: Record<Size, string> = { xs: "px-2", sm: "px-3", md: "px-3.5" };
-const squares: Record<Size, string> = { xs: "w-6", sm: "w-8", md: "w-9" };
+const squares: Record<Size, string> = { xs: "w-6 pointer-coarse:w-8", sm: "w-8 pointer-coarse:w-9", md: "w-9 pointer-coarse:w-10" };
 
 export function buttonClass({ variant = "default", size = "sm", active, square, className }: { variant?: Variant; size?: Size; active?: boolean; square?: boolean; className?: string } = {}): string {
   return clsx(base, variants[variant], sizes[size], square ? squares[size] : pads[size], active && "border-accent ring-2 ring-accent/25", className);
