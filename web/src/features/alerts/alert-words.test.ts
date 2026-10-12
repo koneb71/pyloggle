@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AlertRule } from "@/api/types";
 import type { AlertFiring } from "@/api/types";
-import { firingSentence, formFromRule, hourWords, ruleRepeat, ruleSentence, timeZones, ruleCondition, ruleFromForm, ruleRecipients, ruleScope, secondsWords } from "./alert-words";
+import { firingSentence, formFromRule, hourWords, ruleRepeat, ruleSentence, timeZones, ruleCondition, ruleFromForm, ruleChannels, ruleRecipients, ruleScope, secondsWords, usesDefaultSlack } from "./alert-words";
 
 const rule = (over: Partial<AlertRule>): AlertRule => ({ id: "r", project_id: "p", name: "n", description: "", service: "", env: "", http_route: "", http_method: "", condition_type: "error_rate", threshold: 0.05, time_window_seconds: 300, cooldown_seconds: 900, enabled: true, notification_channels: [], notification_emails: [], webhook_urls: [], telegram_chat_ids: [], created_at: "", updated_at: "", ...over });
 
@@ -62,5 +62,23 @@ describe("recap of yesterday", () => {
     expect(hourWords(7)).toBe("07:00");
     expect(hourWords(23)).toBe("23:00");
     expect(timeZones()[0]).toBe("UTC");
+  });
+});
+
+describe("alert channels", () => {
+  const none = { emails: [], webhooks: [], telegram: [], slack: [], slackDefault: false };
+  it("follows the filled-in fields", () => {
+    expect(ruleChannels(none)).toEqual([]);
+    expect(ruleChannels({ ...none, emails: ["a@example.com"], telegram: ["-100"] })).toEqual(["email", "telegram"]);
+    expect(ruleChannels({ ...none, slack: ["https://hooks.slack.com/services/x"] })).toEqual(["slack"]);
+  });
+  it("sends to the server's Slack webhook when it is ticked", () => {
+    expect(ruleChannels({ ...none, slackDefault: true })).toEqual(["slack"]);
+    expect(usesDefaultSlack({ notification_channels: ["slack"], slack_webhook_urls: [] })).toBe(true);
+    expect(usesDefaultSlack({ notification_channels: ["slack"], slack_webhook_urls: ["https://hooks.slack.com/services/x"] })).toBe(false);
+    expect(usesDefaultSlack({ notification_channels: ["email"], slack_webhook_urls: [] })).toBe(false);
+  });
+  it("names Slack on the rule card for either kind", () => {
+    expect(ruleRecipients({ notification_emails: [], webhook_urls: [], telegram_chat_ids: [], slack_webhook_urls: [], notification_channels: ["slack"] })).toBe("Slack");
   });
 });

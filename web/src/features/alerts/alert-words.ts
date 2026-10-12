@@ -120,11 +120,11 @@ export function ruleScope(r: Pick<AlertRule, "service" | "env" | "http_route" | 
 }
 
 /** Who hears about it: "e-mails 2 people · Slack · Telegram · 1 webhook". */
-export function ruleRecipients(r: Pick<AlertRule, "notification_emails" | "webhook_urls" | "telegram_chat_ids" | "slack_webhook_urls">): string {
+export function ruleRecipients(r: Pick<AlertRule, "notification_emails" | "webhook_urls" | "telegram_chat_ids" | "slack_webhook_urls"> & Partial<Pick<AlertRule, "notification_channels">>): string {
   const parts: string[] = [];
   const n = (r.notification_emails ?? []).length;
   if (n) parts.push(`e-mails ${n === 1 ? "1 person" : `${n} people`}`);
-  if ((r.slack_webhook_urls ?? []).length) parts.push("Slack");
+  if ((r.slack_webhook_urls ?? []).length || (r.notification_channels ?? []).includes("slack")) parts.push("Slack");
   if ((r.telegram_chat_ids ?? []).length) parts.push("Telegram");
   const w = (r.webhook_urls ?? []).length;
   if (w) parts.push(w === 1 ? "1 webhook" : `${w} webhooks`);
@@ -179,4 +179,20 @@ export function firingSummary(f: AlertFiring): string {
       return "Recap of yesterday";
   }
   return "";
+}
+
+/** The channels a rule sends to, from what the dialog's "Tell" fields hold. Slack counts when
+ * there are webhook addresses, or when the server's default Slack webhook is ticked. */
+export function ruleChannels(t: { emails: string[]; webhooks: string[]; telegram: string[]; slack: string[]; slackDefault: boolean }): string[] {
+  const out: string[] = [];
+  if (t.emails.length) out.push("email");
+  if (t.webhooks.length) out.push("webhook");
+  if (t.telegram.length) out.push("telegram");
+  if (t.slack.length || t.slackDefault) out.push("slack");
+  return out;
+}
+
+/** Whether a saved rule uses the server's default Slack webhook: Slack is on and it has none of its own. */
+export function usesDefaultSlack(r: Partial<Pick<AlertRule, "notification_channels" | "slack_webhook_urls">>): boolean {
+  return (r.notification_channels ?? []).includes("slack") && (r.slack_webhook_urls ?? []).length === 0;
 }

@@ -4,7 +4,7 @@ import { previewAlertRule, previewRecap, useAlertFirings, useAlertRules, useLogF
 import type { AlertFiring, AlertRule, Me } from "@/api/types";
 import { Badge, Button, Card, Checkbox, Dialog, EmptyState, Field, Input, JsonView, MetaLine, Page, QueryState, Section, Select, Skeleton, Textarea, TimeAgo, friendlyError, toast } from "@/components/ui";
 import { fmtTs, fmtWhen } from "@/lib/time";
-import { ALERT_KIND, COMPARISON_WORDS, alertKindLabel, browserTimeZone, firingSentence, firingSummary, formFromRule, hourWords, ruleFromForm, ruleRecipients, ruleRepeat, ruleSentence, secondsWords, timeZones, type RuleForm } from "./alert-words";
+import { ALERT_KIND, COMPARISON_WORDS, alertKindLabel, browserTimeZone, firingSentence, firingSummary, formFromRule, hourWords, ruleChannels, ruleFromForm, ruleRecipients, ruleRepeat, ruleSentence, secondsWords, timeZones, usesDefaultSlack, type RuleForm } from "./alert-words";
 
 export function Compare(op: string | undefined, value: number, threshold: number): boolean {
   switch (op || "gt") {
@@ -128,7 +128,7 @@ export function AlertsPage({ me }: { me: Me }) {
           )}
         </QueryState>
       </Section>
-      {editing && <RuleDialog rule={editing} onClose={() => setEditing(null)} conditions={rules.data?.conditions ?? Object.keys(ALERT_KIND)} />}
+      {editing && <RuleDialog rule={editing} onClose={() => setEditing(null)} conditions={rules.data?.conditions ?? Object.keys(ALERT_KIND)} slackDefault={!!me.features.slack_default} />}
     </Page>
   );
 }
@@ -175,7 +175,7 @@ const KIND_OPTIONS: { value: string; label: string }[] = [
   { value: "daily_recap", label: "a recap of yesterday, every day" },
 ];
 
-function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; onClose: () => void; conditions: string[] }) {
+function RuleDialog({ rule, onClose, conditions, slackDefault }: { rule: Partial<AlertRule>; onClose: () => void; conditions: string[]; slackDefault: boolean }) {
   const save = useSaveAlertRule();
   const facets = useLogFacets({ from: "-7d", fields: ["service", "env"], attr_keys: 0 });
   const [r, setR] = useState<Partial<AlertRule>>({ comparison: "gt", query: "", ...rule });
@@ -184,6 +184,7 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
   const [webhooks, setWebhooks] = useState((rule.webhook_urls ?? []).join("\n"));
   const [telegram, setTelegram] = useState((rule.telegram_chat_ids ?? []).join(", "));
   const [slack, setSlack] = useState((rule.slack_webhook_urls ?? []).join("\n"));
+  const [defaultSlack, setDefaultSlack] = useState(() => slackDefault && usesDefaultSlack(rule));
   const [preview, setPreview] = useState<{ count: number } | { error: string } | null>(null);
   const [recapText, setRecapText] = useState<{ text: string } | { error: string } | null>(null);
   const [testing, setTesting] = useState(false);
@@ -213,7 +214,7 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
     const nw = split(webhooks);
     const nt = split(telegram);
     const ns = split(slack);
-    const channels = [ne.length && "email", nw.length && "webhook", nt.length && "telegram", ns.length && "slack"].filter(Boolean) as string[];
+    const channels = ruleChannels({ emails: ne, webhooks: nw, telegram: nt, slack: ns, slackDefault: slackDefault && defaultSlack });
     save.mutate({ ...r, ...ruleFromForm(kind, { ...form, threshold: Number(form.threshold) || 0 }), notification_emails: ne, webhook_urls: nw, telegram_chat_ids: nt, slack_webhook_urls: ns, notification_channels: channels }, { onSuccess: onClose });
   };
   const test = async () => {
@@ -386,9 +387,18 @@ function RuleDialog({ rule, onClose, conditions }: { rule: Partial<AlertRule>; o
             <Field label="Telegram" hint="Chat ids, separated by commas.">
               <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} placeholder="-1001234567890" />
             </Field>
-            <Field label="Slack" hint="Incoming webhook addresses, one per line. Empty uses the server's default.">
-              <Textarea rows={2} value={slack} onChange={(e) => setSlack(e.target.value)} placeholder="https://hooks.slack.com/services/…" />
-            </Field>
+            {slackDefault ? (
+              <div>
+                <span className="mb-1.5 block text-[13px] font-medium text-ink">Slack</span>
+                <Checkbox className="mb-2" label="The server's Slack channel" checked={defaultSlack} onChange={(e) => setDefaultSlack(e.target.checked)} />
+                <Textarea rows={2} value={slack} onChange={(e) => setSlack(e.target.value)} placeholder="https://hooks.slack.com/services/…" aria-label="Other Slack webhook addresses" />
+                <span className="mt-1 block text-xs text-ink-3">Other incoming webhook addresses, one per line.</span>
+              </div>
+            ) : (
+              <Field label="Slack" hint="Incoming webhook addresses, one per line.">
+                <Textarea rows={2} value={slack} onChange={(e) => setSlack(e.target.value)} placeholder="https://hooks.slack.com/services/…" />
+              </Field>
+            )}
             <Field label="Webhook" hint="Addresses that receive the alert as JSON, one per line.">
               <Textarea rows={2} value={webhooks} onChange={(e) => setWebhooks(e.target.value)} placeholder="https://example.com/hooks/pyloggle" />
             </Field>
