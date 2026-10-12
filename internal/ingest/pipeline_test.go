@@ -231,6 +231,19 @@ func TestAuthenticate(t *testing.T) {
 	if _, err := p.Authenticate(context.Background(), req); err != ErrUnauthorized {
 		t.Fatalf("no key and no default project must be unauthorized")
 	}
+	// The 0.1 shared secret sends to the default project; without one it is refused, never
+	// stored under an empty project.
+	cfg.SharedSecret = "shared"
+	p = NewPipeline(cfg, &memSink{}, nil, memResolver{})
+	req.Header.Set("X-API-Key", "shared")
+	if tn, err := p.Authenticate(context.Background(), req); err != ErrUnauthorized {
+		t.Fatalf("shared secret without a default project must be unauthorized, got %+v %v", tn, err)
+	}
+	cfg.DefaultProjID = "default"
+	p = NewPipeline(cfg, &memSink{}, nil, memResolver{})
+	if tn, err := p.Authenticate(context.Background(), req); err != nil || tn.ProjectID != "default" {
+		t.Fatalf("shared secret -> default project: %+v %v", tn, err)
+	}
 }
 
 func TestSkipIssueAndRegression(t *testing.T) {

@@ -145,7 +145,8 @@ func (p *Pipeline) Authenticate(ctx context.Context, r *http.Request) (Tenant, e
 		}
 	}
 	if apiKey == "" || secretEqual(apiKey, p.cfg.SharedSecret) {
-		if t.ProjectID == "" && apiKey == "" {
+		// No key, or the 0.1 shared secret: both mean the default project, if there is one.
+		if t.ProjectID == "" {
 			return t, ErrUnauthorized
 		}
 		return t, nil

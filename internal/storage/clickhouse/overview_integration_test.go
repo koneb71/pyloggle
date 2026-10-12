@@ -7,6 +7,7 @@ package clickhouse_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -90,5 +91,42 @@ func TestIntegrationServiceHealthAndReleases(t *testing.T) {
 	// 1.9.0's crash is outside the hour.
 	if rels[0].Errors != 6 || rels[0].Issues != 2 || rels[1].Errors != 0 {
 		t.Fatalf("release errors: %+v", rels)
+	}
+}
+
+// TopIssues counts people over the range, like the occurrences, not over the issue's life.
+func TestIntegrationTopIssuesPeopleInRange(t *testing.T) {
+	c, cleanup := e2eClient(t)
+	defer cleanup()
+	ctx := context.Background()
+	cfg := config.FromEnv()
+	cfg.RateLimitRPS = 0
+	p := ingest.NewPipeline(cfg, c, c, nil)
+	tn := ingest.Tenant{ProjectID: "top"}
+	now := time.Now().UTC().Truncate(time.Hour).Add(-time.Hour)
+	crash := func(at time.Time, user string) model.Event {
+		return model.Event{Timestamp: model.At(at), Service: "api", Env: "prod", Level: "error", Message: "boom", User: &model.UserInfo{IDHash: user},
+			Exception: &model.Exception{Type: "RuntimeError", Message: "boom", Frames: []model.Frame{{Filename: "app.py", Function: "f", Lineno: 1}}}}
+	}
+	// Ten people the day before, two people in the last hour (three times).
+	var events []model.Event
+	for i := 0; i < 10; i++ {
+		events = append(events, crash(now.Add(-24*time.Hour+time.Duration(i)*time.Minute), fmt.Sprintf("old-%d", i)))
+	}
+	events = append(events, crash(now.Add(time.Minute), "a"), crash(now.Add(2*time.Minute), "b"), crash(now.Add(3*time.Minute), "a"))
+	for _, ev := range events {
+		if o := p.Process(ctx, tn, ev, 500); o != ingest.Accepted {
+			t.Fatalf("event dropped: %v", o)
+		}
+	}
+	if err := c.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	top, err := c.TopIssues(ctx, "top", "", "", now, now.Add(time.Hour), 5)
+	if err != nil || len(top) != 1 {
+		t.Fatalf("top issues: %+v %v", top, err)
+	}
+	if top[0].OccurrenceCount != 3 || top[0].AffectedUsers != 2 {
+		t.Fatalf("the last hour had 3 times and 2 people, got %d times and %d people", top[0].OccurrenceCount, top[0].AffectedUsers)
 	}
 }

@@ -147,7 +147,9 @@ func (c *Client) TopIssues(ctx context.Context, projectID, service, env string, 
 		limit = 10
 	}
 	from, to = defaultRange(from, to, 24*time.Hour)
-	q := `SELECT issue_id, sum(cnt) AS n FROM issue_counts_hourly WHERE project_id = ? AND bucket >= ? AND bucket < ?`
+	// Count people over the same hours as the occurrences: the issue's own affected_users is
+	// all time, which reads as more people than times when the range is short.
+	q := `SELECT issue_id, sum(cnt) AS n, uniqIfMerge(users) AS u FROM issue_counts_hourly WHERE project_id = ? AND bucket >= ? AND bucket < ?`
 	args := []any{projectID, from.Truncate(time.Hour), to}
 	if service != "" {
 		q += " AND service = ?"
@@ -164,16 +166,16 @@ func (c *Client) TopIssues(ctx context.Context, projectID, service, env string, 
 		return nil, err
 	}
 	var ids []string
-	counts := map[string]uint64{}
+	counts, people := map[string]uint64{}, map[string]uint64{}
 	for rows.Next() {
 		var id string
-		var n uint64
-		if err := rows.Scan(&id, &n); err != nil {
+		var n, u uint64
+		if err := rows.Scan(&id, &n, &u); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		ids = append(ids, id)
-		counts[id] = n
+		counts[id], people[id] = n, u
 	}
 	rows.Close()
 	if len(ids) == 0 {
@@ -193,7 +195,7 @@ func (c *Client) TopIssues(ctx context.Context, projectID, service, env string, 
 		if !ok {
 			continue
 		}
-		s.OccurrenceCount = counts[id]
+		s.OccurrenceCount, s.AffectedUsers = counts[id], people[id]
 		out = append(out, s)
 	}
 	return out, nil
