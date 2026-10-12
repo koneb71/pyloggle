@@ -5,6 +5,8 @@
 //   OUT=dir      output folder (same as the first argument).
 //   CHROMIUM=…   a Chromium binary; by default Playwright's own browser
 //                (install it once with `npx playwright install chromium`).
+//   ISSUE_Q=…    search that picks the issue to show (default: the latest one).
+//   TRACE_Q=…    search that picks the request to show (default: the latest one).
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -38,13 +40,15 @@ const pages = [
   ["project-settings", "/ui/projects", (p) => p.getByRole("button", { name: "Settings" }).last().click()],
   ["system", "/ui/system"],
   ["shortcuts", "/ui/overview", (p) => p.keyboard.press("Shift+Slash")],
+  ["help", "/ui/help"],
 ];
 
 async function firstIds() {
   const h = { Accept: "application/json" };
-  const issues = await fetch(`${base}/ui/api/issues?from=-30d&status=all&limit=1`, { headers: h }).then((r) => r.json());
+  const q = (env) => (process.env[env] ? `&q=${encodeURIComponent(process.env[env])}` : "");
+  const issues = await fetch(`${base}/ui/api/issues?from=-30d&status=all&limit=1${q("ISSUE_Q")}`, { headers: h }).then((r) => r.json());
   const logs = await fetch(`${base}/ui/api/logs?from=-24h&q=level:error&limit=1`, { headers: h }).then((r) => r.json());
-  const traces = await fetch(`${base}/ui/api/traces?from=-7d&limit=1`, { headers: h }).then((r) => r.json()).catch(() => ({}));
+  const traces = await fetch(`${base}/ui/api/traces?from=-7d&limit=1${q("TRACE_Q")}`, { headers: h }).then((r) => r.json()).catch(() => ({}));
   return { issue: issues.items?.[0]?.issue_id ?? "", log: logs.items?.[0]?.event_id ?? "", trace: traces.items?.[0]?.trace_id ?? "", traceAt: traces.items?.[0]?.start_ts ?? "" };
 }
 

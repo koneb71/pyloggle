@@ -5,7 +5,7 @@ NPM ?= npm
 PY ?= python3
 VENV ?= python-sdk/.venv
 
-.PHONY: help build web go-build test go-test py-test web-test golden licenses screenshots footprint dev-db dev-api dev-web docs-dev compose-up compose-down clean
+.PHONY: help build web go-build test go-test py-test web-test golden licenses screenshots docs-screenshots demo-data footprint dev-db dev-api dev-web docs-dev compose-up compose-down clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -43,6 +43,15 @@ licenses: ## Regenerate THIRD_PARTY_LICENSES.md and web/public/licenses.txt (nee
 
 screenshots: ## Screenshot every UI page (light + dark) with Playwright; needs a running stack
 	cd web && $(NPM) run screenshots
+
+DOC_SHOTS ?= overview,issues,issue,issue-steps,logs,logs-details,logs-similar,logs-charts,requests,request,dashboards,alerts,alert-form,projects,project-settings,system,help
+PYLOGGLE_URL ?= http://127.0.0.1:8080
+
+demo-data: ## Fill a running server (PYLOGGLE_URL, sign-in off) with two days of demo data
+	$(PY) scripts/demo_data.py --url $(PYLOGGLE_URL)
+
+docs-screenshots: ## Capture the screenshots in docs/images/screenshots from a server with demo data
+	cd web && PYLOGGLE_URL=$(PYLOGGLE_URL) OUT=../docs/images/screenshots ISSUE_Q=OperationalError TRACE_Q=status:error SHOTS=$(DOC_SHOTS) $(NPM) run screenshots
 
 footprint: ## Measure RSS/disk of the running compose stack under a synthetic burst
 	./scripts/footprint.sh

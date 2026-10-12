@@ -15,11 +15,23 @@ const sidebar: DefaultTheme.SidebarItem[] = [
     items: [
       { text: "What is Pyloggle?", link: "/introduction/what-is-pyloggle" },
       { text: "Quick start", link: "/introduction/quick-start" },
+      { text: "Concepts", link: "/introduction/concepts" },
     ],
   },
   {
     text: "Using the app",
-    items: [{ text: "Search syntax", link: "/app/search" }],
+    items: [
+      { text: "Overview", link: "/app/overview" },
+      { text: "Issues", link: "/app/issues" },
+      { text: "Logs", link: "/app/logs" },
+      { text: "Requests", link: "/app/requests" },
+      { text: "Dashboards", link: "/app/dashboards" },
+      { text: "Alerts", link: "/app/alerts" },
+      { text: "Projects", link: "/app/projects" },
+      { text: "System", link: "/app/system" },
+      { text: "Help and shortcuts", link: "/app/help" },
+      { text: "Search syntax", link: "/app/search" },
+    ],
   },
   {
     text: "Send data",
