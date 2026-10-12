@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
-import { AlertOctagon, Braces, GitBranch, ListTree, Route } from "lucide-react";
+import { AlertOctagon, GitBranch, ListTree, Route } from "lucide-react";
 import type { LogEvent } from "@/api/types";
-import { Badge, Button, CopyButton, JsonView, KeyValueList, LevelBadge, SidePanel, Tabs } from "@/components/ui";
-import { fmtTs } from "@/lib/time";
+import { Button, CopyButton, JsonView, KeyValueList, LevelBadge, LinkButton, SidePanel, Tabs } from "@/components/ui";
+import { fmtTs, fmtWhen } from "@/lib/time";
 import { term } from "@/lib/query";
+import { sourceLabel } from "@/lib/fields";
 import { ContextDialog } from "./context-dialog";
 
+/** Everything about one message, with ways to follow it: its request, its timeline, its neighbours. */
 export function LogDetailPanel({ event, onClose, onFilter, onExclude, onPickColumn, width }: { event: LogEvent; onClose: () => void; onFilter: (t: string) => void; onExclude: (t: string) => void; onPickColumn?: (col: string) => void; width?: number }) {
   const [tab, setTab] = useState<"fields" | "raw">("fields");
   const [ctxOpen, setCtxOpen] = useState(false);
@@ -17,112 +18,94 @@ export function LogDetailPanel({ event, onClose, onFilter, onExclude, onPickColu
     }),
     [onFilter, onExclude],
   );
-  const core: Record<string, string | number | undefined> = {
+  const about: Record<string, string | number | undefined> = {
     service: event.service,
     env: event.env,
     logger: event.logger,
     host: event.hostname,
     release: event.release,
-    source: event.source,
-    request_id: event.request_id,
-    trace_id: event.trace_id,
-    span_id: event.span_id,
-    user: event.user_id_hash,
+    source: sourceLabel(event.source),
     exception: event.exception_type,
     "http.method": event.http_method,
     "http.route": event.http_route,
     "http.status": event.http_status || undefined,
     "http.url": event.http_url,
-    duration_ms: event.duration_ms || undefined,
+    duration_ms: event.duration_ms ? `${event.duration_ms.toFixed(event.duration_ms < 10 ? 1 : 0)} ms` : undefined,
+    user: event.user_id_hash,
+    request_id: event.request_id,
+    trace_id: event.trace_id,
+    span_id: event.span_id,
   };
+  const attrCount = Object.keys(event.attrs ?? {}).length;
   return (
     <SidePanel
       open
-      width={width}
+      width={width ?? 480}
       onClose={onClose}
       title={
-        <span className="flex items-center gap-2">
+        <span className="flex items-center gap-2.5">
+          <span>Message details</span>
           <LevelBadge level={event.level} />
-          <span className="tabular text-xs font-normal text-ink-2">{fmtTs(event.ts, { ms: true })}</span>
         </span>
       }
-      actions={<CopyButton text={JSON.stringify(event, null, 2)} label="Copy JSON" size="sm" />}
+      actions={<CopyButton text={JSON.stringify(event, null, 2)} label="Copy raw data" size="sm" />}
     >
-      <div className="border-b border-border px-3 py-2">
-        <div className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5 text-ink">{event.message}</div>
-        <div className="mt-2 flex flex-wrap gap-1">
+      <div className="border-b border-border px-4 py-3">
+        <div className="text-xs text-ink-3 tabular" title={fmtTs(event.ts, { ms: true })}>
+          {fmtWhen(event.ts, { seconds: true })} · {event.service}
+          {event.env ? ` · ${event.env}` : ""}
+        </div>
+        <div className="mt-1.5 whitespace-pre-wrap break-words text-[14px] leading-6 text-ink">{event.message}</div>
+        {event.exception_type && <div className="mt-1 text-[13px] font-medium text-critical-text">{event.exception_type}</div>}
+        <div className="mt-3 flex flex-wrap gap-1.5">
           {event.request_id && (
-            <Button size="xs" icon={<Route size={11} />} onClick={() => onFilter(term("request_id", event.request_id))} title="Only lines from this request">
-              Same request
+            <Button size="xs" icon={<Route size={13} />} onClick={() => onFilter(term("request_id", event.request_id))} title="Only the messages logged while handling the same request">
+              All messages from this request
             </Button>
           )}
           {event.trace_id && (
-            <>
-              <Link to={`/traces/${event.trace_id}?at=${encodeURIComponent(event.ts)}`} className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-surface px-1.5 text-[11px] font-medium text-ink hover:bg-surface-2" title="Open the trace waterfall">
-                <GitBranch size={11} /> View trace
-              </Link>
-              <Button size="xs" onClick={() => onFilter(term("trace_id", event.trace_id))} title="Only lines from this trace">
-                Same trace
-              </Button>
-            </>
+            <LinkButton to={`/traces/${event.trace_id}?at=${encodeURIComponent(event.ts)}`} size="xs" icon={<GitBranch size={13} />} title="Every step of this request, across apps">
+              See request timeline
+            </LinkButton>
           )}
-          <Button size="xs" icon={<ListTree size={11} />} onClick={() => setCtxOpen(true)} title="Surrounding lines from the same service">
-            View in context
+          <Button size="xs" icon={<ListTree size={13} />} onClick={() => setCtxOpen(true)} title="The messages the same app wrote just before and after">
+            Show surrounding messages
           </Button>
           {event.issue_id && (
-            <Link to={`/issues/${event.issue_id}`} className="inline-flex h-6 items-center gap-1 rounded-md border border-border bg-surface px-1.5 text-[11px] font-medium text-ink hover:bg-surface-2">
-              <AlertOctagon size={11} /> View issue
-            </Link>
+            <LinkButton to={`/issues/${event.issue_id}`} size="xs" icon={<AlertOctagon size={13} />}>
+              Open issue
+            </LinkButton>
           )}
         </div>
       </div>
       <Tabs
-        size="sm"
-        className="px-2"
+        className="px-4"
         value={tab}
         onChange={(t) => setTab(t as "fields" | "raw")}
         items={[
-          { id: "fields", label: "Fields" },
-          { id: "raw", label: <span className="inline-flex items-center gap-1"><Braces size={11} /> JSON</span> },
+          { id: "fields", label: "Details" },
+          { id: "raw", label: "Raw data" },
         ]}
       />
-      <div className="space-y-4 p-3">
+      <div className="space-y-5 p-4">
         {tab === "raw" ? (
           <JsonView value={event} defaultOpen={2} />
         ) : (
           <>
-            <Section title="Event">
-              <KeyValueList entries={core} actions={actions} />
-            </Section>
-            <Section title="Attributes" badge={Object.keys(event.attrs ?? {}).length}>
-              <KeyValueList entries={event.attrs} keyPrefix="attrs." actions={actions} emptyText="no attributes" />
-              {onPickColumn && Object.keys(event.attrs ?? {}).length > 0 && (
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {Object.keys(event.attrs).slice(0, 12).map((k) => (
-                    <button key={k} type="button" className="rounded border border-border px-1 text-[10px] text-ink-3 hover:text-ink" onClick={() => onPickColumn(`attrs.${k}`)} title={`Add ${k} as a column`}>
-                      + col {k}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </Section>
+            <Block title="About this message">
+              <KeyValueList entries={about} actions={actions} />
+            </Block>
+            <Block title="Extra details" hint={attrCount ? "Fields your app sent with this message. Hover a row to filter by it or show it as a column." : undefined}>
+              <KeyValueList entries={event.attrs} keyPrefix="attrs." actions={{ ...actions, onColumn: onPickColumn }} emptyText="No extra details were sent." />
+            </Block>
             {event.tags && Object.keys(event.tags).length > 0 && (
-              <Section title="Tags">
-                <KeyValueList entries={event.tags} keyPrefix="tags." actions={actions} />
-              </Section>
+              <Block title="Labels">
+                <KeyValueList entries={event.tags} keyPrefix="tags." actions={{ ...actions, onColumn: onPickColumn }} />
+              </Block>
             )}
-            <Section title="Ids">
-              <div className="flex flex-wrap gap-1">
-                <Badge tone="outline" className="font-mono">
-                  event {event.event_id.slice(0, 12)} <CopyButton text={event.event_id} className="h-3.5 px-0.5" />
-                </Badge>
-                {event.issue_id && (
-                  <Badge tone="outline" className="font-mono">
-                    issue {event.issue_id.slice(0, 12)} <CopyButton text={event.issue_id} className="h-3.5 px-0.5" />
-                  </Badge>
-                )}
-              </div>
-            </Section>
+            <Block title="Identifiers">
+              <KeyValueList entries={{ event_id: event.event_id, issue_id: event.issue_id }} />
+            </Block>
           </>
         )}
       </div>
@@ -131,14 +114,12 @@ export function LogDetailPanel({ event, onClose, onFilter, onExclude, onPickColu
   );
 }
 
-function Section({ title, children, badge }: { title: string; children: React.ReactNode; badge?: number }) {
+function Block({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section>
-      <h4 className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-ink-3">
-        {title}
-        {badge !== undefined && <span className="rounded bg-surface-3 px-1 text-[10px] normal-case">{badge}</span>}
-      </h4>
-      {children}
+      <h4 className="text-[13px] font-semibold text-ink">{title}</h4>
+      {hint && <p className="mt-0.5 text-xs text-ink-3">{hint}</p>}
+      <div className="mt-2">{children}</div>
     </section>
   );
 }

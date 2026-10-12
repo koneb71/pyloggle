@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 import clsx from "clsx";
-import { Filter, FilterX } from "lucide-react";
+import { Columns3, Filter, FilterX } from "lucide-react";
 import { fieldLabel, isCodeLike } from "@/lib/fields";
 import { CopyButton } from "./misc";
 
 export interface KVAction {
   onFilter?: (key: string, value: string) => void;
   onExclude?: (key: string, value: string) => void;
+  /** Show this field as a column in the list. */
+  onColumn?: (key: string) => void;
 }
 
 /**
@@ -51,6 +53,11 @@ export function KeyValueList({
           {actions?.onExclude && (
             <button type="button" title={`Hide ${label}: ${v}`} aria-label={`Hide ${label}: ${v}`} className="rounded p-1 text-ink-3 hover:bg-surface-3 hover:text-critical-text" onClick={() => actions.onExclude!(keyPrefix + k, v)}>
               <FilterX size={12} />
+            </button>
+          )}
+          {actions?.onColumn && (
+            <button type="button" title={`Show ${label} as a column`} aria-label={`Show ${label} as a column`} className="rounded p-1 text-ink-3 hover:bg-surface-3 hover:text-ink" onClick={() => actions.onColumn!(keyPrefix + k)}>
+              <Columns3 size={12} />
             </button>
           )}
           <CopyButton text={v} label={`Copy ${label}`} className="h-6" />

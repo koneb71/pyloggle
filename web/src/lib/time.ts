@@ -143,6 +143,14 @@ export function toIso(d: Date): string {
   return d.toISOString();
 }
 
+/** Short numbers for chart axes: 950, 1.5k, 60k, 2.4M. */
+export function fmtAxisNumber(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1e6) return `${+(n / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M`;
+  if (a >= 1e3) return `${+(n / 1e3).toFixed(a >= 1e4 ? 0 : 1)}k`;
+  return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
 export function fmtNumber(n: number): string {
   if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
   if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;

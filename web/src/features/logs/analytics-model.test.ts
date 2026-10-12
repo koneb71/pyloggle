@@ -10,9 +10,9 @@ function agg(n: number, other = false, groupBy = "service"): LogAggregate {
 
 describe("analytics model", () => {
   it("keeps at most 8 lines and only shows an exact other fold", () => {
-    expect(chartSeries(agg(3, true)).map((s) => s.name)).toEqual(["svc-0", "svc-1", "svc-2", "other"]);
+    expect(chartSeries(agg(3, true)).map((s) => s.name)).toEqual(["svc-0", "svc-1", "svc-2", "Other"]);
     expect(chartSeries(agg(8, true)).map((s) => s.name)).toHaveLength(8);
-    expect(chartSeries(agg(8, true)).some((s) => s.name === "other")).toBe(false);
+    expect(chartSeries(agg(8, true)).some((s) => s.name === "Other")).toBe(false);
     expect(chartSeries(agg(15, true))).toHaveLength(8);
   });
   it("colors level groups by level and ungrouped totals by accent", () => {
@@ -21,11 +21,12 @@ describe("analytics model", () => {
     const t = chartSeries({ ...agg(0), group_by: "" });
     expect(t).toHaveLength(1);
     expect(t[0].color).toBe("var(--accent)");
-    expect(t[0].name).toBe("count");
+    expect(t[0].name).toBe("Number of messages");
   });
   it("labels and formats metrics", () => {
-    expect(metricLabel("count")).toBe("count");
-    expect(metricLabel("p95", "duration_ms")).toBe("p95 duration_ms");
+    expect(metricLabel("count")).toBe("Number of messages");
+    expect(metricLabel("p95", "duration_ms")).toBe("Slow (p95) duration");
+    expect(metricLabel("avg", "attrs.items")).toBe("Average items");
     expect(metricFormat("p95", "duration_ms")(12.34)).toBe("12ms");
     expect(metricFormat("avg", "attrs.items")(2.5)).toBe("2.50");
     expect(metricFormat("count")(12000)).toBe("12.0k");

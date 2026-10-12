@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, bucketLabel, durationWords, fmtNumber, fmtWhen, previousLabel, rangeLabel, rangePhrase, resolveRange } from "./time";
+import { ago, bucketLabel, fmtAxisNumber, durationWords, fmtNumber, fmtWhen, previousLabel, rangeLabel, rangePhrase, resolveRange } from "./time";
 
 describe("resolveRange", () => {
   const now = Date.UTC(2026, 9, 11, 12, 0, 0);
@@ -31,6 +31,9 @@ describe("formatting", () => {
     expect(bucketLabel(300)).toBe("5m");
     expect(bucketLabel(7200)).toBe("2h");
     expect(bucketLabel(86400)).toBe("1d");
+  });
+  it("fmtAxisNumber", () => {
+    expect([950, 1500, 60000, 2_400_000, 0.5].map(fmtAxisNumber)).toEqual(["950", "1.5k", "60k", "2.4M", "0.5"]);
   });
   it("fmtNumber", () => {
     expect(fmtNumber(999)).toBe("999");
