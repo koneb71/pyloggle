@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { fmtAxisTime, fmtNumber, fmtWhen } from "@/lib/time";
+import { fmtAxisNumber, fmtAxisTime, fmtNumber, fmtWhen } from "@/lib/time";
 import { ChartLegend } from "./legend";
 import { SERIES_VARS } from "./palette";
 
@@ -66,7 +66,7 @@ export function MultiLineChart({ buckets, series, bucketSeconds = 60, height = 1
             <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
               <CartesianGrid vertical={false} strokeDasharray="0" />
               <XAxis dataKey="ts" tickFormatter={(v: string) => fmtAxisTime(new Date(v), spanMs)} minTickGap={48} tickLine={false} axisLine={{ stroke: "var(--border-strong)" }} height={18} />
-              <YAxis width={60} tickLine={false} axisLine={false} tickFormatter={(v: number) => format(v)} domain={[0, "auto"]} />
+              <YAxis width={60} tickLine={false} axisLine={false} tickFormatter={(v: number) => (v === 0 ? "0" : format === fmtNumber ? fmtAxisNumber(v) : format(v))} domain={[0, "auto"]} />
               <Tooltip
                 isAnimationActive={false}
                 cursor={{ stroke: "var(--border-strong)" }}
