@@ -38,5 +38,5 @@ To fill a server with two days of realistic data instead, without running any ap
 [`scripts/demo_data.py`](https://github.com/koneb71/pyloggle/blob/main/scripts/demo_data.py):
 
 ```bash
-python3 scripts/demo_data.py --url http://localhost:8080
+python3 scripts/demo_data.py --url http://localhost:8080 --key "$PYLOGGLE_API_KEY"
 ```
