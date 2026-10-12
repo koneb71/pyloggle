@@ -118,8 +118,8 @@ func TestRecapContent(t *testing.T) {
 	}
 	plain := renderPlain(m)
 	for _, want := range []string{"New problems:", "• KeyError: 'sku': 12 times · 3 people  https://pl.example/ui/issues/n1", "Came back:", "Happened most:",
-		"Apps that need a look:", "billing is failing: 7.2% of requests failed", "inventory went silent: last heard from Oct 10 22:00 UTC",
-		"Still going on:", "Checkout errors: too many errors, since Oct 10 14:00 UTC", "Alerts sent:", "Checkout errors: 2 · A deleted rule: 1",
+		"Apps that need a look:", "billing is failing: 7.2% of requests failed", "inventory went silent: last heard from Oct 10 22:00",
+		"Still going on:", "Checkout errors: too many errors, since Oct 10 14:00", "Alerts sent:", "Checkout errors: 2 · A deleted rule: 1",
 		"Open in Pyloggle: https://pl.example/ui/overview?from=2026-10-10T00%3A00%3A00Z&to=2026-10-11T00%3A00%3A00Z"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("plain recap lacks %q:\n%s", want, plain)
@@ -152,6 +152,20 @@ func TestRecapListsCountYesterday(t *testing.T) {
 	rc := n.events[0].Recap
 	if rc.New[0].Count != 9 || rc.New[0].People != 2 || rc.CameBack[0].Count != 4 || rc.CameBack[0].IssueID != "c1" || len(rc.Top) != 3 {
 		t.Fatalf("lists should count yesterday: new %+v came back %+v top %+v", rc.New, rc.CameBack, rc.Top)
+	}
+}
+
+// Times in a recap are in its time zone, like its day.
+func TestRecapClockUsesTheRuleTimeZone(t *testing.T) {
+	at := time.Date(2026, 10, 11, 18, 58, 0, 0, time.UTC)
+	if got := recapClock(at, "Europe/Berlin"); got != "Oct 11 20:58" {
+		t.Fatalf("Berlin: %q", got)
+	}
+	if got := recapClock(at, ""); got != "Oct 11 18:58" {
+		t.Fatalf("no zone: %q", got)
+	}
+	if got := appWords(RecapApp{Service: "billing", Status: "silent", LastSeen: at}, "Asia/Manila"); got != "billing went silent: last heard from Oct 12 02:58" {
+		t.Fatalf("app: %q", got)
 	}
 }
 

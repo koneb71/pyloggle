@@ -402,14 +402,14 @@ func recapSections(rc Recap) []MessageSection {
 	if len(rc.Apps) > 0 {
 		s := MessageSection{Title: "Apps that need a look"}
 		for _, a := range rc.Apps {
-			s.Lines = append(s.Lines, MessageLine{Text: appWords(a)})
+			s.Lines = append(s.Lines, MessageLine{Text: appWords(a, rc.Timezone)})
 		}
 		out = append(out, s)
 	}
 	if len(rc.Ongoing) > 0 {
 		s := MessageSection{Title: "Still going on"}
 		for _, o := range rc.Ongoing {
-			s.Lines = append(s.Lines, MessageLine{Text: fmt.Sprintf("%s: %s, since %s", o.Rule, ruleKindWords(o.Kind), o.Since.UTC().Format("Jan 2 15:04 UTC"))})
+			s.Lines = append(s.Lines, MessageLine{Text: fmt.Sprintf("%s: %s, since %s", o.Rule, ruleKindWords(o.Kind), recapClock(o.Since, rc.Timezone))})
 		}
 		out = append(out, s)
 	}
@@ -423,11 +423,21 @@ func recapSections(rc Recap) []MessageSection {
 	return out
 }
 
-func appWords(a RecapApp) string {
+// recapClock is "Oct 11 20:58": a time in the recap's own time zone, which the recap names
+// once next to its day. Zone abbreviations are left out: some are ambiguous (Manila's is PST).
+func recapClock(t time.Time, tz string) string {
+	loc, err := recapLocation(tz)
+	if err != nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format("Jan 2 15:04")
+}
+
+func appWords(a RecapApp, tz string) string {
 	switch a.Status {
 	case "silent":
 		if !a.LastSeen.IsZero() {
-			return fmt.Sprintf("%s went silent: last heard from %s", a.Service, a.LastSeen.UTC().Format("Jan 2 15:04 UTC"))
+			return fmt.Sprintf("%s went silent: last heard from %s", a.Service, recapClock(a.LastSeen, tz))
 		}
 		return a.Service + " went silent"
 	case "failing":

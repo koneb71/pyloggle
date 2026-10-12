@@ -104,6 +104,8 @@ and where. No migrations.
   over the issue's whole life instead of the selected range, so a problem could show more
   people than times it happened. The recap's new and came-back problems are now counted for
   yesterday too, like the rest of the recap.
+- The recap gave "last heard from" and "since" times in UTC while its day was in the rule's
+  time zone. They now use the rule's time zone too.
 - With `INGEST_SHARED_SECRET` set and `PYLOGGLE_DEFAULT_PROJECT_ID` empty, data sent with the
   shared secret was accepted without a project. It is now refused.
 - The first database migration created a database named `pyloggle` whatever `CLICKHOUSE_DSN`
