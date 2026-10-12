@@ -47,6 +47,7 @@ type fakeStore struct {
 	spikeWindows    [4]time.Time
 	overviewRanges  [][2]time.Time
 	requestRanges   [][2]time.Time
+	down            error // when set, project lookups fail as if the database were unreachable
 }
 
 func (f *fakeStore) QueryIssues(_ context.Context, q clickhouse.IssueListQuery) ([]api.IssueSummary, error) {
@@ -339,9 +340,15 @@ func (f *fakeStore) UpsertSavedSearch(_ context.Context, s api.SavedSearch) (api
 }
 func (f *fakeStore) SoftDeleteSavedSearch(context.Context, string, string, string) error { return nil }
 func (f *fakeStore) ListProjects(context.Context, int) ([]clickhouse.ProjectView, error) {
+	if f.down != nil {
+		return nil, f.down
+	}
 	return f.projects, nil
 }
 func (f *fakeStore) GetProjectByID(_ context.Context, id string) (clickhouse.ProjectView, bool, error) {
+	if f.down != nil {
+		return clickhouse.ProjectView{}, false, f.down
+	}
 	for _, p := range f.projects {
 		if p.ID == id {
 			return p, true, nil
@@ -448,6 +455,24 @@ func TestMeAndDefaultProject(t *testing.T) {
 	}
 	if out["project"].(map[string]any)["id"] != "default" || len(out["projects"].([]any)) != 2 || out["auth_mode"] != "disabled" {
 		t.Fatalf("me: %s", rec.Body.String())
+	}
+}
+
+func TestDatabaseOutageIsNotNoProject(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	store.down = errors.New("dial tcp 127.0.0.1:9000: connect: connection refused")
+	rec, out := do(t, u, "GET", "/ui/api/issues", nil, nil)
+	if rec.Code != http.StatusServiceUnavailable || out["error"] != "unavailable" {
+		t.Fatalf("issues during an outage: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out = do(t, u, "GET", "/ui/api/me", nil, nil)
+	if rec.Code != http.StatusServiceUnavailable || out["error"] != "unavailable" {
+		t.Fatalf("me during an outage: %d %s", rec.Code, rec.Body.String())
+	}
+	store.down = nil
+	store.projects = nil
+	if rec, out = do(t, u, "GET", "/ui/api/issues", nil, nil); rec.Code != http.StatusUnauthorized || out["error"] != "no_project" {
+		t.Fatalf("no project at all must stay 401 no_project: %d %s", rec.Code, rec.Body.String())
 	}
 }
 

@@ -3,6 +3,7 @@ package webui
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -215,7 +216,11 @@ func (u *UI) APIKeyAPIHandler() http.Handler {
 				return
 			}
 			pv, ok, err := u.store.GetProjectByID(r.Context(), def)
-			if err != nil || !ok {
+			if err != nil {
+				writeErr(w, http.StatusServiceUnavailable, "unavailable", "the database is not answering: "+err.Error())
+				return
+			}
+			if !ok {
 				writeErr(w, http.StatusUnauthorized, "unauthorized", "default project unavailable")
 				return
 			}
@@ -286,7 +291,11 @@ func (u *UI) withProjectAPI(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			writeErr(w, status, "no_project", err.Error())
+			code := "no_project"
+			if status == http.StatusServiceUnavailable {
+				code = "unavailable"
+			}
+			writeErr(w, status, code, err.Error())
 			return
 		}
 		if pid := strings.TrimSpace(r.URL.Query().Get("project_id")); pid != "" {
@@ -312,10 +321,17 @@ var errNoProject = errors.New("no project selected")
 
 func (u *UI) resolveProject(r *http.Request) (tenant.Project, int, error) {
 	ctx := r.Context()
+	// A failed lookup is not the same as "no project": if the store could not answer, say
+	// so (503) instead of sending the browser back to project selection or sign-in.
+	var lookupErr error
 	lookup := func(id string) (tenant.Project, bool, error) {
 		pv, ok, err := u.store.GetProjectByID(ctx, id)
-		if err != nil || !ok || pv.ID == "" {
+		if err != nil {
+			lookupErr = err
 			return tenant.Project{}, false, err
+		}
+		if !ok || pv.ID == "" {
+			return tenant.Project{}, false, nil
 		}
 		return tenant.Trusted(tenant.Project{ID: pv.ID, Name: pv.Name, MaxEventsPerSec: pv.MaxEventsPerSec, MaxStorageGB: pv.MaxStorageGB}), true, nil
 	}
@@ -341,14 +357,21 @@ func (u *UI) resolveProject(r *http.Request) (tenant.Project, int, error) {
 		}
 	}
 	if apiKey != "" && u.keys != nil {
-		if p, ok, err := u.keys.ResolveByAPIKey(ctx, apiKey); err == nil && ok {
+		p, ok, err := u.keys.ResolveByAPIKey(ctx, apiKey)
+		if err == nil && ok {
 			return p, 0, nil
+		}
+		if err != nil {
+			lookupErr = err
 		}
 	}
 	if def := strings.TrimSpace(u.cfg.DefaultProjID); def != "" {
 		if p, ok, err := lookup(def); err == nil && ok {
 			return p, 0, nil
 		}
+	}
+	if lookupErr != nil {
+		return tenant.Project{}, http.StatusServiceUnavailable, fmt.Errorf("the database is not answering: %w", lookupErr)
 	}
 	return tenant.Project{}, http.StatusUnauthorized, errNoProject
 }

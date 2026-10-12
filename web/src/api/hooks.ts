@@ -1,8 +1,19 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { del, get, post } from "./client";
+import { ApiRequestError, del, get, post } from "./client";
 import type { APIKey, AlertFiring, AlertRule, AttentionItem, AttentionReason, AuditEntry, Histogram, IssueActivity, IssueDetail, IssueListResponse, LogAggregate, LogContext, LogFacets, LogPattern, LogsResponse, Me, MetricInfo, MetricSeries, Occurrence, Overview, Project, ProjectUsage, Release, RequestStatsResponse, SavedView, ServiceHealth, TimeSeriesPoint, TraceDetail, TracesResponse } from "./types";
 
-export const useMe = () => useQuery({ queryKey: ["me"], queryFn: () => get<Me>("/me"), staleTime: 60_000, retry: false });
+export const useMe = () =>
+  useQuery({
+    queryKey: ["me"],
+    queryFn: () => get<Me>("/me"),
+    staleTime: 60_000,
+    retry: false,
+    // While the server or its database is unreachable, keep checking so the app comes back on its own.
+    refetchInterval: (q) => {
+      const e = q.state.error;
+      return e && !(e instanceof ApiRequestError && e.status < 500) ? 10_000 : false;
+    },
+  });
 
 export interface IssuesParams {
   status?: string;

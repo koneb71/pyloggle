@@ -16,7 +16,7 @@ export function SidePanel({ open, onClose, title, children, width = 520, actions
   }, [open, onClose]);
   if (!open) return null;
   return (
-    <aside className={clsx("flex h-full min-h-0 flex-none flex-col border-l border-border bg-surface", className)} style={{ width }} aria-label={typeof title === "string" ? title : "Details"}>
+    <aside className={clsx("flex h-full min-h-0 flex-none flex-col border-l border-border bg-surface", className)} style={{ width: `min(${width}px, 45%)` }} aria-label={typeof title === "string" ? title : "Details"}>
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ink">{title}</div>
         <div className="flex items-center gap-1">

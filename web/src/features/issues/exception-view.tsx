@@ -56,12 +56,12 @@ export function ExceptionView({ occ }: { occ: Occurrence }) {
   }
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <div className="text-[13px] text-ink-3">
           {pluralize(secs.reduce((n, s) => n + s.frames.length, 0), "code step")}
           {secs.length > 1 && ` · caused by ${pluralize(secs.length - 1, "earlier error")}`}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <SegmentedControl
             label="Which code to show"
             value={effectiveMode}

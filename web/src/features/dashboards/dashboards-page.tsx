@@ -255,7 +255,7 @@ export function DashboardsPage() {
 }
 
 const SOURCE_WORDS: Record<"logs" | "otel", { label: string; hint: string }> = {
-  logs: { label: "App logs", hint: "Request events from the SDK and OpenTelemetry server spans" },
+  logs: { label: "App logs", hint: "Requests recorded by the SDK, and requests reported by OpenTelemetry" },
   otel: { label: "OpenTelemetry metrics", hint: "The http.server.request.duration metric your apps send" },
 };
 

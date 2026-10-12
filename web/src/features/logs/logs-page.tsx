@@ -12,6 +12,7 @@ import { useUrlState } from "@/lib/url";
 import { addTerm } from "@/lib/query";
 import { pluralize } from "@/lib/format";
 import { fieldLabel } from "@/lib/fields";
+import { useMediaQuery } from "@/lib/use-media";
 import { SearchBar } from "./search-bar";
 import { FacetsPanel } from "./facets-panel";
 import { LogTable } from "./log-list";
@@ -121,6 +122,13 @@ export function LogsPage() {
 
   const items = useMemo(() => [...fresh, ...(logs.data?.items ?? []), ...older], [fresh, logs.data, older]);
   const selected = useMemo(() => items.find((i) => i.event_id === selId), [items, selId]);
+  // Below 1280px there is room for the list and one side panel: details win over filters.
+  const roomy = useMediaQuery("(min-width: 1280px)");
+  const facetsVisible = showFacets && (roomy || !selected);
+  const toggleFacets = () => {
+    if (facetsVisible) set({ facets_panel: "0" });
+    else set({ facets_panel: undefined, ...(roomy ? {} : { sel: undefined }) });
+  };
   const loadMore = async () => {
     if (!cursor || loadingMore) return;
     setLoadingMore(true);
@@ -194,7 +202,7 @@ export function LogsPage() {
       toolbar={<SearchBar value={q} onChange={setQuery} error={queryError} range={range} />}
     >
       <div className="flex min-h-0 flex-1">
-        {showFacets && (
+        {facetsVisible && (
           <aside className="w-64 flex-none border-r border-border bg-surface" aria-label="Filters">
             <FacetsPanel q={q} range={range} onChange={setQuery} extraFacets={pinnedFacets} onExtraFacets={(f) => set({ facets: f.join(",") || undefined })} />
           </aside>
@@ -202,7 +210,7 @@ export function LogsPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex-none border-b border-border bg-surface px-4 pb-2 pt-2.5">
             <div className="flex flex-wrap items-center gap-2">
-              <IconButton label={showFacets ? "Hide filters" : "Show filters"} icon={<PanelLeft size={15} />} active={showFacets} onClick={() => set({ facets_panel: showFacets ? "0" : undefined })} />
+              <IconButton label={facetsVisible ? "Hide filters" : "Show filters"} icon={<PanelLeft size={15} />} active={facetsVisible} onClick={toggleFacets} />
               <SegmentedControl
                 label="View"
                 value={view as "list" | "patterns" | "analytics"}
@@ -267,7 +275,7 @@ export function LogsPage() {
               {pendingFresh.length > 0 && (
                 <button
                   type="button"
-                  className="absolute left-1/2 top-10 z-20 inline-flex -translate-x-1/2 items-center gap-1 rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-accent-ink shadow-[var(--shadow)]"
+                  className="absolute left-1/2 top-10 z-20 inline-flex -translate-x-1/2 items-center gap-1 rounded-full bg-accent-strong px-3 py-1 text-[13px] font-medium text-accent-ink shadow-[var(--shadow)]"
                   onClick={() => {
                     setFresh((f) => [...pendingFresh, ...f]);
                     setPendingFresh([]);

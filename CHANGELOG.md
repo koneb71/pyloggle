@@ -1,5 +1,52 @@
 # Changelog
 
+## Unreleased
+
+A redesigned UI for the whole team, not only engineers. No migrations.
+
+### Look and language
+
+- Calm product look: Inter, white cards on a warm gray page, one blue accent, sentence-case
+  labels, roomier rows, and monospace only for code, ids and queries. Text and accent colors
+  meet WCAG AA (4.5:1) in light and dark.
+- Plain words first, the technical name second, from one glossary (`web/src/lib/glossary.ts`):
+  "Came back (regressed)", "Slow (p95)", "Request timeline (trace)", "Steps before the error
+  (breadcrumbs)". Field names read as words ("Response code", not `http.status`). A test
+  fails if internal names such as `request_stats_minutely` reach the UI again.
+- Every page has a one-line description; tables share one column grid so headers line up;
+  each view shows exactly one of loading, error, empty or data; failed actions show a toast.
+- The sidebar groups pages (Investigate, Monitor, Settings) and shrinks to icons below
+  1200 px; `?` lists the keyboard shortcuts; logs, filters and details fit at 1024 px.
+
+### New
+
+- **Overview** home page (`/ui/` opens it): a status line, five headline numbers with the
+  change against the previous period, issues that are new, came back or jumped, each app's
+  health (OK, degraded, failing or silent), recent versions and recent alerts. Backed by
+  `GET metrics/services`, `metrics/attention` and `releases`, and `compare=previous` on
+  `metrics/overview` and `metrics/requests`.
+- Logs: an *Add filter* picker, plain-language search chips and help with examples, a
+  filters sidebar, a chart legend above the plot with the bar width spelled out.
+- Alerts: rules read and are edited as sentences, with a *Test this alert* button.
+- Projects: a *Connect your app* guide (Python, Django, FastAPI, OpenTelemetry) with the
+  server's address filled in; settings, keys and storage in a side drawer.
+
+### Fixed
+
+- The Requests search showed the logs search help.
+- The filter buttons in a request's log panel did nothing.
+- The top-issues sparkline on Dashboards was always empty.
+- Issue detail kept loading forever when an issue had no stored occurrence.
+- Company sign-in dropped the `?err=` message; an expired company session showed the
+  access-key form.
+- Choosing a project could spin forever when the selection failed.
+- A signed-out browser could refetch `/me` in a loop.
+- With ClickHouse down, the UI reloaded in a loop or offered to "create your first project".
+  The API now answers `503 unavailable`, the UI says the database isn't answering, and it
+  recovers on its own when the database is back.
+- Several views showed an error and "nothing here" at the same time; dashboard cards said
+  "No errors" when the request had failed.
+
 ## 0.3.0
 
 Issue workflow, log-query monitors, traces, OpenTelemetry metrics, analytics and export,

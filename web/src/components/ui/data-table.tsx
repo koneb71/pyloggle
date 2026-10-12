@@ -45,6 +45,7 @@ export function DataTable<T>({
   label,
   stickyHeader = true,
   rowClassName,
+  minWidth,
 }: {
   columns: Column<T>[];
   rows: T[] | undefined;
@@ -62,6 +63,8 @@ export function DataTable<T>({
   label?: string;
   stickyHeader?: boolean;
   rowClassName?: (row: T) => string | undefined;
+  /** Below this width (px) the table scrolls sideways instead of squeezing. Turns off the sticky header. */
+  minWidth?: number;
 }) {
   const template = gridTemplate(columns);
   const hasRows = !!rows && rows.length > 0;
@@ -73,9 +76,9 @@ export function DataTable<T>({
     body = rows!.map((row, i) => (
       <Row key={rowKey(row)} row={row} index={i} columns={columns} template={template} href={rowHref?.(row)} onClick={onRowClick} selected={selected?.(row)} className={rowClassName?.(row)} />
     ));
-  return (
-    <div role="table" aria-label={label} className={clsx("min-w-0", className)}>
-      <div role="rowgroup" className={clsx(stickyHeader && "sticky top-0 z-10", "bg-surface")}>
+  const table = (
+    <div role="table" aria-label={label} className={clsx("min-w-0", !minWidth && className)} style={minWidth ? { minWidth } : undefined}>
+      <div role="rowgroup" className={clsx(stickyHeader && !minWidth && "sticky top-0 z-10", "bg-surface")}>
         <div role="row" className={clsx("grid items-center border-b border-border px-4 py-2 text-xs font-medium text-ink-3", TABLE_GAP)} style={{ gridTemplateColumns: template }}>
           {columns.map((c) => (
             <div key={c.id} role="columnheader" className={clsx("flex min-w-0 items-center truncate", alignClass(c.align))}>
@@ -88,6 +91,7 @@ export function DataTable<T>({
       {footer}
     </div>
   );
+  return minWidth ? <div className={clsx("min-w-0 overflow-x-auto", className)}>{table}</div> : table;
 }
 
 const INTERACTIVE = "a,button,input,select,textarea,label,[role=menuitem],[data-row-ignore]";

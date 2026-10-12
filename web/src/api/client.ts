@@ -55,7 +55,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (!res.ok) {
     const err = (body as ApiError) || { error: `http_${res.status}` };
-    if (res.status === 401 && onUnauthorized) onUnauthorized(err);
+    // "No project selected" is not "signed out": the app picks a project instead of signing in again.
+    if (res.status === 401 && err.error !== "no_project" && onUnauthorized) onUnauthorized(err);
     throw new ApiRequestError(res.status, err);
   }
   return body as T;

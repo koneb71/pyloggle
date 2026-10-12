@@ -45,7 +45,7 @@ export function SegmentedControl<T extends string>({ options, value, onChange, c
           title={o.title}
           onClick={() => onChange(o.value)}
           className={clsx(
-            "inline-flex h-7 items-center gap-1.5 rounded-[6px] px-2.5 text-[13px] font-medium transition-colors",
+            "inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-[6px] px-2.5 text-[13px] font-medium transition-colors",
             value === o.value ? "bg-surface text-ink shadow-[0_1px_2px_rgba(0,0,0,0.08)]" : "text-ink-2 hover:text-ink",
           )}
         >
