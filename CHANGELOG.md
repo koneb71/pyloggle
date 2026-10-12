@@ -8,8 +8,8 @@ It also brings a redesigned app for the whole team, not only engineers, alerts t
 went wrong and where, each alert sent only once, and a recap of yesterday. One migration (016)
 adds a table and two columns.
 
-Read [upgrading to 1.0](docs/self-hosting/upgrading.md) before you upgrade: a server that
-relied on the old sign-in default no longer starts until the mode is set.
+Read [upgrading to 1.0](https://koneb71.github.io/pyloggle/self-hosting/upgrading) before you
+upgrade: a server that relied on the old sign-in default no longer starts until the mode is set.
 
 ### Open source
 
@@ -40,7 +40,8 @@ relied on the old sign-in default no longer starts until the mode is set.
 
 ### Breaking
 
-See [upgrading to 1.0](docs/self-hosting/upgrading.md) for what to do about each.
+See [upgrading to 1.0](https://koneb71.github.io/pyloggle/self-hosting/upgrading) for what to do
+about each.
 
 - **The sign-in mode must be chosen.** Without `PYLOGGLE_UI_AUTH`, 0.3 sent everyone to a
   Microsoft sign-in, and an unknown value did the same. 1.0 infers `azure` from
