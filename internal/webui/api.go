@@ -216,6 +216,11 @@ func (u *UI) APIKeyAPIHandler() http.Handler {
 				writeErr(w, http.StatusUnauthorized, "unauthorized", "X-API-Key required")
 				return
 			}
+			// With sign-in on, reading data needs an access key, like the UI needs a session.
+			if u.loginRequired() {
+				writeErr(w, http.StatusUnauthorized, "api_key_required", "X-API-Key required: this server has sign-in turned on")
+				return
+			}
 			pv, ok, err := u.store.GetProjectByID(r.Context(), def)
 			if err != nil {
 				writeErr(w, http.StatusServiceUnavailable, "unavailable", "the database is not answering: "+err.Error())

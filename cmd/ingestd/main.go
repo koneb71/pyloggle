@@ -31,6 +31,12 @@ func main() {
 	}
 	cfg := config.FromEnv()
 	log.Printf("pyloggle ingestd %s", version.String())
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("configuration: %v", err)
+	}
+	if cfg.UIAuthMode == "disabled" {
+		log.Printf("WARNING: sign-in is off (PYLOGGLE_UI_AUTH=disabled): anyone who can reach port %s can read and change everything. Use it only on a trusted network.", cfg.Port)
+	}
 
 	ch := connectWithRetry(cfg, 2*time.Minute)
 	defer func() {
