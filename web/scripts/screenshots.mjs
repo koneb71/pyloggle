@@ -1,14 +1,19 @@
 // Screenshots every page in light and dark mode against a running ingestd (UI sign-in off).
 //   PYLOGGLE_URL=http://127.0.0.1:8080 node scripts/screenshots.mjs [outDir]
-//   WIDTH=1024 adds "-1024" to the file names and uses that viewport width.
-// Uses the pre-installed Chromium (no download) through playwright-core.
+//   WIDTH=1024   adds "-1024" to the file names and uses that viewport width.
+//   SHOTS=a,b    takes only those views (names as in the list below, plus "login").
+//   OUT=dir      output folder (same as the first argument).
+//   CHROMIUM=…   a Chromium binary; by default Playwright's own browser
+//                (install it once with `npx playwright install chromium`).
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 const base = process.env.PYLOGGLE_URL ?? "http://127.0.0.1:8080";
-const out = process.argv[2] ?? path.resolve("screenshots");
-const exe = process.env.CHROMIUM ?? "/opt/pw-browsers/chromium";
+const out = process.argv[2] ?? process.env.OUT ?? path.resolve("screenshots");
+const exe = process.env.CHROMIUM || undefined;
+const only = new Set((process.env.SHOTS ?? "").split(",").map((s) => s.trim()).filter(Boolean));
+const wanted = (name) => only.size === 0 || only.has(name);
 const width = Number(process.env.WIDTH ?? 1440);
 const suffix = width === 1440 ? "" : `-${width}`;
 mkdirSync(out, { recursive: true });
@@ -53,6 +58,7 @@ for (const scheme of ["light", "dark"]) {
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   for (const [name, p, action] of pages) {
+    if (!wanted(name)) continue;
     const url = base + p.replace("__FIRST_ISSUE__", ids.issue).replace("__FIRST_LOG__", ids.log).replace("__FIRST_TRACE__", ids.trace).replace("__FIRST_TRACE_AT__", encodeURIComponent(ids.traceAt));
     await page.goto(url, { waitUntil: "networkidle" });
     await page.waitForTimeout(400);
@@ -65,10 +71,12 @@ for (const scheme of ["light", "dark"]) {
     console.log("saved", file);
   }
   // The sign-in screen: answer /me with "not signed in" so the server can keep sign-in off.
-  await page.route("**/ui/api/me", (r) => r.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "login_required" }) }));
-  await page.goto(`${base}/ui/overview`, { waitUntil: "networkidle" });
-  await page.screenshot({ path: path.join(out, `login${suffix}-${scheme}.png`) });
-  await page.unroute("**/ui/api/me");
+  if (wanted("login")) {
+    await page.route("**/ui/api/me", (r) => r.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "login_required" }) }));
+    await page.goto(`${base}/ui/overview`, { waitUntil: "networkidle" });
+    await page.screenshot({ path: path.join(out, `login${suffix}-${scheme}.png`) });
+    await page.unroute("**/ui/api/me");
+  }
   if (errors.length) {
     console.error(`[${scheme}] browser errors:\n` + errors.map((e) => "  " + e).join("\n"));
   }
