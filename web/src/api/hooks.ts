@@ -204,8 +204,8 @@ export const useTrace = (id: string | undefined, at?: string) =>
 export const useTraceFields = () =>
   useQuery({ queryKey: ["trace-fields"], queryFn: () => get<{ fields: string[]; syntax: string[] }>("/traces/fields"), staleTime: Infinity });
 
-export const useRequestStats = (p: { from?: string; to?: string; service?: string; env?: string; source?: string; compare?: "previous"; buckets?: number }) =>
-  useQuery({ queryKey: ["request-stats", p], queryFn: () => get<RequestStatsResponse>("/metrics/requests", { ...p, limit: 10 }), placeholderData: keepPreviousData });
+export const useRequestStats = (p: { from?: string; to?: string; service?: string; env?: string; source?: string; compare?: "previous"; buckets?: number }, enabled = true) =>
+  useQuery({ queryKey: ["request-stats", p], queryFn: () => get<RequestStatsResponse>("/metrics/requests", { ...p, limit: 10 }), placeholderData: keepPreviousData, enabled });
 
 export const useMetricNames = () =>
   useQuery({ queryKey: ["metric-names"], queryFn: () => get<{ items: MetricInfo[]; aggs: Record<string, string[]> }>("/metrics/names"), staleTime: 60_000 });
