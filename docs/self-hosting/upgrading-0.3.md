@@ -10,7 +10,7 @@ working; this page lists what the first start does and what changes shape.
 - **Back up ClickHouse** if the data matters. The migrations are additive (no table is
   rebuilt), but a backup makes a rollback trivial.
 - Spans and metrics are now stored by default, 7 and 30 days. If your apps already export
-  OpenTelemetry traces or metrics, expect new disk use (`docs/footprint.md` has numbers), or
+  OpenTelemetry traces or metrics, expect new disk use ([Retention and footprint](retention-and-footprint.md) has numbers), or
   set `OTLP_STORE_SPANS=false` / `OTLP_STORE_METRICS=false`.
 - Webhook consumers: the alert payload changes shape (below).
 
@@ -70,7 +70,7 @@ like the old ones (`MODIFY TTL` when the configured days change).
   affected-user counts cannot shrink). Both are audited (`GET /admin/audit`).
 - **OTLP.** `OTLP_STORE_SERVER_SPANS` now defaults to `true` (server spans become `request`
   lines that feed the explorer, analytics and request stats). `url.path` / `http.target` are
-  no longer used as a route. Failed spans: see `docs/opentelemetry.md` for which failures
+  no longer used as a route. Failed spans: see [OpenTelemetry](../send-data/opentelemetry.md) for which failures
   become issues. The server folds two reports of the same crash on one trace into one
   occurrence.
 - **Request latency.** Request lines carry `duration_ms` as a column; the 0.2 SDKs'

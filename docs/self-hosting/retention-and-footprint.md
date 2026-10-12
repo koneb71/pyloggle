@@ -1,12 +1,46 @@
-# Footprint
+# Retention and footprint
 
-Pyloggle is two processes: `ingestd` (one static Go binary that ingests, serves the UI/API,
-runs alerting and exposes `/metrics`) and ClickHouse. This page records what they cost, how it
-was measured and which knobs to turn. Re-measure with `make footprint` (compose) or the local
-mode described at the top of `scripts/footprint.sh`; the System page and `GET /metrics` show
-the same table sizes live.
+Pyloggle keeps each kind of data for a fixed number of days and then deletes it in whole days,
+which costs almost nothing. This page explains how long data is kept, what a server uses in
+memory and disk, and which settings change that.
 
-## 0.3: spans and metrics on (ClickHouse 24.3.18, same sandbox, local mode)
+## How long data is kept
+
+| Data | Kept for | Setting |
+|---|---|---|
+| Messages (logs) | 30 days | `PYLOGGLE_RETENTION_LOGS_DAYS` |
+| Each time an error happened | 30 days | `PYLOGGLE_RETENTION_ERRORS_DAYS` |
+| Request steps (spans) | 7 days | `PYLOGGLE_RETENTION_SPANS_DAYS` |
+| OpenTelemetry metrics | 30 days | `PYLOGGLE_RETENTION_METRICS_DAYS` |
+| Counts behind the charts and lists (issue counts, messages per minute, request statistics) | 365 days | `PYLOGGLE_RETENTION_STATS_DAYS` |
+
+Issues themselves, their comments and history, projects, keys and alert rules are not deleted
+by age.
+
+The server applies a changed setting the next time it starts. Data is stored in one partition
+per day, so expired data goes away by dropping that day's files instead of rewriting them.
+
+Each project can also have its own limits, set by an administrator on the **Projects** page:
+
+- **Keep data for (days)** shortens how long that project's data is kept. It can only be
+  shorter than the server's setting. Older days are removed once a day, at 03:10 UTC.
+- **Storage limit (GB)** caps the estimated size of the project's data over the retention
+  window. Once it is reached, new data is dropped, except errors: they keep coming in until
+  twice the limit, so you still see problems while you sort it out.
+- **Messages per second** limits how fast each app in the project may send. Without it, the
+  server-wide `INGEST_RATE_LIMIT_RPS` applies.
+
+The Projects page shows how much each project stores, by kind of data.
+
+## What it costs
+
+Pyloggle is two processes: `ingestd` (one Go binary that receives data, serves the app and the
+API, checks alert rules and exposes `/metrics`) and ClickHouse. The measurements below record
+what they cost and how it was measured. Measure your own server with `make footprint` (Docker
+Compose) or the local mode described at the top of `scripts/footprint.sh`; the **System** page
+and `GET /metrics` show the same table sizes live.
+
+### With spans and metrics on (0.3, ClickHouse 24.3.18, local mode)
 
 0.3 stores OTLP spans (7 days) and metric points (30 days) by default and keeps request stats
 per minute. Measured on a fresh start of both processes, then 20 000 requests through FastAPI's
@@ -44,7 +78,7 @@ Log rows and error occurrences are unchanged from 0.2 (124 and 136 bytes per row
 The ingest rate during the burst (5 300 lines/s paced, every line stored, queues never
 saturating) is unchanged too.
 
-## 0.2 measurement (ClickHouse 24.3.18, 4 vCPU sandbox, tuned config, 100k-line burst)
+### Messages and errors only (0.2, ClickHouse 24.3.18, 4 vCPUs, 100,000-line burst)
 
 The burst is 100 000 synthetic log lines (four services, 80 % info / 10 % debug / 7 % warn /
 3 % error, half of the errors carrying a two-frame exception) sent as 5 000-line NDJSON requests

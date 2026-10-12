@@ -21,7 +21,7 @@ Sentry-style issues and an OpenTelemetry door.
   OTLP metrics on the dashboards, including FastAPI's native HTTP metrics.
 - **Consumes little, and you can see it**: daily partitions with TTLs that drop whole parts,
   tuned ClickHouse config, per-project usage, quotas, retention and deletion, Prometheus
-  `/metrics` and a System page. Numbers in [docs/footprint.md](docs/footprint.md).
+  `/metrics` and a System page. Numbers in [docs/self-hosting/retention-and-footprint.md](docs/self-hosting/retention-and-footprint.md).
 - **Two doors in**: the dependency-free Python SDK (Flask, FastAPI, Django, Celery; zero-change
   upgrade from 0.1) or any OpenTelemetry exporter with a scoped API key.
 
@@ -76,7 +76,7 @@ Protobuf or JSON, gzip, logs, traces and metrics, from an SDK exporter or the Co
 spans fill the Traces page, its HTTP metrics the dashboards, its exception logs become issues
 with parsed frames. With the SDK alongside (`pyloggle.fastapi.telemetry()`), the SDK keeps the
 rich error reports and the trace view links both. Details in
-[docs/opentelemetry.md](docs/opentelemetry.md).
+[docs/send-data/opentelemetry.md](docs/send-data/opentelemetry.md).
 
 ## The UI
 
@@ -90,7 +90,7 @@ queries. `/ui/` opens on **Overview**. The sidebar groups pages by what you are 
 | | **Overview** | *Is everything OK right now?* A status line ("All clear" or what needs attention, with links), errors, people affected, failed requests, response time and messages with the change against the previous period, issues that are new, came back or jumped, each app's health (OK, degraded, failing or silent), recent versions and recent alerts |
 | Investigate | **Issues** | Errors grouped by cause, in Unresolved / Came back / Resolved / Ignored / All tabs. Filter by app, environment, version and assignee; sort by most recent, newest, most frequent or most people; 24 h trend per issue; resolve, ignore, snooze or reopen several at once |
 | | **Issue** | What went wrong and where (your code first, all code, or plain text), the steps before the error, the web request, user and system, labels, how often it happened, which apps, versions, servers and routes it happens on, and every recent time it happened. Assign, comment, resolve now or in the next version, ignore until it happens N more times; an activity timeline in plain sentences |
-| | **Logs** | Every message your apps wrote. Search with plain chips ("Severity is Error", "App is api") over the [query language](docs/log-query-language.md), or the *Add filter* picker; filters sidebar with counts; a chart colored by severity, app, environment and more (drag to zoom, "each bar is 30 minutes"); *Similar messages* and *Charts* views; message details with "all messages from this request", the request timeline and surrounding messages; live mode, saved searches, CSV / NDJSON export |
+| | **Logs** | Every message your apps wrote. Search with plain chips ("Severity is Error", "App is api") over the [query language](docs/app/search.md), or the *Add filter* picker; filters sidebar with counts; a chart colored by severity, app, environment and more (drag to zoom, "each bar is 30 minutes"); *Similar messages* and *Charts* views; message details with "all messages from this request", the request timeline and surrounding messages; live mode, saved searches, CSV / NDJSON export |
 | | **Requests** | Each request your apps handled, step by step (traces): how long requests take, the busiest operations with typical / slow / failed share, and a timeline per request with step details, the messages logged during it and the errors it caused |
 | Monitor | **Dashboards** | How the project is doing over time, in three sections: errors, traffic (requests, failed share, response time, slowest endpoints, from app logs or OpenTelemetry) and activity, plus custom measurements from any OpenTelemetry metric |
 | | **Alerts** | Rules written as sentences ("Alert me when a problem suddenly jumps by more than 3 times compared with the previous 5 minutes, for api in prod, by e-mail and Slack"), a *Test this alert* button, and the alerts sent recently in plain words |
@@ -103,13 +103,13 @@ Light and dark themes follow the OS or the toggle. Below 1200 px wide the sideba
 icons. Every view keeps its state in the URL, so it can be shared. If ClickHouse stops
 answering, pages say so and come back on their own when it returns.
 
-The query language is documented in [docs/log-query-language.md](docs/log-query-language.md).
+The query language is documented in [docs/app/search.md](docs/app/search.md).
 
 ## HTTP API
 
 | Route | Auth | Purpose |
 |---|---|---|
-| `POST /v1/ingest` | API key | NDJSON events ([wire format](docs/wire-format-v2.md)); answers `{accepted, rejected, errors, dropped}` |
+| `POST /v1/ingest` | API key | NDJSON events ([wire format](docs/reference/wire-format.md)); answers `{accepted, rejected, errors, dropped}` |
 | `POST /v1/logs`, `/v1/traces`, `/v1/metrics` | API key | OTLP/HTTP (also under `/v1/otlp/v1/*`) |
 | `GET /v1/q/…` | API key (`X-API-Key` or `Bearer`) | the same JSON API the UI uses: `issues`, `issues/{id}`, `issues/{id}/trend`, `issues/{id}/breakdown`, `issues/{id}/occurrences`, `issues/{id}/activity`, `events/{id}`, `logs`, `logs/histogram`, `logs/facets`, `logs/patterns`, `logs/context`, `logs/aggregate`, `logs/export`, `traces`, `traces/{trace_id}`, `metrics/overview`, `metrics/errors`, `metrics/logs`, `metrics/top-issues`, `metrics/requests`, `metrics/services`, `metrics/attention`, `metrics/names`, `metrics/series`, `releases`, `saved-views`, `projects`, `projects/{id}/usage`, `projects/{id}/keys`, `alerts/rules`, `alerts/firings`, `admin/audit`, `system`; `POST` to change issue state, assign, comment, save views, manage projects, keys and rules. Keys need the `read` scope for GETs and `write` for the rest |
 | `GET /ui/api/…` | browser session | identical routes for the SPA (mutations need the `X-Pyloggle-Request: 1` header) |
@@ -163,7 +163,7 @@ All configuration is environment variables on `ingestd`.
 | `GOMEMLIMIT` | `200MiB` (compose) | Go soft memory limit |
 
 ClickHouse's own tuning lives in `deploy/clickhouse/{config.d,users.d}/pyloggle.xml` and is
-explained in [docs/footprint.md](docs/footprint.md).
+explained in [docs/self-hosting/retention-and-footprint.md](docs/self-hosting/retention-and-footprint.md).
 
 ## Retention and footprint
 
@@ -179,9 +179,9 @@ source. Measure your own install with `make footprint`.
 From 0.2: `docker compose pull && docker compose up -d` (or deploy the new binary). The first
 start applies additive migrations (workflow, request stats, spans, metrics, usage, keys) and
 copies each project's key as its `default` scoped key; `pip install -U pyloggle` needs no code
-change. Read [docs/upgrading-0.3.md](docs/upgrading-0.3.md): webhook payloads, quota semantics
+change. Read [docs/self-hosting/upgrading-0.3.md](docs/self-hosting/upgrading-0.3.md): webhook payloads, quota semantics
 and the `OTLP_STORE_SERVER_SPANS` default changed. From 0.1, read
-[docs/upgrading-0.2.md](docs/upgrading-0.2.md) first.
+[docs/self-hosting/upgrading-0.2.md](docs/self-hosting/upgrading-0.2.md) first.
 
 ## Development
 

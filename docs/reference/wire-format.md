@@ -1,18 +1,34 @@
-# Wire format v2 (`POST /v1/ingest`)
+# Wire format
 
-Newline-delimited JSON, one event per line, `Content-Type: application/x-ndjson` (gzip accepted
-with `Content-Encoding: gzip`). Authenticate with `X-API-Key: <project key>` or
-`Authorization: Bearer <key>`. Up to 1 000 lines per request; larger bodies get `413` and the
-SDK splits them.
+This page describes what the Python SDK sends to `POST /v1/ingest`, for anyone who wants to
+send data from another language or check what is stored. Apps that use OpenTelemetry send to
+the [OpenTelemetry endpoints](../send-data/opentelemetry.md) instead.
 
-The response is never silent:
+## Request
+
+- **Body:** newline-delimited JSON, one event per line, with
+  `Content-Type: application/x-ndjson`. Add `Content-Encoding: gzip` to send it compressed.
+- **Access key:** `X-API-Key: <key>` or `Authorization: Bearer <key>`. The key needs the *Send
+  data* permission. Without a key, events go to the project named by
+  `PYLOGGLE_DEFAULT_PROJECT_ID`, unless that setting is empty.
+- **Size:** one line may be up to 4 MB, and a request may hold any number of lines. A line
+  over 4 MB fails the whole request with `400`. The SDK sends up to 200 events per request and splits
+  a batch in half when a proxy in front of the server answers `413`.
+
+## Response
+
+The server answers `202 Accepted` and says what it did with every line:
 
 ```json
-{"accepted": 98, "rejected": 2, "errors": ["line 4: invalid character …"], "dropped": {"sampled": 10, "rate_limit": 0}}
+{"accepted": 98, "rejected": 2, "errors": ["line 4: invalid character …"], "dropped": {"sampled": 10}}
 ```
 
-`rejected` lines could not be decoded (first five reasons in `errors`); `dropped` lines were
-decoded and intentionally not stored (sampling, per-service rate limit, queue full, quota).
+- `rejected` lines could not be read. `errors` gives the first five reasons.
+- `dropped` lines were read and then not stored on purpose, counted by reason: `sampled`,
+  `rate_limit`, `queue_full` or `quota`. It is left out when nothing was dropped.
+
+Other answers: `401` for an unknown key or a missing one, `403` for a key without the *Send
+data* permission, `400` for a body that is not valid gzip or has a line that is too long.
 
 ## Decoding is lenient
 
@@ -83,12 +99,8 @@ Type + module (unless `builtins`) + up to six in-app frames from the crash site 
 three innermost frames. No exception → `logger` + the message with numbers, hex, uuids and quoted
 strings replaced. The culprit shown in lists is the innermost in-app frame.
 
-## OTLP
+## OpenTelemetry
 
-`POST /v1/logs`, `/v1/traces` and `/v1/metrics` (accepted and discarded) take OTLP/HTTP protobuf
-or JSON, plus the `/v1/otlp/v1/*` aliases. Resource attributes map to service / env / release /
-host / runtime / SDK, severity to level, the body to the message, the scope to the logger,
-`exception.*` to a structured exception (Python tracebacks are parsed; `exception.escaped` sets
-`handled=false`), `http.*` / `url.full` / `client.address` to the request and `enduser.id` to
-the user. Span events named `exception` become errors; spans with status ERROR become error
-logs; OK server spans are stored as `request` logs only with `OTLP_STORE_SERVER_SPANS=true`.
+`POST /v1/logs`, `/v1/traces` and `/v1/metrics` take OTLP/HTTP in protobuf or JSON. What each
+one stores, and how OpenTelemetry fields map onto the ones above, is on the
+[OpenTelemetry page](../send-data/opentelemetry.md).

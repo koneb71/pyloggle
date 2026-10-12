@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 440" width="740" height="440" role="img" aria-labelledby="t d">
+  <title id="t">How Pyloggle works</title>
+  <desc id="d">Python apps and other apps send data to the Pyloggle server. The server stores it in ClickHouse, serves the app to your browser and sends alerts by e-mail, Slack, Telegram or webhook.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8a94a6"/>
+    </marker>
+    <style>
+      text { font-family: Inter, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      .card { fill: #ffffff; stroke: #cfd6e0; stroke-width: 1.5; }
+      .title { font-size: 17px; font-weight: 600; fill: #1f2937; }
+      .sub { font-size: 14px; fill: #4b5563; }
+      .line { stroke: #8a94a6; stroke-width: 2; fill: none; }
+      .server { fill: #2262c0; }
+      .stitle { font-size: 20px; font-weight: 600; fill: #ffffff; }
+      .ssub { font-size: 14px; fill: #ffffff; opacity: .85; }
+      .item { font-size: 15px; fill: #ffffff; }
+      .dot { fill: #ffffff; opacity: .7; }
+    </style>
+  </defs>
+
+  <!-- Your apps -->
+  <rect class="card" x="20" y="10" width="340" height="86" rx="10"/>
+  <text class="title" x="42" y="42">Python apps</text>
+  <text class="sub" x="42" y="68">The pyloggle package sends errors,</text>
+  <text class="sub" x="42" y="86">messages and requests</text>
+
+  <rect class="card" x="380" y="10" width="340" height="86" rx="10"/>
+  <text class="title" x="402" y="42">Other apps</text>
+  <text class="sub" x="402" y="68">Anything with OpenTelemetry: logs,</text>
+  <text class="sub" x="402" y="86">request steps and metrics</text>
+
+  <path class="line" d="M190 98 L 190 140" marker-end="url(#arrow)"/>
+  <path class="line" d="M550 98 L 550 140" marker-end="url(#arrow)"/>
+
+  <!-- The server -->
+  <rect class="server" x="20" y="144" width="700" height="124" rx="12"/>
+  <text class="stitle" x="44" y="190">Pyloggle server</text>
+  <text class="ssub" x="44" y="214">One program: ingestd</text>
+  <circle class="dot" cx="282" cy="191" r="3.5"/><text class="item" x="296" y="196">Receives your data</text>
+  <circle class="dot" cx="282" cy="229" r="3.5"/><text class="item" x="296" y="234">Groups errors into issues</text>
+  <circle class="dot" cx="496" cy="191" r="3.5"/><text class="item" x="510" y="196">Checks your alert rules</text>
+  <circle class="dot" cx="496" cy="229" r="3.5"/><text class="item" x="510" y="234">Serves the app and API</text>
+
+  <path class="line" d="M130 274 L 130 326" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <path class="line" d="M370 270 L 370 326" marker-end="url(#arrow)"/>
+  <path class="line" d="M610 270 L 610 326" marker-end="url(#arrow)"/>
+
+  <!-- Where it goes -->
+  <rect class="card" x="20" y="330" width="220" height="96" rx="10"/>
+  <text class="title" x="42" y="362">ClickHouse</text>
+  <text class="sub" x="42" y="388">The database that</text>
+  <text class="sub" x="42" y="406">stores it all</text>
+
+  <rect class="card" x="260" y="330" width="220" height="96" rx="10"/>
+  <text class="title" x="282" y="362">Your browser</text>
+  <text class="sub" x="282" y="388">The app, at /ui</text>
+
+  <rect class="card" x="500" y="330" width="220" height="96" rx="10"/>
+  <text class="title" x="522" y="362">Alerts</text>
+  <text class="sub" x="522" y="388">E-mail, Slack, Telegram</text>
+  <text class="sub" x="522" y="406">or a webhook</text>
+</svg>
