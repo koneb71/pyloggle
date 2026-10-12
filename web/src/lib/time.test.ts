@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, bucketLabel, fmtNumber, rangeLabel, resolveRange } from "./time";
+import { ago, bucketLabel, durationWords, fmtNumber, fmtWhen, rangeLabel, resolveRange } from "./time";
 
 describe("resolveRange", () => {
   const now = Date.UTC(2026, 9, 11, 12, 0, 0);
@@ -14,8 +14,9 @@ describe("resolveRange", () => {
     expect(r.to.toISOString()).toBe("2026-10-02T00:00:00.000Z");
   });
   it("labels quick ranges", () => {
-    expect(rangeLabel({ from: "-1h", to: "" })).toBe("Last 1h");
-    expect(rangeLabel({ from: "-30d", to: "" })).toBe("Last 30d");
+    expect(rangeLabel({ from: "-15m", to: "" })).toBe("Last 15 minutes");
+    expect(rangeLabel({ from: "-1h", to: "" })).toBe("Last hour");
+    expect(rangeLabel({ from: "-30d", to: "" })).toBe("Last 30 days");
   });
 });
 
@@ -34,7 +35,24 @@ describe("formatting", () => {
   it("ago", () => {
     const now = Date.now();
     expect(ago(new Date(now - 2000).toISOString(), now)).toBe("just now");
-    expect(ago(new Date(now - 90_000).toISOString(), now)).toBe("2m ago");
-    expect(ago(new Date(now - 3 * 3600_000).toISOString(), now)).toBe("3h ago");
+    expect(ago(new Date(now - 30_000).toISOString(), now)).toBe("30 sec ago");
+    expect(ago(new Date(now - 90_000).toISOString(), now)).toBe("2 min ago");
+    expect(ago(new Date(now - 3600_000).toISOString(), now)).toBe("1 hour ago");
+    expect(ago(new Date(now - 3 * 3600_000).toISOString(), now)).toBe("3 hours ago");
+    expect(ago(new Date(now - 5 * 864e5).toISOString(), now)).toBe("5 days ago");
+  });
+  it("fmtWhen", () => {
+    const now = new Date(2026, 9, 12, 15, 0, 0);
+    expect(fmtWhen(new Date(2026, 9, 12, 9, 28, 56), { seconds: true }, now)).toBe("Today 09:28:56");
+    expect(fmtWhen(new Date(2026, 9, 11, 18, 2, 0), {}, now)).toBe("Yesterday 18:02");
+    expect(fmtWhen(new Date(2026, 9, 3, 18, 2, 0), {}, now)).toBe("Oct 3 18:02");
+    expect(fmtWhen(new Date(2025, 0, 3, 8, 0, 0), {}, now)).toBe("Jan 3, 2025 08:00");
+  });
+  it("durationWords", () => {
+    expect(durationWords(30)).toBe("30 seconds");
+    expect(durationWords(60)).toBe("1 minute");
+    expect(durationWords(1800)).toBe("30 minutes");
+    expect(durationWords(3600)).toBe("1 hour");
+    expect(durationWords(86400 * 2)).toBe("2 days");
   });
 });

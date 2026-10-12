@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import clsx from "clsx";
 import { Filter, FilterX } from "lucide-react";
+import { fieldLabel, isCodeLike } from "@/lib/fields";
 import { CopyButton } from "./misc";
 
 export interface KVAction {
@@ -9,49 +10,66 @@ export interface KVAction {
 }
 
 /**
- * Key/value list used for attributes, tags, HTTP and user blocks. Every value offers
- * Filter / Exclude / Copy on hover when handlers are supplied.
+ * Key/value list for details, attributes and labels. Keys read as plain labels ("Response
+ * code"), with the technical name on hover; values are monospace only when they are code or
+ * identifiers. Every value offers Show only / Hide / Copy on hover when handlers are supplied.
  */
-export function KeyValueList({ entries, actions, keyPrefix = "", className, mono = true, emptyText = "none" }: { entries: Record<string, unknown> | [string, unknown][] | undefined; actions?: KVAction; keyPrefix?: string; className?: string; mono?: boolean; emptyText?: string }) {
-  const list = Array.isArray(entries) ? entries : Object.entries(entries ?? {});
-  if (list.length === 0) return <div className="px-1 text-xs text-ink-3">{emptyText}</div>;
+export function KeyValueList({
+  entries,
+  actions,
+  keyPrefix = "",
+  className,
+  mono = "auto",
+  humanize = true,
+  emptyText = "Nothing recorded",
+}: {
+  entries: Record<string, unknown> | [string, unknown][] | undefined;
+  actions?: KVAction;
+  keyPrefix?: string;
+  className?: string;
+  mono?: boolean | "auto";
+  humanize?: boolean;
+  emptyText?: string;
+}) {
+  const list = (Array.isArray(entries) ? entries : Object.entries(entries ?? {}))
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => {
+      const sv = typeof v === "string" ? v : typeof v === "object" ? JSON.stringify(v) : String(v);
+      return { k, v: sv, label: humanize ? fieldLabel(k) : k };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+  if (list.length === 0) return <div className="text-[13px] text-ink-3">{emptyText}</div>;
   return (
-    <dl className={clsx("grid grid-cols-[minmax(8rem,max-content)_1fr] gap-x-3 text-xs", className)}>
-      {list
-        .filter(([, v]) => v !== undefined && v !== null && v !== "")
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => {
-          const sv = typeof v === "string" ? v : typeof v === "object" ? JSON.stringify(v) : String(v);
-          return (
-            <Row key={k} k={k} v={sv} mono={mono}>
-              {actions?.onFilter && (
-                <button type="button" title={`Filter ${keyPrefix}${k}:${sv}`} className="rounded p-0.5 text-ink-3 hover:bg-surface-3 hover:text-accent" onClick={() => actions.onFilter!(keyPrefix + k, sv)}>
-                  <Filter size={11} />
-                </button>
-              )}
-              {actions?.onExclude && (
-                <button type="button" title={`Exclude ${keyPrefix}${k}:${sv}`} className="rounded p-0.5 text-ink-3 hover:bg-surface-3 hover:text-critical" onClick={() => actions.onExclude!(keyPrefix + k, sv)}>
-                  <FilterX size={11} />
-                </button>
-              )}
-              <CopyButton text={sv} className="h-4 px-0.5" />
-            </Row>
-          );
-        })}
+    <dl className={clsx("grid grid-cols-[minmax(7rem,max-content)_minmax(0,1fr)] gap-x-4 text-[13px]", className)}>
+      {list.map(({ k, v, label }) => (
+        <Row key={k} label={label} technical={keyPrefix + k} v={v} mono={mono === "auto" ? isCodeLike(k, v) : mono}>
+          {actions?.onFilter && (
+            <button type="button" title={`Show only ${label}: ${v}`} aria-label={`Show only ${label}: ${v}`} className="rounded p-1 text-ink-3 hover:bg-surface-3 hover:text-accent" onClick={() => actions.onFilter!(keyPrefix + k, v)}>
+              <Filter size={12} />
+            </button>
+          )}
+          {actions?.onExclude && (
+            <button type="button" title={`Hide ${label}: ${v}`} aria-label={`Hide ${label}: ${v}`} className="rounded p-1 text-ink-3 hover:bg-surface-3 hover:text-critical-text" onClick={() => actions.onExclude!(keyPrefix + k, v)}>
+              <FilterX size={12} />
+            </button>
+          )}
+          <CopyButton text={v} label={`Copy ${label}`} className="h-6" />
+        </Row>
+      ))}
     </dl>
   );
 }
 
-function Row({ k, v, mono, children }: { k: string; v: string; mono: boolean; children: ReactNode }) {
+function Row({ label, technical, v, mono, children }: { label: string; technical: string; v: string; mono: boolean; children: ReactNode }) {
   return (
-    <>
-      <dt className="group/kv truncate py-0.5 font-mono text-ink-3" title={k}>
-        {k}
+    <div className="group/kv contents">
+      <dt className="truncate py-1 text-ink-3" title={label === technical ? undefined : `Field: ${technical}`}>
+        {label}
       </dt>
-      <dd className="group/kv flex min-w-0 items-start gap-1 py-0.5">
-        <span className={clsx("min-w-0 flex-1 whitespace-pre-wrap break-all text-ink", mono && "font-mono")}>{v}</span>
-        <span className="invisible flex flex-none items-center group-hover/kv:visible">{children}</span>
+      <dd className="flex min-w-0 items-start gap-1 py-1">
+        <span className={clsx("min-w-0 flex-1 whitespace-pre-wrap break-words text-ink", mono && "break-all font-mono text-[12px] leading-5")}>{v}</span>
+        <span className="invisible -my-0.5 flex flex-none items-center group-hover/kv:visible group-focus-within/kv:visible">{children}</span>
       </dd>
-    </>
+    </div>
   );
 }

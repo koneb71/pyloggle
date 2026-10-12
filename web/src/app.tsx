@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMe, useProjectMutations } from "@/api/hooks";
 import { ApiRequestError, setUnauthorizedHandler } from "@/api/client";
 import { AppShell } from "@/components/shell/app-shell";
-import { Spinner } from "@/components/ui";
+import { Button, ErrorState, Spinner } from "@/components/ui";
 import { LoginPage } from "@/features/auth/login-page";
 import { IssuesPage } from "@/features/issues/issues-page";
 import { IssueDetailPage } from "@/features/issues/issue-detail-page";
@@ -39,8 +39,10 @@ export function App() {
   const unauthorized = me.isError && me.error instanceof ApiRequestError && me.error.status === 401;
   if (me.isError && !unauthorized) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-critical">
-        Could not reach the API: {me.error instanceof Error ? me.error.message : String(me.error)}
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-lg border border-border bg-surface">
+          <ErrorState error={me.error} title="Can't reach the Pyloggle server" retry={() => me.refetch()} />
+        </div>
       </div>
     );
   }
@@ -72,16 +74,30 @@ export function App() {
   );
 }
 
-/** Pages that need an active project: auto-select the first one, or send the user to Projects. */
+/** Pages that need an active project: pick the first one automatically, or send the user to Projects. */
 function NeedsProject({ me, children }: { me: NonNullable<ReturnType<typeof useMe>["data"]>; children: React.ReactElement }) {
   const { select } = useProjectMutations();
   const first = me.projects[0];
   useEffect(() => {
-    if (!me.project && first && !select.isPending) select.mutate(first.id);
+    if (!me.project && first && select.isIdle) select.mutate(first.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me.project?.id, first?.id]);
   if (me.project) return children;
   if (!first) return <Navigate to="/projects?first=1" replace />;
+  if (select.isError) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-lg border border-border bg-surface">
+          <ErrorState error={select.error} title={`Couldn't open the project "${first.name}"`} retry={() => select.mutate(first.id)} />
+          <div className="border-t border-border px-4 py-3 text-center">
+            <Button variant="ghost" onClick={() => (window.location.href = "/ui/projects")}>
+              Go to Projects
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex h-full items-center justify-center">
       <Spinner />

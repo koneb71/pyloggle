@@ -4,25 +4,27 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Design tokens. Chart series colors below were validated with the dataviz palette validator
- * (light: aqua/blue/yellow/red/violet, dark: the same hues stepped for the dark surface).
- * Status colors are reserved for state (never reused as a series) and always ship with a label.
+ * Design tokens.
+ * - Neutrals: white cards on a warm off-white page; muted text meets WCAG AA (4.5:1) on both.
+ * - Chart series and level colors were validated with the dataviz palette validator and are
+ *   unchanged by the redesign. Status colors are reserved for state and always ship with a label.
  */
 :root {
   color-scheme: light;
-  --bg: #f9f9f7;          /* page plane */
-  --surface: #fcfcfb;     /* cards, table, chart surface */
-  --surface-2: #f3f2ee;   /* inset / hover */
-  --surface-3: #ebeae4;
-  --border: rgba(11, 11, 11, 0.1);
-  --border-strong: #c3c2b7;
-  --grid: #e1e0d9;
-  --text: #0b0b0b;
-  --text-2: #52514e;
-  --text-3: #898781;
+  --bg: #f6f6f4;          /* page plane */
+  --surface: #ffffff;     /* cards, tables, chart surface */
+  --surface-2: #f4f4f1;   /* inset, hover, table header */
+  --surface-3: #eaeae5;   /* pressed, skeleton, subtle chips */
+  --border: rgba(17, 17, 16, 0.09);
+  --border-strong: #d2d1ca;
+  --grid: #ecebe6;
+  --text: #121211;
+  --text-2: #4a4945;
+  --text-3: #6c6b66;      /* 5.3:1 on white, 5.0:1 on --bg */
   --accent: #2a78d6;
+  --accent-hover: #2266b8;
   --accent-ink: #ffffff;
-  --accent-soft: #e7f0fb;
+  --accent-soft: #eaf2fc;
   --focus: #2a78d6;
 
   --lvl-debug: #1baf7a;
@@ -33,10 +35,12 @@
   --lvl-other: #898781;
 
   --st-good: #0ca30c;
-  --st-good-text: #006300;
+  --st-good-text: #0b6e0b;
   --st-warning: #fab219;
+  --st-warning-text: #8a5d00;
   --st-serious: #ec835a;
   --st-critical: #d03b3b;
+  --st-critical-text: #b42f2f;
 
   --series-1: #2a78d6;
   --series-2: #eb6834;
@@ -47,27 +51,29 @@
   --series-7: #6250d6;
   --series-8: #e34948;
 
-  --shadow: 0 1px 2px rgba(11, 11, 11, 0.06), 0 4px 16px rgba(11, 11, 11, 0.06);
+  --shadow: 0 1px 2px rgba(17, 17, 16, 0.05), 0 8px 24px rgba(17, 17, 16, 0.08);
   --radius: 8px;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius-card: 10px;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 .dark {
   color-scheme: dark;
-  --bg: #0d0d0d;
-  --surface: #1a1a19;
-  --surface-2: #232322;
-  --surface-3: #2c2c2a;
-  --border: rgba(255, 255, 255, 0.1);
-  --border-strong: #383835;
-  --grid: #2c2c2a;
-  --text: #f0efec;
-  --text-2: #c3c2b7;
-  --text-3: #898781;
+  --bg: #0e0e0d;
+  --surface: #171716;
+  --surface-2: #1f1f1d;
+  --surface-3: #292927;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: #3a3a37;
+  --grid: #262624;
+  --text: #f2f1ee;
+  --text-2: #c4c3bc;
+  --text-3: #9b9a93;      /* 6.1:1 on --surface */
   --accent: #3987e5;
+  --accent-hover: #5a9cea;
   --accent-ink: #ffffff;
-  --accent-soft: #15283f;
+  --accent-soft: #16273d;
   --focus: #3987e5;
 
   --lvl-debug: #199e70;
@@ -78,10 +84,12 @@
   --lvl-other: #898781;
 
   --st-good: #0ca30c;
-  --st-good-text: #0ca30c;
+  --st-good-text: #3fbf3f;
   --st-warning: #fab219;
+  --st-warning-text: #f0b43c;
   --st-serious: #ec835a;
   --st-critical: #d03b3b;
+  --st-critical-text: #f07070;
 
   --series-1: #3987e5;
   --series-2: #d95926;
@@ -92,7 +100,7 @@
   --series-7: #9085e9;
   --series-8: #e66767;
 
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
 }
 
 @theme inline {
@@ -109,14 +117,18 @@
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-hover: var(--accent-hover);
   --color-good: var(--st-good);
   --color-good-text: var(--st-good-text);
   --color-warning: var(--st-warning);
+  --color-warning-text: var(--st-warning-text);
   --color-serious: var(--st-serious);
   --color-critical: var(--st-critical);
+  --color-critical-text: var(--st-critical-text);
   --font-sans: var(--sans);
   --font-mono: var(--mono);
   --radius-md: var(--radius);
+  --radius-lg: var(--radius-card);
 }
 
 html,
@@ -130,13 +142,20 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.5;
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-* {
-  border-color: var(--border);
+/* In a layer, so utilities such as border-transparent can override it. */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
 }
 
 :focus-visible {
@@ -203,7 +222,6 @@ kbd {
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-2);
-  font-family: var(--mono);
   font-size: 12px;
   max-width: 28rem;
 }
@@ -224,6 +242,7 @@ kbd {
 .recharts-cartesian-axis-tick text {
   fill: var(--text-3);
   font-size: 11px;
+  font-family: var(--sans);
   font-variant-numeric: tabular-nums;
 }
 .recharts-tooltip-cursor {
@@ -251,4 +270,34 @@ kbd {
   border-radius: 999px;
   background: var(--st-good);
   animation: pulse-soft 1.2s ease-in-out infinite;
+}
+
+/* Plain-language terms: a dotted underline says "hover me for the technical name". */
+.term {
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in oklab, var(--text-3) 70%, transparent);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.toast-in {
+  animation: toast-in 0.16s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .live-dot,
+  .toast-in {
+    animation: none;
+  }
 }

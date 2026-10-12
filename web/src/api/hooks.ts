@@ -64,7 +64,7 @@ function invalidateIssue(qc: ReturnType<typeof useQueryClient>) {
 
 export function useIssueState() {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation({ meta: { action: "update the issue" },
     mutationFn: (v: { id: string } & StateChange) => {
       const { id, ...body } = v;
       return post(`/issues/${id}/state`, body);
@@ -75,7 +75,7 @@ export function useIssueState() {
 
 export function useBulkIssueState() {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation({ meta: { action: "update the selected issues" },
     mutationFn: (v: { issue_ids: string[] } & StateChange) => post(`/issues/state`, v),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["issues"] }),
   });
@@ -83,7 +83,7 @@ export function useBulkIssueState() {
 
 export function useAssignIssue() {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation({ meta: { action: "change who it is assigned to" },
     mutationFn: (v: { id: string; assignee: string }) => post<{ ok: boolean; assignee: string }>(`/issues/${v.id}/assign`, { assignee: v.assignee }),
     onSuccess: () => invalidateIssue(qc),
   });
@@ -91,7 +91,7 @@ export function useAssignIssue() {
 
 export function useAddComment() {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation({ meta: { action: "add the comment" },
     mutationFn: (v: { id: string; body: string }) => post(`/issues/${v.id}/comments`, { body: v.body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["issue-activity"] }),
   });
@@ -149,7 +149,7 @@ export const useSavedViews = () => useQuery({ queryKey: ["saved-views"], queryFn
 
 export function useSaveView() {
   const qc = useQueryClient();
-  return useMutation({
+  return useMutation({ meta: { inlineError: true },
     mutationFn: (v: Partial<SavedView>) => post<{ view: SavedView }>("/saved-views", v),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-views"] }),
   });
@@ -157,7 +157,7 @@ export function useSaveView() {
 
 export function useDeleteView() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (id: string) => del(`/saved-views/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-views"] }) });
+  return useMutation({ meta: { action: "delete the saved search" }, mutationFn: (id: string) => del(`/saved-views/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-views"] }) });
 }
 
 export const useOverview = (p: { from?: string; to?: string; service?: string; env?: string }) =>
@@ -228,19 +228,21 @@ export function useProjectMutations() {
     qc.invalidateQueries({ queryKey: ["me"] });
   };
   return {
-    create: useMutation({ mutationFn: (v: Partial<Project>) => post<{ project: Project; api_key: string }>("/projects", v), onSuccess: invalidate }),
-    update: useMutation({ mutationFn: (v: Partial<Project> & { id: string }) => post<{ project: Project }>(`/projects/${v.id}`, v), onSuccess: invalidate }),
+    create: useMutation({ meta: { inlineError: true }, mutationFn: (v: Partial<Project>) => post<{ project: Project; api_key: string }>("/projects", v), onSuccess: invalidate }),
+    update: useMutation({ meta: { inlineError: true }, mutationFn: (v: Partial<Project> & { id: string }) => post<{ project: Project }>(`/projects/${v.id}`, v), onSuccess: invalidate }),
     createKey: useMutation({
+      meta: { inlineError: true },
       mutationFn: (v: { id: string; name: string; scopes: string[] }) => post<{ key: APIKey; api_key: string }>(`/projects/${v.id}/keys`, { name: v.name, scopes: v.scopes }),
       onSuccess: (_r, v) => qc.invalidateQueries({ queryKey: ["project-keys", v.id] }),
     }),
     revokeKey: useMutation({
+      meta: { action: "disable the key" },
       mutationFn: (v: { id: string; key_id: string }) => post<{ ok: boolean }>(`/projects/${v.id}/keys/${v.key_id}/revoke`),
       onSuccess: (_r, v) => qc.invalidateQueries({ queryKey: ["project-keys", v.id] }),
     }),
-    remove: useMutation({ mutationFn: (id: string) => del<{ status: string }>(`/projects/${id}`), onSuccess: invalidate }),
-    purgeUser: useMutation({ mutationFn: (v: { id: string; user_id_hash?: string; user_email?: string }) => post<{ status: string }>(`/projects/${v.id}/purge-user`, { user_id_hash: v.user_id_hash, user_email: v.user_email }) }),
-    select: useMutation({ mutationFn: (project_id: string) => post("/project/select", { project_id }), onSuccess: () => qc.invalidateQueries() }),
+    remove: useMutation({ meta: { inlineError: true }, mutationFn: (id: string) => del<{ status: string }>(`/projects/${id}`), onSuccess: invalidate }),
+    purgeUser: useMutation({ meta: { inlineError: true }, mutationFn: (v: { id: string; user_id_hash?: string; user_email?: string }) => post<{ status: string }>(`/projects/${v.id}/purge-user`, { user_id_hash: v.user_id_hash, user_email: v.user_email }) }),
+    select: useMutation({ meta: { action: "switch project" }, mutationFn: (project_id: string) => post("/project/select", { project_id }), onSuccess: () => qc.invalidateQueries() }),
   };
 }
 
@@ -251,15 +253,15 @@ export const previewAlertRule = (p: { query: string; window_seconds: number; ser
 
 export function useSaveAlertRule() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (rule: Partial<AlertRule>) => post<{ rule: AlertRule }>("/alerts/rules", { rule }), onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-rules"] }) });
+  return useMutation({ meta: { inlineError: true }, mutationFn: (rule: Partial<AlertRule>) => post<{ rule: AlertRule }>("/alerts/rules", { rule }), onSuccess: () => qc.invalidateQueries({ queryKey: ["alert-rules"] }) });
 }
 
 export function useLogin() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (api_key: string) => post("/login", { api_key }), onSuccess: () => qc.invalidateQueries() });
+  return useMutation({ meta: { inlineError: true }, mutationFn: (api_key: string) => post("/login", { api_key }), onSuccess: () => qc.invalidateQueries() });
 }
 
 export function useLogout() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: () => post("/logout"), onSuccess: () => qc.clear() });
+  return useMutation({ meta: { action: "sign out" }, mutationFn: () => post("/logout"), onSuccess: () => qc.clear() });
 }
