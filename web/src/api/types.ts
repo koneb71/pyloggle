@@ -480,6 +480,42 @@ export interface MetricSeries {
 export interface RequestStatsResponse extends RequestStats {
   source: "logs" | "otel" | string;
   available: boolean;
+  /** The same-length range just before (with compare=previous). */
+  previous_totals?: RouteStats;
+}
+
+export type HealthStatus = "failing" | "degraded" | "silent" | "ok";
+
+/** One app's picture over a range (Overview "Apps"). */
+export interface ServiceHealth {
+  service: string;
+  envs: string[];
+  status: HealthStatus;
+  requests: number;
+  failed: number;
+  failed_pct: number;
+  rpm: number;
+  p50_ms: number;
+  p95_ms: number;
+  errors: number;
+  logs: number;
+  last_seen: string;
+}
+
+export interface Release {
+  release: string;
+  first_seen: string;
+  errors: number;
+  issues: number;
+}
+
+export type AttentionReason = "regressed" | "new" | "spike";
+
+export interface AttentionItem {
+  issue: IssueSummary;
+  reasons: AttentionReason[];
+  count: number;
+  previous_count: number;
 }
 
 export interface UsageDay {

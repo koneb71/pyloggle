@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ago, bucketLabel, durationWords, fmtNumber, fmtWhen, rangeLabel, resolveRange } from "./time";
+import { ago, bucketLabel, durationWords, fmtNumber, fmtWhen, previousLabel, rangeLabel, rangePhrase, resolveRange } from "./time";
 
 describe("resolveRange", () => {
   const now = Date.UTC(2026, 9, 11, 12, 0, 0);
@@ -17,6 +17,9 @@ describe("resolveRange", () => {
     expect(rangeLabel({ from: "-15m", to: "" })).toBe("Last 15 minutes");
     expect(rangeLabel({ from: "-1h", to: "" })).toBe("Last hour");
     expect(rangeLabel({ from: "-30d", to: "" })).toBe("Last 30 days");
+    expect(rangePhrase({ from: "-24h", to: "" })).toBe("the last 24 hours");
+    expect(previousLabel({ from: "-1h", to: "" })).toBe("vs previous hour");
+    expect(previousLabel({ from: "2026-10-01T00:00:00Z", to: "2026-10-02T00:00:00Z" })).toBe("vs the period before");
   });
 });
 

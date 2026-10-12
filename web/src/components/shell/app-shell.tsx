@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentType } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import clsx from "clsx";
-import { Activity, AlertOctagon, Bell, Check, ChevronsUpDown, FolderKanban, GitBranch, Keyboard, LayoutDashboard, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, Sun, SunMoon } from "lucide-react";
+import { Activity, AlertOctagon, Bell, Check, ChevronsUpDown, FolderKanban, GitBranch, Home, Keyboard, LayoutDashboard, LogOut, Moon, PanelLeftClose, PanelLeftOpen, ScrollText, Sun, SunMoon } from "lucide-react";
 import type { Me } from "@/api/types";
 import { useLogout, useProjectMutations } from "@/api/hooks";
 import { Dialog, IconButton, Kbd, MenuItem, Popover, Tooltip } from "@/components/ui";
@@ -18,6 +18,7 @@ interface NavItem {
 
 /** Navigation grouped by what people come to do: look into problems, keep watch, set things up. */
 const NAV: { title?: string; items: NavItem[] }[] = [
+  { items: [{ to: "/overview", label: "Overview", hint: "Is everything OK right now?", icon: Home, key: "o" }] },
   {
     title: "Investigate",
     items: [

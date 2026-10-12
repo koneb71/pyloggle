@@ -3,6 +3,7 @@ package clickhouse
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -123,4 +124,158 @@ func q3(qs []float32) (p50, p95, p99 float64) {
 		return float64(qs[i])
 	}
 	return get(0), get(1), get(2)
+}
+
+// ServiceHealth summarizes each app over a range from the pre-aggregated tables: requests,
+// failures and latency (request_stats_minutely), error occurrences (issue_counts_hourly), and
+// log volume and last activity (log_counts_minutely). Status is classified by ClassifyService.
+func (c *Client) ServiceHealth(ctx context.Context, projectID, env string, from, to time.Time, limit int) ([]api.ServiceHealth, error) {
+	if strings.TrimSpace(projectID) == "" {
+		return nil, errors.New("missing project_id")
+	}
+	from, to = defaultRange(from, to, 24*time.Hour)
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	byService := map[string]*api.ServiceHealth{}
+	get := func(s string) *api.ServiceHealth {
+		h := byService[s]
+		if h == nil {
+			h = &api.ServiceHealth{Service: s, Envs: []string{}}
+			byService[s] = h
+		}
+		return h
+	}
+	envClause := ""
+	envArgs := []any{}
+	if env != "" {
+		envClause = " AND env = ?"
+		envArgs = append(envArgs, env)
+	}
+
+	q := `SELECT service, sum(cnt), max(bucket), groupUniqArray(8)(env) FROM log_counts_minutely
+		WHERE project_id = ? AND bucket >= ? AND bucket < ?` + envClause + ` GROUP BY service`
+	rows, err := c.conn.Query(ctx, q, append([]any{projectID, from.Truncate(time.Minute), to}, envArgs...)...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var svc string
+		var n uint64
+		var last time.Time
+		var envs []string
+		if err := rows.Scan(&svc, &n, &last, &envs); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		h := get(svc)
+		h.Logs, h.LastSeen = n, last.UTC()
+		h.Envs = append(h.Envs, envs...)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	q = `SELECT service, sum(requests), sum(errors), ` + latencyMerge + ` FROM request_stats_minutely
+		WHERE project_id = ? AND bucket >= ? AND bucket < ?` + envClause + ` GROUP BY service`
+	rows, err = c.conn.Query(ctx, q, append([]any{projectID, from.Truncate(time.Minute), to}, envArgs...)...)
+	if err != nil {
+		return nil, err
+	}
+	minutes := to.Sub(from).Minutes()
+	for rows.Next() {
+		var svc string
+		var req, failed uint64
+		var qs []float32
+		if err := rows.Scan(&svc, &req, &failed, &qs); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		h := get(svc)
+		h.Requests, h.Failed = req, failed
+		h.P50MS, h.P95MS, _ = q3(qs)
+		if req > 0 {
+			h.FailedPct = float64(failed) / float64(req) * 100
+		}
+		if minutes > 0 {
+			h.RPM = float64(req) / minutes
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	q = `SELECT service, sum(cnt) FROM issue_counts_hourly
+		WHERE project_id = ? AND bucket >= ? AND bucket < ?` + envClause + ` GROUP BY service`
+	rows, err = c.conn.Query(ctx, q, append([]any{projectID, from.Truncate(time.Hour), to}, envArgs...)...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var svc string
+		var n uint64
+		if err := rows.Scan(&svc, &n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		get(svc).Errors = n
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]api.ServiceHealth, 0, len(byService))
+	for _, h := range byService {
+		h.Status = ClassifyService(*h, to)
+		out = append(out, *h)
+	}
+	SortServiceHealth(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// Health thresholds: enough traffic to judge, and the failure shares that count as a problem.
+const (
+	healthMinRequests = 20
+	healthFailingPct  = 5.0
+	healthDegradedPct = 1.0
+	healthSilentAfter = time.Hour
+)
+
+// ClassifyService turns the numbers into one word. "silent" comes first: an app that sent
+// nothing in the last hour of the range can't be called failing or fine right now. Then
+// "failing" when 5% or more of at least 20 requests failed, "degraded" at 1% or with any error
+// occurrences, otherwise "ok".
+func ClassifyService(h api.ServiceHealth, rangeEnd time.Time) string {
+	judged := h.Requests >= healthMinRequests
+	switch {
+	case h.LastSeen.IsZero() || rangeEnd.Sub(h.LastSeen) > healthSilentAfter:
+		return "silent"
+	case judged && h.FailedPct >= healthFailingPct:
+		return "failing"
+	case (judged && h.FailedPct >= healthDegradedPct) || h.Errors > 0:
+		return "degraded"
+	}
+	return "ok"
+}
+
+var healthRank = map[string]int{"failing": 0, "degraded": 1, "silent": 2, "ok": 3}
+
+// SortServiceHealth puts problems first, then the busiest apps.
+func SortServiceHealth(list []api.ServiceHealth) {
+	sort.SliceStable(list, func(i, j int) bool {
+		a, b := list[i], list[j]
+		if healthRank[a.Status] != healthRank[b.Status] {
+			return healthRank[a.Status] < healthRank[b.Status]
+		}
+		if a.Requests+a.Logs != b.Requests+b.Logs {
+			return a.Requests+a.Logs > b.Requests+b.Logs
+		}
+		return a.Service < b.Service
+	})
 }

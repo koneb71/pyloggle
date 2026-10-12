@@ -10,7 +10,7 @@ export function LoginPage({ me }: { me?: Me }) {
   const nav = useNavigate();
   const loc = useLocation();
   const [key, setKey] = useState("");
-  const next = new URLSearchParams(loc.search).get("next") || "/issues";
+  const next = new URLSearchParams(loc.search).get("next") || "/overview";
   const err = new URLSearchParams(loc.search).get("err");
   const sso = me?.auth_mode === "azure" || me?.auth_mode === "oidc";
   const provider = me?.features.auth_provider || (me?.auth_mode === "azure" ? "Microsoft" : "SSO");
@@ -18,7 +18,7 @@ export function LoginPage({ me }: { me?: Me }) {
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!key.trim()) return;
-    login.mutate(key.trim(), { onSuccess: () => nav(next.startsWith("/") ? next : "/issues", { replace: true }) });
+    login.mutate(key.trim(), { onSuccess: () => nav(next.startsWith("/") ? next : "/overview", { replace: true }) });
   };
 
   return (
