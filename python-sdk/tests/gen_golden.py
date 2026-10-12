@@ -19,6 +19,19 @@ OUT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "internal", "model", 
 
 REQUIRED = ("chain", "vars", "breadcrumbs", "headers", "skip_issue", "runtime")
 
+# The file is committed to a public repository: nothing about the machine that generated it.
+REPO = os.path.dirname(os.path.dirname(HERE))
+FORBIDDEN = ("/home/", "/Users/", "/tmp/", "0x7f", "sk_live", "C:\\Users")
+
+
+def neutralize(line: str) -> str:
+    """Replace machine-specific values (paths, platform, memory addresses) with fixed ones."""
+    import re
+
+    line = line.replace(REPO.rstrip("/") + "/", "/app/")
+    line = re.sub(r'"platform":\s*"[^"]*"', '"platform":"Linux-x86_64"', line)
+    return re.sub(r"0x[0-9a-f]{6,}", "0x000000000000", line)
+
 
 def collect() -> list:
     lines = []
@@ -61,7 +74,7 @@ def collect() -> list:
     pyloggle.add_breadcrumb("cache miss", category="cache", data={"key": "k1"})
 
     def load(d):
-        api_key = "sk_live_1234567890abcdef"  # noqa: F841 - must be redacted in vars
+        api_key = "not-a-real-api-key-0000"  # noqa: F841 - must be redacted in vars
         return d["k"]
 
     try:
@@ -90,6 +103,10 @@ def check(path: str) -> int:
         raw = [l for l in f.read().split("\n") if l.strip()]
     text = "\n".join(raw)
     missing = [k for k in REQUIRED if f'"{k}"' not in text]
+    leaked = [k for k in FORBIDDEN if k in text]
+    if leaked:
+        print("golden file contains machine-specific values:", leaked)
+        return 1
     for l in raw:
         ev = json.loads(l)
         assert ev["event_id"] and ev["ts"].endswith("Z") and ev["sdk"]["version"], l
@@ -103,7 +120,7 @@ def check(path: str) -> int:
 if __name__ == "__main__":
     if "--check" in sys.argv:
         sys.exit(check(OUT))
-    lines = collect()
+    lines = [neutralize(l) for l in collect()]
     with open(OUT, "w") as f:
         f.write("\n".join(lines) + "\n")
     print(f"wrote {len(lines)} lines to {OUT}")
