@@ -245,6 +245,7 @@ type IssueSpikeRow struct {
 	Title     string `ch:"title"`
 	CurCount  uint64 `ch:"cur_count"`
 	PrevCount uint64 `ch:"prev_count"`
+	CurUsers  uint64 `ch:"cur_users"` // distinct people (hashed ids) in the current window
 }
 
 // ruleFilter renders the optional per-rule scope filters as positional " AND col = ?" clauses.
@@ -303,7 +304,8 @@ func issueSpikeCountsQuery(rule api.AlertRule, prevFrom, prevTo, curFrom, curTo 
 			issue_id,
 			any(title) as title,
 			countIf(ts >= ? AND ts < ?) as cur_count,
-			countIf(ts >= ? AND ts < ?) as prev_count
+			countIf(ts >= ? AND ts < ?) as prev_count,
+			uniqIf(user_id_hash, ts >= ? AND ts < ? AND user_id_hash != '') as cur_users
 		FROM error_occurrences
 		WHERE project_id = ? AND ts >= ? AND ts < ?` + where + `
 		GROUP BY issue_id
@@ -313,6 +315,7 @@ func issueSpikeCountsQuery(rule api.AlertRule, prevFrom, prevTo, curFrom, curTo 
 	args := []any{
 		curFrom.UTC(), curTo.UTC(),
 		prevFrom.UTC(), prevTo.UTC(),
+		curFrom.UTC(), curTo.UTC(),
 		rule.ProjectID,
 		prevFrom.UTC(), curTo.UTC(),
 	}

@@ -20,6 +20,57 @@ type fakeStore struct {
 	count     uint64
 	lastQuery clickhouse.LogQuery
 	firings   []clickhouse.AlertFiring
+
+	// enrichment
+	spikes    []clickhouse.IssueSpikeRow
+	newIssues []api.IssueSummary
+	occs      map[string][]api.ErrorOccurrence
+	logs      []api.LogEvent
+	traces    map[string]bool
+	block     bool // context lookups wait until their context ends
+	panics    bool // context lookups panic
+}
+
+func (f *fakeStore) lookup(ctx context.Context) error {
+	if f.panics {
+		panic("boom")
+	}
+	if f.block {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return nil
+}
+func (f *fakeStore) QueryLogs(ctx context.Context, q clickhouse.LogQuery) ([]api.LogEvent, error) {
+	if err := f.lookup(ctx); err != nil {
+		return nil, err
+	}
+	if len(f.logs) > q.Limit {
+		return f.logs[:q.Limit], nil
+	}
+	return f.logs, nil
+}
+func (f *fakeStore) QueryOccurrences(ctx context.Context, _, issueID string, _, _, _ time.Time, limit int) ([]api.ErrorOccurrence, error) {
+	if err := f.lookup(ctx); err != nil {
+		return nil, err
+	}
+	o := f.occs[issueID]
+	if len(o) > limit {
+		o = o[:limit]
+	}
+	return o, nil
+}
+func (f *fakeStore) TracesWithSpans(ctx context.Context, _ string, ids []string, _, _ time.Time) (map[string]bool, error) {
+	if err := f.lookup(ctx); err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, id := range ids {
+		if f.traces[id] {
+			out[id] = true
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeStore) ListEnabledAlertRules(context.Context) ([]api.AlertRule, error) {
@@ -38,11 +89,14 @@ func (f *fakeStore) InsertAlertFiring(_ context.Context, fr clickhouse.AlertFiri
 func (f *fakeStore) CountErrorOccurrences(context.Context, api.AlertRule, time.Time, time.Time) (uint64, error) {
 	return f.count, nil
 }
-func (f *fakeStore) IssueSpikeCounts(context.Context, api.AlertRule, time.Time, time.Time, time.Time, time.Time, int) ([]clickhouse.IssueSpikeRow, error) {
-	return nil, nil
+func (f *fakeStore) IssueSpikeCounts(_ context.Context, _ api.AlertRule, _, _, _, _ time.Time, limit int) ([]clickhouse.IssueSpikeRow, error) {
+	if len(f.spikes) > limit {
+		return f.spikes[:limit], nil
+	}
+	return f.spikes, nil
 }
 func (f *fakeStore) NewIssues(context.Context, api.AlertRule, time.Time, time.Time, int) ([]api.IssueSummary, error) {
-	return nil, nil
+	return f.newIssues, nil
 }
 func (f *fakeStore) RegressedIssues(context.Context, api.AlertRule, time.Time, time.Time, int) ([]api.IssueSummary, error) {
 	return nil, nil

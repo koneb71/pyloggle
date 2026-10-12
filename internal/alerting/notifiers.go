@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
+	"mime/quotedprintable"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -115,13 +117,8 @@ func (n *EmailNotifier) Notify(ctx context.Context, ev AlertEvent) error {
 		return errors.New("missing ALERT_SMTP_FROM (or ALERT_SMTP_USERNAME) for email notifier")
 	}
 
-	subject := fmt.Sprintf("[pyloggle] %s: %s (%s/%s)", ev.Kind, safe(ev.Rule.Name), safe(ev.Rule.Service), safe(ev.Rule.Env))
-	if ev.Rule.HTTPRoute != "" {
-		subject += " " + ev.Rule.HTTPRoute
-	}
-
-	plain := renderPlain(ev)
-	msg := buildRFC822(from, to, subject, plain)
+	m := buildMessage(ev)
+	msg := buildRFC822(from, to, emailSubject(m), renderPlain(m)+"\n--\nSent by Pyloggle because of the alert rule \""+safe(ev.Rule.Name)+"\".\n")
 
 	addr := net.JoinHostPort(n.cfg.SMTPHost, fmt.Sprintf("%d", n.cfg.SMTPPort))
 	c, err := dialSMTP(n.cfg, addr)
@@ -179,60 +176,52 @@ func dialSMTP(cfg config.Config, addr string) (*smtp.Client, error) {
 	return c, nil
 }
 
-func buildRFC822(from string, to []string, subject string, body string) string {
-	// Very small RFC822-ish email. Good enough for most SMTP relays.
-	var b strings.Builder
-	b.WriteString("From: " + from + "\r\n")
-	b.WriteString("To: " + strings.Join(to, ", ") + "\r\n")
-	b.WriteString("Subject: " + subject + "\r\n")
-	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
-	b.WriteString("\r\n")
-	b.WriteString(body)
-	if !strings.HasSuffix(body, "\n") {
-		b.WriteString("\n")
+// emailSubject is "[Pyloggle] Too many errors: Checkout errors (api · prod)" on one line
+// (buildRFC822 encodes it).
+func emailSubject(m Message) string {
+	name := m.Rule
+	if name == "" {
+		name = m.Headline
 	}
-	return b.String()
+	return clip(oneLine(fmt.Sprintf("[Pyloggle] %s: %s (%s)", m.Title, name, m.Scope)), 200)
 }
 
-func renderPlain(ev AlertEvent) string {
+// encodeHeader removes line breaks (no header injection) and encodes non-ASCII text.
+func encodeHeader(s string) string {
+	s = strings.NewReplacer("\r", " ", "\n", " ").Replace(s)
+	for _, r := range s {
+		if r > 126 || r < 32 {
+			return mime.QEncoding.Encode("utf-8", s)
+		}
+	}
+	return s
+}
+
+// buildRFC822 writes a small UTF-8 plain-text message with a quoted-printable body.
+func buildRFC822(from string, to []string, subject string, body string) string {
+	clean := strings.NewReplacer("\r", "", "\n", "").Replace
+	rcpts := make([]string, 0, len(to))
+	for _, t := range to {
+		if t = clean(strings.TrimSpace(t)); t != "" {
+			rcpts = append(rcpts, t)
+		}
+	}
 	var b strings.Builder
-	b.WriteString("Pyloggle alert fired\n")
-	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("Rule: %s (%s)\n", ev.Rule.Name, ev.Rule.ID))
-	b.WriteString(fmt.Sprintf("Project: %s\n", ev.Rule.ProjectID))
-	b.WriteString(fmt.Sprintf("Service/Env: %s / %s\n", ev.Rule.Service, ev.Rule.Env))
-	if ev.Rule.HTTPRoute != "" || ev.Rule.HTTPMethod != "" {
-		b.WriteString(fmt.Sprintf("HTTP: %s %s\n", ev.Rule.HTTPMethod, ev.Rule.HTTPRoute))
-	}
-	b.WriteString(fmt.Sprintf("Kind: %s\n", ev.Kind))
-	b.WriteString(fmt.Sprintf("Window: %s .. %s\n", ev.WindowStart.UTC().Format(time.RFC3339), ev.WindowEnd.UTC().Format(time.RFC3339)))
-	b.WriteString("\n")
-	switch ev.Kind {
-	case "error_rate":
-		b.WriteString(fmt.Sprintf("Error count: %d\n", ev.ErrorCount))
-		b.WriteString(fmt.Sprintf("Error rate: %.4f errors/sec (threshold %.4f)\n", ev.ErrorRate, ev.Rule.Threshold))
-	case "issue_spike":
-		b.WriteString(fmt.Sprintf("Issue spikes (delta >= %.0f):\n", ev.Rule.Threshold))
-		for _, s := range ev.Spikes {
-			b.WriteString(fmt.Sprintf("- %s: %s (cur=%d prev=%d delta=%d)\n", s.IssueID, s.Title, s.CurCount, s.PrevCount, s.Delta))
-		}
-	case "new_issue":
-		b.WriteString("New issues:\n")
-		for _, is := range ev.Issues {
-			b.WriteString(fmt.Sprintf("- %s (%s) x%d %s\n", is.Title, is.Culprit, is.Count, is.URL))
-		}
-	case "regression":
-		b.WriteString("Regressed issues (resolved, now back):\n")
-		for _, is := range ev.Issues {
-			b.WriteString(fmt.Sprintf("- %s (%s) x%d %s\n", is.Title, is.Culprit, is.Count, is.URL))
-		}
-	case "log_query":
-		b.WriteString(fmt.Sprintf("Query: %s\n", ev.Rule.Query))
-		b.WriteString(fmt.Sprintf("Matched: %d lines (%s %.0f)\n", ev.Count, comparisonSymbol(ev.Rule.Comparison), ev.Rule.Threshold))
-	}
-	if ev.URL != "" {
-		b.WriteString("\nOpen: " + ev.URL + "\n")
+	b.WriteString("From: " + clean(from) + "\r\n")
+	b.WriteString("To: " + strings.Join(rcpts, ", ") + "\r\n")
+	b.WriteString("Subject: " + encodeHeader(subject) + "\r\n")
+	b.WriteString("Date: " + time.Now().UTC().Format(time.RFC1123Z) + "\r\n")
+	b.WriteString("MIME-Version: 1.0\r\n")
+	b.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	b.WriteString("Content-Transfer-Encoding: quoted-printable\r\n")
+	b.WriteString("\r\n")
+	var qp bytes.Buffer
+	w := quotedprintable.NewWriter(&qp)
+	_, _ = w.Write([]byte(strings.ReplaceAll(body, "\r\n", "\n")))
+	_ = w.Close()
+	b.Write(qp.Bytes())
+	if !strings.HasSuffix(qp.String(), "\n") {
+		b.WriteString("\r\n")
 	}
 	return b.String()
 }

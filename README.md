@@ -11,7 +11,9 @@ Sentry-style issues and an OpenTelemetry door.
   OpenTelemetry is one issue.
 - **Works them**: assign, comment, snooze until a time or N occurrences, resolve in the next
   release, an activity timeline; alerts on error rate, spikes, new issues, regressions or any
-  log query, to e-mail, webhook, Slack and Telegram.
+  log query, to e-mail, webhook, Slack and Telegram. An alert says what happened in plain words
+  and, for the first few problems, where the code failed, the steps just before, how many
+  people it hit, and links to that time, the request's messages and its timeline.
 - **Logs you can actually search**: `service:api level:error "timed out" -attrs.path:/health`,
   facets with counts, a stacked timeline you can drag to zoom, patterns, live tail, saved views,
   analytics (p95 of `duration_ms` by route) and CSV/NDJSON export.
@@ -155,7 +157,9 @@ All configuration is environment variables on `ingestd`.
 | `ALERTING_ENABLED` / `ALERTING_POLL_INTERVAL` / `ALERTING_EVAL_DELAY` | `false` / `30s` / `30s` | rule evaluator; the delay keeps log-query monitors behind ingest lag |
 | `ALERT_SLACK_WEBHOOK_URL` | | default Slack incoming webhook (rules can carry their own) |
 | `ALERT_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_FROM`, `_TLS` | | email notifier |
-| `ALERT_WEBHOOK_TIMEOUT`, `ALERT_TELEGRAM_BOT_TOKEN`, `ALERT_TELEGRAM_TIMEOUT`, `ALERT_TELEGRAM_PARSE_MODE` | | webhook / Telegram notifiers |
+| `ALERT_WEBHOOK_TIMEOUT`, `ALERT_TELEGRAM_BOT_TOKEN`, `ALERT_TELEGRAM_TIMEOUT` | | webhook / Telegram notifiers |
+| `ALERT_TELEGRAM_PARSE_MODE` | `HTML` | Telegram messages are HTML (links, bold, code); `none` sends plain text. A message Telegram refuses to parse is resent once as plain text |
+| `ALERT_TELEGRAM_API_URL` | `https://api.telegram.org` | Bot API address, for a self-hosted Bot API server |
 | `GOMEMLIMIT` | `200MiB` (compose) | Go soft memory limit |
 
 ClickHouse's own tuning lives in `deploy/clickhouse/{config.d,users.d}/pyloggle.xml` and is

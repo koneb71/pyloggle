@@ -105,6 +105,12 @@ export function ruleFromForm(conditionType: string, f: RuleForm): Pick<AlertRule
   };
 }
 
+/** The sentence the notification itself carried (alerts sent since the server added it). */
+export function firingSentence(f: AlertFiring): string | undefined {
+  const s = (f.payload as { context?: { summary?: unknown } } | undefined)?.context?.summary;
+  return typeof s === "string" && s.trim() ? s.trim() : undefined;
+}
+
 /** One sentence about what an alert reported, from its stored payload. */
 export function firingSummary(f: AlertFiring): string {
   const p = (f.payload ?? {}) as { count?: number; error_count?: number; spikes?: unknown[]; issues?: unknown[] };

@@ -116,7 +116,8 @@ type Config struct {
 	// Telegram notifier (Bot API). If AlertTelegramBotToken is empty, Telegram notifications are disabled.
 	AlertTelegramBotToken  string
 	AlertTelegramTimeout   time.Duration
-	AlertTelegramParseMode string // optional: MarkdownV2 | HTML
+	AlertTelegramParseMode string // HTML (default) | none
+	AlertTelegramAPIURL    string // Bot API base URL; a self-hosted Bot API server, or tests
 }
 
 func FromEnv() Config {
@@ -194,6 +195,7 @@ func FromEnv() Config {
 		AlertTelegramBotToken:  os.Getenv("ALERT_TELEGRAM_BOT_TOKEN"),
 		AlertTelegramTimeout:   getenvDuration("ALERT_TELEGRAM_TIMEOUT", 5*time.Second),
 		AlertTelegramParseMode: os.Getenv("ALERT_TELEGRAM_PARSE_MODE"),
+		AlertTelegramAPIURL:    getenv("ALERT_TELEGRAM_API_URL", "https://api.telegram.org"),
 	}
 }
 
