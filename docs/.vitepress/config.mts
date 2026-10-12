@@ -23,16 +23,27 @@ const sidebar: DefaultTheme.SidebarItem[] = [
   },
   {
     text: "Send data",
-    items: [{ text: "OpenTelemetry", link: "/send-data/opentelemetry" }],
+    items: [
+      { text: "Python package", link: "/send-data/python" },
+      { text: "Frameworks", link: "/send-data/frameworks" },
+      { text: "Configuration", link: "/send-data/configuration" },
+      { text: "OpenTelemetry", link: "/send-data/opentelemetry" },
+      { text: "Examples", link: "/send-data/examples" },
+    ],
   },
   {
     text: "Run it yourself",
     items: [
+      { text: "Deployment", link: "/self-hosting/deployment" },
+      { text: "Sign-in", link: "/self-hosting/sign-in" },
+      { text: "Alerting", link: "/self-hosting/alerting" },
+      { text: "Security", link: "/self-hosting/security" },
       { text: "Retention and footprint", link: "/self-hosting/retention-and-footprint" },
       {
         text: "Upgrading",
         collapsed: true,
         items: [
+          { text: "To 1.0", link: "/self-hosting/upgrading" },
           { text: "To 0.3", link: "/self-hosting/upgrading-0.3" },
           { text: "To 0.2", link: "/self-hosting/upgrading-0.2" },
         ],
@@ -41,7 +52,12 @@ const sidebar: DefaultTheme.SidebarItem[] = [
   },
   {
     text: "Reference",
-    items: [{ text: "Wire format", link: "/reference/wire-format" }],
+    items: [
+      { text: "Server configuration", link: "/reference/configuration" },
+      { text: "HTTP API", link: "/reference/http-api" },
+      { text: "Webhook payload", link: "/reference/webhook-payload" },
+      { text: "Wire format", link: "/reference/wire-format" },
+    ],
   },
 ];
 
@@ -66,9 +82,9 @@ export default defineConfig({
     logo: "/logo.svg",
     nav: [
       { text: "Guide", link: "/introduction/what-is-pyloggle", activeMatch: "^/(introduction|app)/" },
-      { text: "Send data", link: "/send-data/opentelemetry", activeMatch: "^/send-data/" },
-      { text: "Run it yourself", link: "/self-hosting/retention-and-footprint", activeMatch: "^/self-hosting/" },
-      { text: "Reference", link: "/reference/wire-format", activeMatch: "^/reference/" },
+      { text: "Send data", link: "/send-data/python", activeMatch: "^/send-data/" },
+      { text: "Run it yourself", link: "/self-hosting/deployment", activeMatch: "^/self-hosting/" },
+      { text: "Reference", link: "/reference/configuration", activeMatch: "^/reference/" },
       {
         text: minor,
         items: [

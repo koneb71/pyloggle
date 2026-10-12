@@ -26,7 +26,8 @@ It answers `ok`.
 
 > [!NOTE]
 > In this setup sign-in is off and the server only accepts connections from this computer.
-> That is fine for a trial. Turn sign-in on before you let anyone else reach it.
+> That is fine for a trial. [Turn sign-in on](../self-hosting/sign-in.md) before you let anyone
+> else reach it.
 
 ## 2. Open the app
 
@@ -105,9 +106,12 @@ and sends them before the program exits.
 
 ## Next steps
 
-- Add Pyloggle to a real app: Flask, FastAPI, Django and Celery each need a line or two, and
-  OpenTelemetry works for other languages.
-- Get an alert when a new problem appears: open **Alerts** and choose **New alert**.
-- Put the server where your team can reach it, with sign-in, HTTPS and backups.
+- Add Pyloggle to a real app: [Flask, FastAPI, Django and Celery](../send-data/frameworks.md)
+  each need a line or two, and [OpenTelemetry](../send-data/opentelemetry.md) works for other
+  languages.
+- Get an alert when a new problem appears: open **Alerts** and choose **New alert**. The
+  [alerting guide](../self-hosting/alerting.md) connects e-mail, Slack and Telegram.
+- Put the server where your team can reach it, with sign-in, HTTPS and backups:
+  [deployment](../self-hosting/deployment.md).
 - Stop the trial with `docker compose down` in the `deploy` folder. Add `-v` to delete the
   data too.

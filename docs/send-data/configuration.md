@@ -1,0 +1,117 @@
+# Python package configuration
+
+Every option can be passed to `pyloggle.init()`, put in Django's `PYLOGGLE` settings, or set on
+a `ClientConfig`. A test in the repository checks that this page lists every option the package
+has.
+
+```python
+pyloggle.init(
+    service="checkout",
+    env="production",
+    release="2.3.0",
+    emit_request_latency=True,
+    scrub_keys=["iban"],
+)
+```
+
+## Environment variables
+
+These are read by `pyloggle.init()` when the matching argument is not given.
+
+| Variable | Option |
+|---|---|
+| `PYLOGGLE_INGEST_URL` (or `PYLOGGLE_URL`) | `ingest_url` |
+| `PYLOGGLE_API_KEY` (or `PYLOGGLE_TOKEN`) | `api_key` |
+| `PYLOGGLE_SERVICE` | `service` |
+| `PYLOGGLE_ENV` (or `PYLOGGLE_ENVIRONMENT`) | `env` |
+| `PYLOGGLE_PROJECT_ID` | `project_id` |
+| `PYLOGGLE_RELEASE` | `release` |
+| `PYLOGGLE_DEBUG` (`1`, `true` or `yes`) | `debug` |
+
+## Where to send
+
+| Option | Default | What it does |
+|---|---|---|
+| `ingest_url` | `http://localhost:8080/v1/ingest` | The server's address. `https://logs.example.com` is enough; the package adds `/v1/ingest` |
+| `api_key` | none | An access key with the *Send data* permission |
+| `project_id` | `default` | Sent with each event; the server files events under the key's project |
+
+## What to call your app
+
+| Option | Default | What it does |
+|---|---|---|
+| `service` | `unknown` | The app's name, as Pyloggle shows it |
+| `env` | `prod` | Where it runs, such as `production` or `staging` |
+| `release` | none | Your app's version or git commit. `pyloggle.set_release()` changes it later |
+| `hostname` | the machine's name | The server or container name to report |
+| `tags` | `{}` | Tags added to every event, such as `{"region": "eu-west"}` |
+
+## Web requests and tasks
+
+| Option | Default | What it does |
+|---|---|---|
+| `emit_request_latency` | `False` | Log one `request` message per web request, with its route, status and `duration_ms` |
+| `emit_request_body` | `False` | Include the request body in error reports and request messages |
+| `max_request_body_bytes` | `4096` | Keep at most this much of a body |
+| `capture_request_headers` | `True` | Include the request headers in error reports, with secrets blanked out |
+| `max_request_headers` | `50` | Keep at most this many headers |
+| `trust_incoming_request_id` | `True` | Use the `X-Request-ID` and `traceparent` headers sent by the caller |
+| `trust_proxy_headers` | `False` | Take the client's IP address from `X-Forwarded-For`. Turn on only behind a proxy you control |
+
+## People
+
+| Option | Default | What it does |
+|---|---|---|
+| `user_id_salt` | none | A secret that turns the user ID hash into a keyed hash, so short IDs cannot be guessed back |
+| `send_default_pii` | `False` | Also send the user's ID, e-mail address, user name and IP address as they are |
+
+## Error reports
+
+| Option | Default | What it does |
+|---|---|---|
+| `with_locals` | `True` | Include the values of local variables |
+| `locals_scope` | `in_app` | Whose variables: `in_app` (your code), `all`, or `none` |
+| `max_locals` | `20` | Variables per step |
+| `max_local_repr` | `256` | Characters per variable value |
+| `context_lines` | `5` | Lines of source before and after each line in the call chain |
+| `max_frames` | `100` | Steps of the call chain to keep |
+| `max_chain` | `5` | Chained exceptions (`raise … from …`) to follow |
+| `in_app_include` | `()` | Module or path prefixes that are your code, when the package guesses wrong |
+| `in_app_exclude` | `()` | Module or path prefixes that are not your code |
+| `max_breadcrumbs` | `50` | Steps before the error to keep |
+| `db_breadcrumbs` | `True` | Django: record each SQL statement, without its parameters, as a step |
+| `http_breadcrumbs` | `True` | Record outgoing `requests`, `httpx` and `urllib3` calls as steps |
+| `install_excepthooks` | `True` | Report uncaught errors in the program, threads and `asyncio` tasks |
+| `otel_owns_exceptions` | `False` | Leave errors to OpenTelemetry: the integrations only mark them, so OpenTelemetry's report is the one kept. See [OpenTelemetry](opentelemetry.md#one-issue-per-crash) |
+
+## Hiding secrets
+
+| Option | Default | What it does |
+|---|---|---|
+| `scrub_keys` | `()` | More field names to blank out anywhere in an event, such as `["iban", "ssn"]` |
+| `scrub` | the defaults | A `ScrubConfig` to replace the rules altogether: field names, name patterns, header and body names, and value patterns |
+
+The default rules are listed on the
+[security page](../self-hosting/security.md#what-the-python-package-leaves-out).
+
+## Sending
+
+| Option | Default | What it does |
+|---|---|---|
+| `batch_size` | `200` | Events per request to the server |
+| `flush_interval_s` | `1.0` | Send at least this often, in seconds |
+| `max_queue_size` | `10000` | Events waiting to be sent. When full, new events are dropped |
+| `max_event_bytes` | `1000000` | Larger events lose variables, then steps, then the body, then the message, until they fit |
+| `gzip` | `True` | Compress requests |
+| `gzip_min_bytes` | `1024` | Only compress requests larger than this |
+| `request_timeout_s` | `2.0` | Seconds to wait for the server |
+| `max_retries` | `3` | Retries for a batch when the server is busy or unreachable |
+| `retry_backoff_s` | `0.5` | First wait between retries, doubled each time |
+| `shutdown_timeout_s` | `2.0` | Seconds to spend sending what is left when the program exits |
+| `debug` | `False` | Log every batch that could not be sent, and why |
+
+## Only for `pyloggle.init()`
+
+| Argument | Default | What it does |
+|---|---|---|
+| `integrations` | `("logging", "excepthook", "http")` | What `init()` sets up: the logging handler, the hooks for uncaught errors, and the outgoing-call steps. Leave one out to skip it |
