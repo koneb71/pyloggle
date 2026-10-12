@@ -97,7 +97,8 @@ and where. No migrations.
   "No errors" when the request had failed.
 - "Most frequent problems" on Dashboards, and the recap's top problems, counted people affected
   over the issue's whole life instead of the selected range, so a problem could show more
-  people than times it happened.
+  people than times it happened. The recap's new and came-back problems are now counted for
+  yesterday too, like the rest of the recap.
 - With `INGEST_SHARED_SECRET` set and `PYLOGGLE_DEFAULT_PROJECT_ID` empty, data sent with the
   shared secret was accepted without a project. It is now refused.
 

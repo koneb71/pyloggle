@@ -139,6 +139,22 @@ func TestRecapContent(t *testing.T) {
 	}
 }
 
+// New and came-back problems are counted for yesterday, like the busiest ones.
+func TestRecapListsCountYesterday(t *testing.T) {
+	store := recapStore()
+	store.top = append(store.top, api.IssueSummary{IssueID: "n1", Title: "KeyError: 'sku'", OccurrenceCount: 9, AffectedUsers: 2},
+		api.IssueSummary{IssueID: "c1", Title: "PaymentDeclined", OccurrenceCount: 4})
+	r, n, _ := newTestRunner(store)
+	r.RunOnce(context.Background())
+	if len(n.events) != 1 {
+		t.Fatalf("expected a recap")
+	}
+	rc := n.events[0].Recap
+	if rc.New[0].Count != 9 || rc.New[0].People != 2 || rc.CameBack[0].Count != 4 || rc.CameBack[0].IssueID != "c1" || len(rc.Top) != 3 {
+		t.Fatalf("lists should count yesterday: new %+v came back %+v top %+v", rc.New, rc.CameBack, rc.Top)
+	}
+}
+
 func TestRecapOfAQuietDay(t *testing.T) {
 	y := time.Date(2026, 10, 10, 0, 0, 0, 0, time.UTC)
 	store := &fakeStore{rules: []api.AlertRule{recapRule("UTC", 8)}, overview: map[time.Time]api.Overview{y: {Events: 12300, Services: 4}}}

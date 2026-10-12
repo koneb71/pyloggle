@@ -76,7 +76,10 @@ type RecapOngoing struct {
 	Since time.Time `json:"since"`
 }
 
-const recapListLen = 5
+const (
+	recapListLen   = 5   // problems shown per list
+	recapCountsLen = 200 // problems whose counts for the day are looked up
+)
 
 // recapDue returns yesterday's bounds when a recap rule should send now, in its time zone.
 func recapDue(rule api.AlertRule, now time.Time) (day string, from, to time.Time, due bool, err error) {
@@ -175,10 +178,29 @@ func (r *Runner) buildRecap(ctx context.Context, rule api.AlertRule, from, to ti
 	rc.Totals = r.recapTotals(ctx, rule, from, to, &rc.Apps, note)
 	rc.Previous = r.recapTotals(ctx, rule, from.AddDate(0, 0, -1), from, nil, note)
 
+	// Every list counts yesterday only: the busiest problems of the day give the counts, and a
+	// problem missing from them (far down the list) keeps its all-time figures.
+	day := map[string]api.IssueSummary{}
+	if rows, err := r.store.TopIssues(ctx, rule.ProjectID, rule.Service, rule.Env, from, to, recapCountsLen); err == nil {
+		for i, s := range rows {
+			day[s.IssueID] = s
+			if i < recapListLen {
+				rc.Top = append(rc.Top, RecapIssue{IssueID: s.IssueID, Title: s.Title, Count: s.OccurrenceCount, People: s.AffectedUsers, URL: r.issueURL(s.IssueID)})
+			}
+		}
+	} else {
+		note(err)
+	}
+	item := func(s api.IssueSummary) RecapIssue {
+		if d, ok := day[s.IssueID]; ok {
+			s.OccurrenceCount, s.AffectedUsers = d.OccurrenceCount, d.AffectedUsers
+		}
+		return RecapIssue{IssueID: s.IssueID, Title: s.Title, Count: s.OccurrenceCount, People: s.AffectedUsers, URL: r.issueURL(s.IssueID)}
+	}
 	if rows, err := r.store.NewIssues(ctx, rule, from, to, 50); err == nil {
 		rc.Totals.NewProblems = len(rows)
 		for _, s := range firstN(rows, recapListLen) {
-			rc.New = append(rc.New, RecapIssue{IssueID: s.IssueID, Title: s.Title, Count: s.OccurrenceCount, People: s.AffectedUsers, URL: r.issueURL(s.IssueID)})
+			rc.New = append(rc.New, item(s))
 		}
 	} else {
 		note(err)
@@ -192,15 +214,10 @@ func (r *Runner) buildRecap(ctx context.Context, rule api.AlertRule, from, to ti
 			seen[e.IssueID] = true
 			rc.Totals.CameBack++
 			if len(rc.CameBack) < recapListLen {
-				rc.CameBack = append(rc.CameBack, RecapIssue{IssueID: e.IssueID, Title: e.Issue.Title, Count: e.Issue.OccurrenceCount, People: e.Issue.AffectedUsers, URL: r.issueURL(e.IssueID)})
+				issue := e.Issue
+				issue.IssueID = e.IssueID
+				rc.CameBack = append(rc.CameBack, item(issue))
 			}
-		}
-	} else {
-		note(err)
-	}
-	if rows, err := r.store.TopIssues(ctx, rule.ProjectID, rule.Service, rule.Env, from, to, recapListLen); err == nil {
-		for _, s := range rows {
-			rc.Top = append(rc.Top, RecapIssue{IssueID: s.IssueID, Title: s.Title, Count: s.OccurrenceCount, People: s.AffectedUsers, URL: r.issueURL(s.IssueID)})
 		}
 	} else {
 		note(err)
