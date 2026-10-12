@@ -82,6 +82,11 @@ and where. No migrations.
 
 ### Fixed
 
+- Sign-in allow-lists trusted an e-mail address the sign-in provider marked as unverified
+  (`email_verified: false`), so on a provider where people can register any address, someone
+  could pass `PYLOGGLE_OIDC_ALLOWED_DOMAINS` with an address that is not theirs. Unverified
+  addresses, and user names in their place, no longer count. The refusal page now says why.
+
 - The Requests search showed the logs search help.
 - The filter buttons in a request's log panel did nothing.
 - The top-issues sparkline on Dashboards was always empty.
