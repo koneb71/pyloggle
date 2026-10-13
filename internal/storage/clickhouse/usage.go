@@ -24,7 +24,7 @@ type usageSource struct {
 }
 
 var usageSources = []usageSource{
-	{"logs", "logs_raw", "ts", "96 + length(message) + length(logger) + length(http_url) + length(trace_id) + length(request_id) + length(exception_type) + length(toString(attrs)) + length(toString(tags))"},
+	{"logs", "logs_raw", "ts", "96 + length(message) + length(logger) + length(http_url) + length(http_body) + length(trace_id) + length(request_id) + length(exception_type) + length(toString(attrs)) + length(toString(tags))"},
 	{"errors", "error_occurrences", "ts", "256 + length(message) + length(title) + length(frames_json) + length(chain_json) + length(breadcrumbs_json) + length(http_body) + length(extra_json) + length(toString(attrs)) + length(toString(tags)) + length(toString(http_headers))"},
 	{"spans", "spans", "start_ts", "128 + length(name) + length(status_message) + length(events_json) + length(toString(attrs))"},
 	{"metrics", "metrics_points", "ts", "64 + length(toString(attrs)) + 8 * length(bounds) + 8 * length(bucket_counts)"},

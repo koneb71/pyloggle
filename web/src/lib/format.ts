@@ -12,14 +12,6 @@ export function lastSegments(p: string, n = 2): string {
   return parts.slice(-n).join("/");
 }
 
-export function tryPrettyJson(s: string): string {
-  try {
-    return JSON.stringify(JSON.parse(s), null, 2);
-  } catch {
-    return s;
-  }
-}
-
 export function pluralize(n: number, one: string, many = one + "s"): string {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }

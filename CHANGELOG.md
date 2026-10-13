@@ -5,8 +5,9 @@
 The first open-source release. Pyloggle is now licensed under the Apache License 2.0, has a
 documentation site, and is released as a Docker image, binaries and a Python package on PyPI.
 It also brings a redesigned app for the whole team, not only engineers, alerts that say what
-went wrong and where, each alert sent only once, and a recap of yesterday. One migration (016)
-adds a table and two columns.
+went wrong and where, each alert sent only once, a recap of yesterday, request bodies wherever
+a request shows, and a way to clear a project's messages. Two migrations: 016 adds a table and
+two columns, and 017 adds the request body to messages.
 
 Read [upgrading to 1.0](https://koneb71.github.io/pyloggle/self-hosting/upgrading) before you
 upgrade: a server that relied on the old sign-in default no longer starts until the mode is set.
@@ -56,6 +57,9 @@ about each.
 - **Docker Compose publishes the port on `127.0.0.1` only** and runs the published image
   (`PYLOGGLE_VERSION` pins one), building from source only when the image is not available.
 - `PYLOGGLE_UI_POLL_SECONDS` is removed; it had no effect since 0.2.
+- **The Python package records request bodies by default** (`emit_request_body=True`), with
+  secret fields blanked out and files left out; set `emit_request_body=False` to keep 0.3's
+  behavior.
 - The Go module is `github.com/koneb71/pyloggle`, and building from source needs Go 1.26 (the
   Docker image and the release binaries already use it).
 
@@ -148,6 +152,33 @@ about each.
   - Webhooks get it as `kind: "daily_recap"` with a `recap` object.
 - **Upgrade note:** problems already inside a rule's window when you upgrade may alert one last
   time.
+
+### Request bodies, and clearing messages
+
+- **Request bodies, wherever a request shows**: on an issue's *Web request* tab, in a message's
+  details on Logs (for `request` messages and errors logged during a request), and in the
+  request's step details on Requests. JSON and forms show as fields you can fold, or as plain
+  text to copy; the app says when a body was cut short and when secrets in it were blanked.
+  `GET /logs/{event_id}` returns one message with its body (`http_body`); migration 017 adds
+  `logs_raw.http_body`, and the server keeps at most 64 KB of any body.
+- The Python package records bodies safely by default:
+  - JSON and forms (url-encoded and multipart) become fields, so secret names are blanked
+    before anything leaves the app. Files and binary bodies become a short summary, such as
+    `[file report.pdf, application/pdf, 12.3 KB]`.
+  - Secrets are blanked first and the body is cut to `max_request_body_bytes` after, so a cut
+    body never shows a secret. Body text that could not be parsed is cleaned by field name too.
+  - A body over 64 KB is never read into memory just to be recorded.
+  - Errors logged or captured while handling a request (`logger.exception`,
+    `capture_exception`) carry the request's headers and body, like unhandled ones.
+  - Flask form posts, which 0.3 missed once the view had read the form, are recorded.
+  - With OpenTelemetry, the body goes on the server span as `http.request.body`, which the
+    server turns into the body of the request line or the error.
+- **Clear all messages**: admins can delete every message of a project, from Logs (**More** →
+  **Clear all messages**) or the project's Danger zone, after typing the project id. The
+  per-minute counts and request statistics built from them go too; issues, request timelines and
+  measurements stay. `DELETE /logs` with `{"confirm": "<project id>"}` does the same through the
+  API, for the project of the session or access key only, and is recorded in the admin
+  activity.
 
 ### Fixed
 

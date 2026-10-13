@@ -162,8 +162,7 @@ with pyloggle.push_scope():
 - chained exceptions (`raise … from …` and errors raised while handling another), exception
   groups and notes;
 - the steps before the error;
-- the web request: method, route, address, headers with secrets blanked out, and the body if
-  you turn it on;
+- the web request: method, route, address, and headers and body with secrets blanked out;
 - the user (as a hash), tags, contexts, app, environment, version, server and Python version.
 
 The [security page](../self-hosting/security.md#what-the-python-package-leaves-out) lists

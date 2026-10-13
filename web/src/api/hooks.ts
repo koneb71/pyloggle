@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiRequestError, del, get, post } from "./client";
-import type { APIKey, AlertFiring, AlertRule, AttentionItem, AttentionReason, AuditEntry, Histogram, IssueActivity, IssueDetail, IssueListResponse, LogAggregate, LogContext, LogFacets, LogPattern, LogsResponse, Me, MetricInfo, MetricSeries, Occurrence, Overview, Project, ProjectUsage, Release, RequestStatsResponse, SavedView, ServiceHealth, TimeSeriesPoint, TraceDetail, TracesResponse } from "./types";
+import type { APIKey, AlertFiring, AlertRule, AttentionItem, AttentionReason, AuditEntry, Histogram, IssueActivity, IssueDetail, IssueListResponse, LogAggregate, LogContext, LogEvent, LogFacets, LogPattern, LogsResponse, Me, MetricInfo, MetricSeries, Occurrence, Overview, Project, ProjectUsage, Release, RequestStatsResponse, SavedView, ServiceHealth, TimeSeriesPoint, TraceDetail, TracesResponse } from "./types";
 
 export const useMe = () =>
   useQuery({
@@ -150,6 +150,10 @@ export const useLogFacets = (p: LogsParams & { key?: string; fields?: string[]; 
 export const useLogPatterns = (p: LogsParams, enabled = true) =>
   useQuery({ queryKey: ["logs-patterns", p], queryFn: () => get<{ items: LogPattern[] }>("/logs/patterns", { ...p, limit: 100 }), enabled, retry: false });
 
+/** One message with its request body (the lists leave bodies out). */
+export const useLogEvent = (eventId: string | undefined, enabled = true) =>
+  useQuery({ queryKey: ["log-event", eventId], queryFn: () => get<LogEvent>(`/logs/${encodeURIComponent(eventId!)}`), enabled: enabled && !!eventId, staleTime: 5 * 60_000 });
+
 export const useLogContext = (eventId: string | undefined) =>
   useQuery({ queryKey: ["logs-context", eventId], queryFn: () => get<LogContext>("/logs/context", { event_id: eventId, before: 40, after: 40 }), enabled: !!eventId });
 
@@ -269,6 +273,16 @@ export function useProjectMutations() {
     purgeUser: useMutation({ meta: { inlineError: true }, mutationFn: (v: { id: string; user_id_hash?: string; user_email?: string }) => post<{ status: string }>(`/projects/${v.id}/purge-user`, { user_id_hash: v.user_id_hash, user_email: v.user_email }) }),
     select: useMutation({ meta: { action: "switch project" }, mutationFn: (project_id: string) => post("/project/select", { project_id }), onSuccess: () => qc.invalidateQueries() }),
   };
+}
+
+/** Delete every message of a project. Everything on screen may have changed, so all of it reloads. */
+export function useClearLogs() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { inlineError: true },
+    mutationFn: (projectId: string) => del<{ status: string }>(`/logs?project_id=${encodeURIComponent(projectId)}`, { confirm: projectId }),
+    onSuccess: () => qc.invalidateQueries(),
+  });
 }
 
 export const useAlertRules = () => useQuery({ queryKey: ["alert-rules"], queryFn: () => get<{ items: AlertRule[]; conditions: string[] }>("/alerts/rules") });

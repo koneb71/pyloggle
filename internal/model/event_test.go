@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func readNDJSON(t *testing.T, path string) [][]byte {
@@ -120,5 +122,22 @@ func TestGoldenV02Decodes(t *testing.T) {
 	if sawChain == 0 || sawVars == 0 || sawBreadcrumbs == 0 || sawHeaders == 0 || sawSkip == 0 || sawRuntime == 0 {
 		t.Fatalf("v0.2 fixture lost coverage: chain=%d vars=%d crumbs=%d headers=%d skip=%d runtime=%d",
 			sawChain, sawVars, sawBreadcrumbs, sawHeaders, sawSkip, sawRuntime)
+	}
+}
+
+func TestNormalizeCapsTheRequestBody(t *testing.T) {
+	big := strings.Repeat("ü", MaxHTTPBodyBytes) // two bytes each
+	ev := Event{HTTP: &HTTPInfo{Method: "POST", Body: JSONText(big)}}
+	ev.Normalize()
+	if n := len(ev.HTTP.Body); n > MaxHTTPBodyBytes || !utf8.ValidString(string(ev.HTTP.Body)) {
+		t.Fatalf("body must be cut to the cap on a character boundary: %d bytes", n)
+	}
+	if ev.Attrs.Get(BodyTruncatedAttr) != "true" {
+		t.Fatal("a cut body must be marked")
+	}
+	small := Event{HTTP: &HTTPInfo{Body: `{"a":1}`}}
+	small.Normalize()
+	if small.HTTP.Body != `{"a":1}` || small.Attrs.Get(BodyTruncatedAttr) != "" {
+		t.Fatalf("small bodies are untouched: %+v", small)
 	}
 }

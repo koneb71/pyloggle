@@ -46,17 +46,20 @@ The `pyloggle` package cleans each event in your app's process, before it is sen
   `send_default_pii=True`.
 - **Web requests** carry their method, route, full address with the query string, status,
   headers (with the secret ones blanked out), user agent and the client's IP address (read from
-  `X-Forwarded-For` only with `trust_proxy_headers=True`), but not the body.
+  `X-Forwarded-For` only with `trust_proxy_headers=True`), and the body.
 - **Secrets are blanked out** as `[REDACTED]`:
   - headers such as `Authorization`, `Cookie`, `Set-Cookie` and `X-API-Key`;
-  - fields anywhere in the event whose name contains `password`, `secret`, `token` or
-    `api_key`, plus `passwd`, `passphrase`, `client_secret` and `private_key`;
+  - fields anywhere in the event whose name contains `password`, `secret`, `token`, `api_key`
+    or `card_number`, and in request bodies also `passwd`, `passphrase`, `client_secret`,
+    `private_key`, `cardnumber`, `cc_number`, `credit_card`, `cvv` and `cvc`;
   - values that look like bearer tokens, JWTs, Stripe secret keys, AWS access key IDs or
     Slack tokens, wherever they appear.
 
   Add your own names with `scrub_keys=["iban", "ssn"]` in `pyloggle.init()`.
-- **Request bodies are not sent** unless you turn them on with `emit_request_body=True`, and
-  then only their first 4 KB (`max_request_body_bytes`), cleaned the same way.
+- **Request bodies** are cleaned the same way, then cut to their first 4 KB
+  (`max_request_body_bytes`): the cut comes after the cleaning, so it never exposes a secret.
+  Files and binary uploads are never sent, only their name, type and size. Turn bodies off with
+  `emit_request_body=False`. The server also keeps at most 64 KB of any body, whoever sends it.
 - **Local variables** in error reports are what makes them useful, and also where personal
   data hides. By default only the variables of your own code are sent (`locals_scope="in_app"`),
   each cut to 256 characters, at most 20 per step. Set `with_locals=False` to send none.

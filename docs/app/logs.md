@@ -25,7 +25,9 @@ one request from start to finish.
 ## Reading a message
 
 Click a message to open its details: what it says, which app, server, version and code module
-wrote it, the web request if there was one, and every extra detail it carries. From there:
+wrote it, the web request if there was one, and every extra detail it carries. A `request`
+message, and an error logged while handling a request, also show the **Request body**: the
+fields that were posted, or the text, with secrets blanked out. From there:
 
 - **All messages from this request** shows only the messages logged while handling the same
   request.
@@ -64,3 +66,12 @@ show only its messages.
 
 How long messages are kept depends on the server's settings; see
 [retention](../self-hosting/retention-and-footprint.md).
+
+## Clearing all messages
+
+To start over, for example after testing, an admin can delete every message of the project:
+**More** (the `⋯` button) → **Clear all messages**, then type the project id to confirm. The
+per-minute message counts and request statistics on **Overview** and **Dashboards** go with
+them. Issues, request timelines and custom measurements stay. The messages disappear at once;
+the disk space is freed in the background. The same action is under **Projects** → **Settings**
+→ **Danger zone**, and it is recorded under **Admin activity**.

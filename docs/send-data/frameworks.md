@@ -19,12 +19,13 @@ that client.
   trace ID from an incoming W3C `traceparent` header. Every message the request logs carries
   both, so **Logs** can show all messages of one request.
 - **The request** on errors: method, route pattern (`/orders/{id}`, not `/orders/81723`),
-  full address, query string, headers with secrets blanked out, client IP, and the body if you
-  turn it on with `emit_request_body=True`.
+  full address, query string, headers and body with secrets blanked out, and client IP. Errors
+  you log yourself while handling the request carry the same. See
+  [Request bodies](configuration.md#request-bodies) for what a body becomes.
 - **One error per crash.** The framework usually logs the crash too; that line is kept but
   marked as the same error, so it does not become a second issue.
 - **Each request**, with `emit_request_latency=True`: one `request` message per request with its
-  route, status and `duration_ms`. These fill the response-time charts on **Dashboards** and let
+  route, status, `duration_ms` and body. These fill the response-time charts on **Dashboards** and let
   you search for slow requests with `duration_ms:>1000`.
 
 ## Flask

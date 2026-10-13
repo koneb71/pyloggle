@@ -125,6 +125,8 @@ func (u *UI) newAPIMux(prefix string) *http.ServeMux {
 	reg("GET", "/logs/fields", u.apiLogsFields)
 	reg("GET", "/logs/aggregate", u.apiLogsAggregate)
 	reg("GET", "/logs/export", u.apiLogsExport)
+	reg("GET", "/logs/{event_id}", u.apiLog)
+	reg("DELETE", "/logs", u.apiLogsClear)
 	reg("GET", "/saved-views", u.apiSavedViews)
 	reg("POST", "/saved-views", u.apiSavedViewUpsert)
 	reg("DELETE", "/saved-views/{id}", u.apiSavedViewDelete)
@@ -304,7 +306,9 @@ func (u *UI) withProjectAPI(next http.Handler) http.Handler {
 			writeErr(w, status, code, err.Error())
 			return
 		}
-		if pid := strings.TrimSpace(r.URL.Query().Get("project_id")); pid != "" {
+		// ?project_id= on a page load switches the active project; a change aimed at one
+		// project (say, clearing its messages from the Projects page) does not.
+		if pid := strings.TrimSpace(r.URL.Query().Get("project_id")); pid != "" && !isMutation(r.Method) {
 			u.setUIProjectID(w, p.ID)
 		}
 		if !requireScope(w, r, p) {

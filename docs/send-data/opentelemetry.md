@@ -104,7 +104,9 @@ app.add_middleware(PyloggleFastAPIMiddleware, client=client)
 The native span wraps the whole middleware stack, so the SDK middleware runs inside it: the
 occurrence carries the native trace and span ids (the trace view links both ways), the span is
 stamped with `pyloggle.event_id`, and the `request` line comes from the span rather than from
-the SDK. Leaving `logs=True` is safe as well: the server folds FastAPI's exception log and the
+the SDK. The SDK puts the request body on the span as `http.request.body` (cleaned and cut
+like any body it sends), so the request line and the step details on **Requests** show it.
+Leaving `logs=True` is safe as well: the server folds FastAPI's exception log and the
 SDK's report of the same crash into one occurrence (below).
 
 ## What is stored, what is dropped
@@ -112,8 +114,11 @@ SDK's report of the same crash into one occurrence (below).
 - **Spans**: every kind, with attributes and events (events capped at 64 KiB per span),
   partitioned by day, 7 days by default (`PYLOGGLE_RETENTION_SPANS_DAYS`). `http.route` is the
   route; `url.path` / `http.target` stay attributes and are never used as a route (request
-  stats would explode on raw paths). `OTLP_STORE_SPANS=false` keeps only the logs and issues
-  derived from spans; `OTLP_STORE_SERVER_SPANS=false` stops the `request` lines.
+  stats would explode on raw paths). `http.request.body`, which is not an OpenTelemetry
+  convention but any sender may set, is the request body: it becomes the body of the `request`
+  line or the error, kept up to 64 KB (`http.request.body.truncated=true` marks a cut one).
+  `OTLP_STORE_SPANS=false` keeps only the logs and issues derived from spans;
+  `OTLP_STORE_SERVER_SPANS=false` stops the `request` lines.
 - **Metrics**: gauges and sums keep their value; histograms keep count, sum, bounds and bucket
   counts; summaries and exponential histograms keep count and sum only. At most 16 attribute
   keys per point; the series hash is over the sorted attributes. 30 days by default

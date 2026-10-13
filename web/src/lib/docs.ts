@@ -8,6 +8,7 @@ export const DOCS = {
   quickStart: "introduction/quick-start",
   search: "app/search",
   python: "send-data/python",
+  sdkConfiguration: "send-data/configuration",
   frameworks: "send-data/frameworks",
   opentelemetry: "send-data/opentelemetry",
   deployment: "self-hosting/deployment",

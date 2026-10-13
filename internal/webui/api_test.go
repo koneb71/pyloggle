@@ -173,6 +173,13 @@ func (f *fakeStore) LogFacets(_ context.Context, q clickhouse.LogQuery, _ []stri
 	}
 	return lf, nil
 }
+func (f *fakeStore) GetLog(_ context.Context, projectID, id string) (api.LogEvent, bool, error) {
+	if id == "nope" {
+		return api.LogEvent{}, false, nil
+	}
+	return api.LogEvent{EventID: id, ProjectID: projectID, HTTPMethod: "POST", HTTPBody: `{"item":3}`}, true, nil
+}
+
 func (f *fakeStore) LogContext(_ context.Context, _, id string, _, _ int) (api.LogContext, bool, error) {
 	return api.LogContext{Anchor: api.LogEvent{EventID: id}}, id != "nope", nil
 }
@@ -263,6 +270,12 @@ func (f *fakeStore) PurgeUser(_ context.Context, id, hash, email string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.purged = append(f.purged, "user:"+id+":"+hash+":"+email)
+	return nil
+}
+func (f *fakeStore) ClearLogs(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.purged = append(f.purged, "logs:"+id)
 	return nil
 }
 func (f *fakeStore) ProjectUsage(_ context.Context, _ string, _ int) ([]api.UsageDay, error) {
@@ -1151,5 +1164,98 @@ func TestRecapRuleValidation(t *testing.T) {
 	}
 	if rec, out := do(t, u, "GET", "/ui/api/alerts/rules/recap-preview?timezone=Nope/Nope", nil, nil); rec.Code != 400 || out["error"] != "bad_timezone" {
 		t.Fatalf("preview checks the time zone: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestLogWithItsBody(t *testing.T) {
+	u, _, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/logs/ev-1", nil, nil)
+	if rec.Code != 200 || out["event_id"] != "ev-1" || out["project_id"] != "default" || out["http_body"] != `{"item":3}` {
+		t.Fatalf("one message with its body: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, _ := do(t, u, "GET", "/ui/api/logs/nope", nil, nil); rec.Code != 404 {
+		t.Fatalf("unknown message: %d", rec.Code)
+	}
+	// The named routes still win over the event id.
+	if rec, _ := do(t, u, "GET", "/ui/api/logs/fields", nil, nil); rec.Code != 200 || strings.Contains(rec.Body.String(), "http_body") {
+		t.Fatalf("/logs/fields must not be read as an event id: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestClearLogs(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	csrf := map[string]string{csrfHeader: "1"}
+	if rec, _ := do(t, u, "DELETE", "/ui/api/logs", map[string]any{"confirm": "default"}, nil); rec.Code != 403 {
+		t.Fatalf("clearing needs the CSRF header: %d", rec.Code)
+	}
+	for _, confirm := range []string{"", "p2", "Default"} {
+		rec, out := do(t, u, "DELETE", "/ui/api/logs", map[string]any{"confirm": confirm}, csrf)
+		if rec.Code != 400 || out["error"] != "confirm_mismatch" {
+			t.Fatalf("confirm %q must be refused: %d %s", confirm, rec.Code, rec.Body.String())
+		}
+	}
+	if len(store.purgedList()) != 0 {
+		t.Fatalf("nothing may be cleared without the project id: %v", store.purgedList())
+	}
+	rec, out := do(t, u, "DELETE", "/ui/api/logs", map[string]any{"confirm": "default"}, csrf)
+	if rec.Code != 200 || out["status"] != "cleared" || out["id"] != "default" {
+		t.Fatalf("clear: %d %s", rec.Code, rec.Body.String())
+	}
+	waitFor := func(want string) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			for _, x := range store.purgedList() {
+				if x == want {
+					return
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		t.Fatalf("%s not done: %v", want, store.purgedList())
+	}
+	waitFor("logs:default")
+	waitFor("recompute:default")
+	store.mu.Lock()
+	last := store.audit[len(store.audit)-1]
+	store.mu.Unlock()
+	if last.Action != "logs.clear" || last.ProjectID != "default" {
+		t.Fatalf("audit: %+v", last)
+	}
+
+	// Another project, named in the query: cleared without becoming the active project.
+	rec, _ = do(t, u, "DELETE", "/ui/api/logs?project_id=p2", map[string]any{"confirm": "p2"}, csrf)
+	if rec.Code != 200 || len(rec.Result().Cookies()) != 0 {
+		t.Fatalf("clear p2 by query: %d %s cookies=%v", rec.Code, rec.Body.String(), rec.Result().Cookies())
+	}
+	waitFor("logs:p2")
+
+	// An access key clears its own project only, and needs the write scope.
+	keyAPI := u.APIKeyAPIHandler()
+	withKey := func(key, confirm string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("DELETE", "/v1/q/logs", strings.NewReader(`{"confirm":"`+confirm+`"}`))
+		req.Header.Set("X-API-Key", key)
+		rec := httptest.NewRecorder()
+		keyAPI.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := withKey("k-good", "default"); rec.Code != 400 {
+		t.Fatalf("a key for p2 must not clear the default project: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := withKey("k-read", "p2"); rec.Code != 403 {
+		t.Fatalf("a read key cannot clear: %d", rec.Code)
+	}
+	if rec := withKey("k-good", "p2"); rec.Code != 200 {
+		t.Fatalf("key clear: %d %s", rec.Code, rec.Body.String())
+	}
+	waitFor("logs:p2")
+
+	// Signed-in users outside PYLOGGLE_UI_ADMINS cannot clear.
+	cfg := u.cfg
+	cfg.UIAuthMode = "azure"
+	cfg.UIAdmins = []string{"root@example.com"}
+	ua := NewForTest(cfg, store, fakeKeys{}, nil)
+	if rec, _ := do(t, ua, "DELETE", "/ui/api/logs", map[string]any{"confirm": "default"}, csrf); rec.Code == 200 {
+		t.Fatal("non-admin clear must be refused")
 	}
 }

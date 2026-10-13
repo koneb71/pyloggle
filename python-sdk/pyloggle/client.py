@@ -18,9 +18,10 @@ import urllib.request
 import uuid
 import weakref
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, Optional, Sequence
+from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
 
 from . import scope as _scope
+from ._body import fit_body
 from ._version import SDK_NAME, __version__
 from .scrub import ScrubConfig, default_scrub_config, scrub_event
 from .stack import current_thread_name
@@ -49,8 +50,9 @@ class ClientConfig:
     # per-request telemetry (opt-in to avoid extra noise/cost)
     emit_request_latency: bool = False
 
-    # request body capture (opt-in; size-limited)
-    emit_request_body: bool = False
+    # request bodies: on by default. Secret fields are blanked first, then the body is cut to
+    # max_request_body_bytes; files and binary bodies are only summarized (see _body.py).
+    emit_request_body: bool = True
     max_request_body_bytes: int = 4096
 
     # request headers are captured (scrubbed) on error events
@@ -189,6 +191,7 @@ class Client:
         try:
             event = self._enrich(event)
             event = scrub_event(event, config=self._scrub_cfg)
+            event = self._fit_body(event)
             event = self._bound(event)
         except Exception:
             if self.config.debug:
@@ -297,10 +300,23 @@ class Client:
             extra.update(ev["extra"])
         if extra:
             ev["extra"] = extra
+        is_err = ev["level"] in ("error", "fatal") or bool(ev.get("exception"))
         if sc.http and not ev.get("http"):
             ev["http"] = dict(sc.http)
+            if is_err and sc.request_details is not None:
+                # An error logged or captured inside a request carries the same headers and
+                # body as one the framework reports.
+                try:
+                    more, truncated = sc.request_details()
+                    for k, v in more.items():
+                        ev["http"].setdefault(k, v)
+                    if truncated:
+                        if not isinstance(ev.get("attrs"), dict):
+                            ev["attrs"] = {}
+                        ev["attrs"]["request_body_truncated"] = True
+                except Exception:
+                    pass
 
-        is_err = ev["level"] in ("error", "fatal") or bool(ev.get("exception"))
         if is_err and not ev.get("breadcrumbs") and int(cfg.max_breadcrumbs or 0) > 0:
             crumbs = list(_scope.iter_breadcrumbs(int(cfg.max_breadcrumbs)))
             own = ev.get("event_id")
@@ -328,6 +344,36 @@ class Client:
                 if user.get(k) not in (None, ""):
                     out[k] = str(user[k])
         return out
+
+    def _fit_body(self, ev: Dict[str, Any]) -> Dict[str, Any]:
+        """Cut the request body to max_request_body_bytes. Runs after scrubbing, so the part
+        that is kept never shows a secret the whole body would have hidden."""
+        http = ev.get("http")
+        if not isinstance(http, dict) or http.get("body") is None:
+            return ev
+        body, cut = fit_body(http["body"], int(self.config.max_request_body_bytes or 0))
+        if body is None:
+            http.pop("body", None)
+        else:
+            http["body"] = body
+        if cut:
+            if not isinstance(ev.get("attrs"), dict):
+                ev["attrs"] = {}
+            ev["attrs"]["request_body_truncated"] = "true"
+        return ev
+
+    def prepare_body(self, body: Any, truncated: bool = False) -> Tuple[Optional[str], bool]:
+        """A request body scrubbed and cut exactly like an event's, as text: for the
+        OpenTelemetry server span, which carries the request instead of a request line."""
+        if body is None:
+            return None, False
+        scrubbed = scrub_event({"http": {"body": body}}, config=self._scrub_cfg)["http"]["body"]
+        fitted, cut = fit_body(scrubbed, int(self.config.max_request_body_bytes or 0))
+        if fitted is None:
+            return None, False
+        if not isinstance(fitted, str):
+            fitted = json.dumps(fitted, ensure_ascii=False, separators=(",", ":"), default=str)
+        return fitted, truncated or cut
 
     def _bound(self, ev: Dict[str, Any]) -> Dict[str, Any]:
         """Keep an event under max_event_bytes by shedding the least valuable parts first."""

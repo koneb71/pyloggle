@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -199,6 +200,55 @@ func (u *UI) apiLogsFacets(w http.ResponseWriter, r *http.Request) {
 		f.Fields = map[string][]api.FacetCount{}
 	}
 	writeJSON(w, http.StatusOK, f)
+}
+
+// apiLogsClear deletes every message of the current project, with the counts and request
+// statistics built from them. The project is the one the request is for (the session's, or
+// the access key's), never one named in the URL, and the body must repeat its id.
+func (u *UI) apiLogsClear(w http.ResponseWriter, r *http.Request) {
+	if !u.requireAdmin(w, r) {
+		return
+	}
+	projectID := auth.ProjectIDFromContext(r.Context())
+	var body struct {
+		Confirm string `json:"confirm"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_json", err.Error())
+		return
+	}
+	if projectID == "" || strings.TrimSpace(body.Confirm) != projectID {
+		writeErr(w, http.StatusBadRequest, "confirm_mismatch", "confirm must be the project id ("+projectID+")")
+		return
+	}
+	// Not tied to the browser tab: a closed page must not stop the deletes halfway.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 10*time.Minute)
+	defer cancel()
+	if err := u.store.ClearLogs(ctx, projectID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "clear_failed", err.Error())
+		return
+	}
+	u.audit(r, "logs.clear", projectID, "", "")
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		_ = u.store.RecomputeUsage(ctx, projectID)
+	}()
+	writeJSON(w, http.StatusOK, map[string]any{"status": "cleared", "id": projectID})
+}
+
+// apiLog returns one message with its request body.
+func (u *UI) apiLog(w http.ResponseWriter, r *http.Request) {
+	ev, ok, err := u.store.GetLog(r.Context(), auth.ProjectIDFromContext(r.Context()), strings.TrimSpace(r.PathValue("event_id")))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+		return
+	}
+	if !ok {
+		writeErr(w, http.StatusNotFound, "not_found", "no such event")
+		return
+	}
+	writeJSON(w, http.StatusOK, ev)
 }
 
 func (u *UI) apiLogsContext(w http.ResponseWriter, r *http.Request) {

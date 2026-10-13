@@ -8,7 +8,9 @@ class _CaptureClient:
         self.emitted = []
 
     def emit(self, event):
-        self.emitted.append(event)
+        from pyloggle.client import Client
+
+        self.emitted.append(Client._fit_body(self, event))  # the real client cuts bodies here
 
 
 class TestRequestUrlAndBody(unittest.TestCase):
@@ -50,7 +52,7 @@ class TestRequestUrlAndBody(unittest.TestCase):
         self.assertEqual((ev.get("http") or {}).get("server_addr"), "example.com:443")
         self.assertNotIn("body", (ev.get("http") or {}))
 
-    def test_fastapi_body_capture_is_opt_in_and_truncation_is_flagged(self) -> None:
+    def test_fastapi_body_capture_can_be_turned_off_and_truncation_is_flagged(self) -> None:
         from pyloggle.client import ClientConfig
         from pyloggle.fastapi import PyloggleFastAPIMiddleware
 
@@ -122,7 +124,7 @@ class TestRequestUrlAndBody(unittest.TestCase):
         self.assertEqual((ev_trunc.get("http") or {}).get("remote_addr"), "127.0.0.1")
         self.assertEqual((ev_trunc.get("http") or {}).get("server_addr"), "example.com:443")
 
-    def test_flask_includes_url_and_body_is_opt_in_with_truncation(self) -> None:
+    def test_flask_includes_url_and_body_can_be_turned_off_with_truncation(self) -> None:
         try:
             from flask import Flask
         except Exception:
@@ -173,7 +175,7 @@ class TestRequestUrlAndBody(unittest.TestCase):
         self.assertTrue(bool((ev_trunc.get("http") or {}).get("remote_addr")))
         self.assertTrue(bool((ev_trunc.get("http") or {}).get("server_addr")))
 
-    def test_flask_error_event_includes_url_and_body_opt_in_with_truncation(self) -> None:
+    def test_flask_error_event_includes_url_and_body_with_truncation(self) -> None:
         try:
             from flask import Flask
         except Exception:

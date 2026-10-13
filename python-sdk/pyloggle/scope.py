@@ -12,7 +12,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Deque, Dict, Iterator, Optional
+from typing import Any, Callable, Deque, Dict, Iterator, Optional, Tuple
 
 MAX_BREADCRUMBS_DEFAULT = 100
 
@@ -27,6 +27,9 @@ class Scope:
     tags: Dict[str, str] = field(default_factory=dict)
     extra: Dict[str, Any] = field(default_factory=dict)  # context name -> dict
     http: Optional[Dict[str, Any]] = None
+    # The request's headers and body, read on demand for an error raised inside the request:
+    # returns (http fields, body truncated).
+    request_details: Optional[Callable[[], Tuple[Dict[str, Any], bool]]] = None
     breadcrumbs: Deque[Dict[str, Any]] = field(default_factory=lambda: deque(maxlen=MAX_BREADCRUMBS_DEFAULT))
 
     def copy(self) -> "Scope":
@@ -39,6 +42,7 @@ class Scope:
             tags=dict(self.tags),
             extra={k: dict(v) if isinstance(v, dict) else v for k, v in self.extra.items()},
             http=dict(self.http) if self.http else None,
+            request_details=self.request_details,
         )
         s.breadcrumbs = deque(self.breadcrumbs, maxlen=self.breadcrumbs.maxlen)
         return s

@@ -34,7 +34,7 @@ pick one under **Recent times**, to step through others.
 |---|---|
 | What went wrong | The error and each step of the code that led to it, with the source lines and the values of the variables. *Your code* hides library code, *All code* shows everything, *Plain text* gives a traceback to copy |
 | Steps before the error | What the app did just before: log messages, database queries, calls to other services |
-| Web request | The request that failed: method, address, route, headers, and the body if it was recorded |
+| Web request | The request that failed: method, address, route, headers and body. A JSON or form body shows as fields you can fold, or as plain text to copy; secrets show as `[REDACTED]` |
 | User & system | The person (as a hash), the server, Python version and the Pyloggle package version |
 | Labels & details | Tags and extra details your app attached |
 | Messages | Everything logged during the same request |

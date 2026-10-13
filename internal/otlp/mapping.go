@@ -218,6 +218,12 @@ func applyCommonAttrs(ev *model.Event, attrs []*commonv1.KeyValue) {
 			hasHTTP = true
 		case "url.query":
 			h.Query, hasHTTP = v, true
+		case "http.request.body": // not a semantic convention: the Python package sets it on server spans
+			h.Body, hasHTTP = model.JSONText(v), true
+		case "http.request.body.truncated":
+			if v == "true" {
+				ev.Attrs = ev.Attrs.Set(model.BodyTruncatedAttr, "true")
+			}
 		case "user_agent.original", "http.user_agent":
 			h.UserAgent, hasHTTP = v, true
 		case "client.address", "http.client_ip", "net.peer.ip":
@@ -484,6 +490,12 @@ func spanRow(ri resourceInfo, scope string, sp *tracev1.Span, base model.Event, 
 		for k, v := range map[string]string{"url.full": h.URL, "url.query": h.Query, "user_agent.original": h.UserAgent, "client.address": h.ClientIP, "server.address": h.ServerAddr} {
 			if v != "" {
 				row.Attrs[k] = v
+			}
+		}
+		if body := string(h.Body); body != "" {
+			row.Attrs["http.request.body"] = model.CutUTF8(body, model.MaxHTTPBodyBytes)
+			if len(body) > model.MaxHTTPBodyBytes {
+				row.Attrs[model.BodyTruncatedAttr] = "true"
 			}
 		}
 	}
