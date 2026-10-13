@@ -49,6 +49,9 @@ class ClientConfig:
 
     # per-request telemetry (opt-in to avoid extra noise/cost)
     emit_request_latency: bool = False
+    # requests that never get a request line: "METHOD path-glob" or "path-glob" (any method),
+    # matched against the path and the route. Failed (5xx) requests and crashes are always sent.
+    ignore_requests: Sequence[str] = ("OPTIONS *", "HEAD *")
 
     # request bodies: on by default. Secret fields are blanked first, then the body is cut to
     # max_request_body_bytes; files and binary bodies are only summarized (see _body.py).

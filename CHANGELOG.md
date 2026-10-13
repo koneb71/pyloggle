@@ -173,6 +173,10 @@ about each.
   - Flask form posts, which 0.3 missed once the view had read the form, are recorded.
   - With OpenTelemetry, the body goes on the server span as `http.request.body`, which the
     server turns into the body of the request line or the error.
+- **Less noise from request lines.** CORS preflight (`OPTIONS`) and `HEAD` requests no longer
+  get a `request` line, from the Python package or from OpenTelemetry spans, unless they
+  failed; `ignore_requests` skips more, such as `"/health"`. Request lines stay off unless you
+  turn on `emit_request_latency=True`, and the setup guides no longer turn them on.
 - **Clear all messages**: admins can delete every message of a project, from Logs (**More** →
   **Clear all messages**) or the project's Danger zone, after typing the project id. The
   per-minute counts and request statistics built from them go too; issues, request timelines and

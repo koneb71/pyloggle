@@ -1,6 +1,7 @@
 """Shared request-context helpers for the framework integrations."""
 from __future__ import annotations
 
+import fnmatch
 import uuid
 from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
@@ -101,6 +102,24 @@ def begin_request(
         data={k: http[k] for k in ("method", "url") if http.get(k)},
     )
     return token, rid
+
+
+def ignored_request(config: Any, method: str, path: str, route: str = "", status: int = 0) -> bool:
+    """Whether this request should get no request line (``ignore_requests``). A failed (5xx)
+    request is never ignored: its line is how a failure without an exception gets seen."""
+    if status >= 500:
+        return False
+    method = (method or "").upper()
+    for rule in getattr(config, "ignore_requests", ()) or ():
+        verb, _, glob = str(rule).strip().partition(" ")
+        if not glob:
+            verb, glob = "*", verb
+        glob = glob.strip()
+        if verb != "*" and verb.upper() != method:
+            continue
+        if fnmatch.fnmatchcase(path or "", glob) or (route and fnmatch.fnmatchcase(route, glob)):
+            return True
+    return False
 
 
 def end_request(token: Any) -> None:

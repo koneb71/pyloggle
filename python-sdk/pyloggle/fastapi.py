@@ -6,7 +6,7 @@ from typing import Any, Callable, Optional
 
 from . import _body
 from . import scope as _scope
-from ._request import begin_request, client_ip, end_request, headers_for_event
+from ._request import begin_request, client_ip, end_request, headers_for_event, ignored_request
 from .client import Client
 from .context import get_user_id_hash, set_request_id, set_user_id_hash
 from .otel import annotate_request_body
@@ -158,6 +158,8 @@ class PyloggleFastAPIMiddleware:
                 return  # the server span already yields the request line
             try:
                 final_status = int(status_code if status_code is not None else 500)
+                if ignored_request(self.client.config, str(scope.get("method", "")), str(scope.get("path", "")), _route_path(scope), final_status):
+                    return
                 level = "info"
                 if final_status >= 500:
                     level = "error"

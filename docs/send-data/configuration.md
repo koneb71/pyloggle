@@ -9,7 +9,6 @@ pyloggle.init(
     service="checkout",
     env="production",
     release="2.3.0",
-    emit_request_latency=True,
     scrub_keys=["iban"],
 )
 ```
@@ -50,7 +49,8 @@ These are read by `pyloggle.init()` when the matching argument is not given.
 
 | Option | Default | What it does |
 |---|---|---|
-| `emit_request_latency` | `False` | Log one `request` message per web request, with its route, status and `duration_ms` |
+| `emit_request_latency` | `False` | Log one `request` message per web request, with its route, status, `duration_ms` and body. It fills the response-time charts on **Dashboards**, at the cost of one line on **Logs** for every request |
+| `ignore_requests` | `("OPTIONS *", "HEAD *")` | Requests that never get a `request` message: `"METHOD pattern"` or just `"pattern"` for any method, matched against the path and the route, with `*` as a wildcard, such as `"/health"` or `"GET /static/*"`. The default skips CORS preflight and `HEAD` checks. Failed (5xx) requests and errors are always sent |
 | `emit_request_body` | `True` | Include the request body in error reports and request messages. See [Request bodies](#request-bodies) |
 | `max_request_body_bytes` | `4096` | Keep at most this much of a body, after secrets are blanked out |
 | `capture_request_headers` | `True` | Include the request headers in error reports, with secrets blanked out |

@@ -63,3 +63,18 @@ func TestSpanBodyIsCapped(t *testing.T) {
 		t.Fatalf("cut span body must be marked: %v", spans[0].Attrs[model.BodyTruncatedAttr])
 	}
 }
+
+func TestPreflightAndHeadGetNoRequestLine(t *testing.T) {
+	for _, method := range []string{"OPTIONS", "HEAD", "GET"} {
+		td := serverSpan("", false, tracev1.Status_STATUS_CODE_OK)
+		sp := td.ResourceSpans[0].ScopeSpans[0].Spans[0]
+		sp.Attributes[0] = &commonv1.KeyValue{Key: "http.request.method", Value: &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: method}}}
+		events, spans := TracesToEventsAndSpans(td, true, time.Now())
+		if len(spans) != 1 {
+			t.Fatalf("%s: the span itself is always kept", method)
+		}
+		if want := map[string]int{"OPTIONS": 0, "HEAD": 0, "GET": 1}[method]; len(events) != want {
+			t.Fatalf("%s: %d request lines, want %d", method, len(events), want)
+		}
+	}
+}

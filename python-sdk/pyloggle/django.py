@@ -24,7 +24,7 @@ from typing import Any, Callable, Dict, Optional
 
 from . import _body
 from . import scope as _scope
-from ._request import begin_request, client_ip, end_request, headers_for_event
+from ._request import begin_request, client_ip, end_request, headers_for_event, ignored_request
 from .client import Client
 from .context import get_user_id_hash, set_request_id
 from .otel import annotate_request_body
@@ -229,6 +229,8 @@ class PyloggleMiddleware:
             start = float(getattr(request, "_pyloggle_start", 0.0) or 0.0)
             ms = _elapsed_ms(start) if start > 0 else None
             status = int(getattr(response, "status_code", 200) or 200)
+            if ignored_request(client.config, str(getattr(request, "method", "")), str(getattr(request, "path", "")), _route(request), status):
+                return
             level = "info"
             if status >= 500:
                 level = "error"

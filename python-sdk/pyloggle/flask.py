@@ -6,7 +6,7 @@ from typing import Any, Callable, Optional
 
 from . import _body
 from . import scope as _scope
-from ._request import begin_request, client_ip, end_request, headers_for_event
+from ._request import begin_request, client_ip, end_request, headers_for_event, ignored_request
 from .client import Client
 from .context import ensure_request_id, get_user_id_hash, set_request_id, set_user_id_hash
 from .otel import annotate_request_body
@@ -267,6 +267,9 @@ def init_app(
             duration_ms = round((time.perf_counter() - start) * 1000, 2) if start > 0 else None
             latency_ms = str(int(duration_ms)) if duration_ms is not None else None
             status = int(getattr(response, "status_code", 200) or 200)
+            rule = getattr(request.url_rule, "rule", "") or ""
+            if ignored_request(client.config, request.method, request.path, rule, status):
+                return response
             level = "info"
             if status >= 500:
                 level = "error"

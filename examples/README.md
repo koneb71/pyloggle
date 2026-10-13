@@ -24,7 +24,7 @@ The Python package examples also read `PYLOGGLE_ENV`, `PYLOGGLE_RELEASE` and
 |---|---|---|
 | [`script.py`](script.py): a plain script with a tag, a user, steps and an uncaught error | `python examples/script.py` | **Issues** for the error, **Logs** for its messages |
 | [`flask_app.py`](flask_app.py): Flask, with every request timed | `pip install flask`, then `python examples/flask_app.py` and open <http://127.0.0.1:5050/hello> and `/boom` | The error's **Web request** tab, and `logger:pyloggle.flask` on **Logs** for each request |
-| [`fastapi_app.py`](fastapi_app.py): FastAPI with the ASGI middleware, ready for FastAPI's own telemetry | `pip install fastapi uvicorn`, then `uvicorn examples.fastapi_app:app --port 8000` and open `/hello` and `/boom` | The same as Flask. With the OpenTelemetry settings below, **Requests** too |
+| [`fastapi_app.py`](fastapi_app.py): FastAPI with the ASGI middleware, ready for FastAPI's own telemetry | `pip install fastapi uvicorn`, then `uvicorn examples.fastapi_app:app --port 8000` and open `/hello` and `/boom` | The error's **Web request** tab. With the OpenTelemetry settings below, **Requests** too |
 | [`django_app.py`](django_app.py): a one-file Django site | `pip install django`, then `python examples/django_app.py runserver 8000` and `curl -H 'X-User: ada' localhost:8000/boom` | The SQL query among the **Steps before the error**, and one person affected |
 | [`celery_app.py`](celery_app.py): Celery tasks, one of which fails | `pip install celery`, then `python examples/celery_app.py` (it runs its own worker in memory) | The task's issue, and `logger:pyloggle.celery` on **Logs** |
 

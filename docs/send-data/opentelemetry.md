@@ -96,7 +96,7 @@ from fastapi import FastAPI
 import pyloggle
 from pyloggle.fastapi import PyloggleFastAPIMiddleware, telemetry
 
-client = pyloggle.init(service="checkout", env="prod", emit_request_latency=True)
+client = pyloggle.init(service="checkout", env="prod")
 app = FastAPI(telemetry=telemetry(exclude=lambda s: s["path"] == "/health"))
 app.add_middleware(PyloggleFastAPIMiddleware, client=client)
 ```
@@ -118,7 +118,8 @@ SDK's report of the same crash into one occurrence (below).
   convention but any sender may set, is the request body: it becomes the body of the `request`
   line or the error, kept up to 64 KB (`http.request.body.truncated=true` marks a cut one).
   `OTLP_STORE_SPANS=false` keeps only the logs and issues derived from spans;
-  `OTLP_STORE_SERVER_SPANS=false` stops the `request` lines.
+  `OTLP_STORE_SERVER_SPANS=false` stops the `request` lines. CORS preflight (`OPTIONS`) and
+  `HEAD` requests never get a `request` line unless they failed; their spans are kept.
 - **Metrics**: gauges and sums keep their value; histograms keep count, sum, bounds and bucket
   counts; summaries and exponential histograms keep count and sum only. At most 16 attribute
   keys per point; the series hash is over the sorted attributes. 30 days by default

@@ -24,8 +24,9 @@ that client.
   [Request bodies](configuration.md#request-bodies) for what a body becomes.
 - **One error per crash.** The framework usually logs the crash too; that line is kept but
   marked as the same error, so it does not become a second issue.
-- **Each request**, with `emit_request_latency=True`: one `request` message per request with its
-  route, status, `duration_ms` and body. These fill the response-time charts on **Dashboards** and let
+- **Each request**, only if you turn on `emit_request_latency=True`: one `request` message per
+  request with its route, status, `duration_ms` and body. CORS preflight (`OPTIONS`) and `HEAD`
+  requests never get one, and `ignore_requests` skips more, such as `["/health"]`. These fill the response-time charts on **Dashboards** and let
   you search for slow requests with `duration_ms:>1000`.
 
 ## Flask
@@ -39,7 +40,7 @@ from flask import Flask
 import pyloggle
 from pyloggle.flask import init_app
 
-client = pyloggle.init(service="shop", env="production", emit_request_latency=True)
+client = pyloggle.init(service="shop", env="production")
 app = Flask(__name__)
 init_app(app, client)
 ```
@@ -63,7 +64,7 @@ from fastapi import FastAPI
 import pyloggle
 from pyloggle.fastapi import PyloggleFastAPIMiddleware
 
-client = pyloggle.init(service="api", env="production", emit_request_latency=True)
+client = pyloggle.init(service="api", env="production")
 app = FastAPI()
 app.add_middleware(PyloggleFastAPIMiddleware, client=client)
 ```
@@ -104,7 +105,6 @@ MIDDLEWARE = [
 PYLOGGLE = {
     "service": "shop",
     "env": "production",
-    "emit_request_latency": True,
 }
 ```
 

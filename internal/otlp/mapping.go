@@ -410,7 +410,7 @@ func TracesToEventsAndSpans(td *tracev1.TracesData, storeServerSpans bool, now t
 					out = append(out, ev)
 					continue
 				}
-				if storeServerSpans && !hadException && sp.GetKind() == tracev1.Span_SPAN_KIND_SERVER {
+				if storeServerSpans && !hadException && sp.GetKind() == tracev1.Span_SPAN_KIND_SERVER && !noiseRequest(base.HTTP) {
 					ev := base
 					ev.Attrs = cloneAttrs(base.Attrs)
 					ev.Timestamp = unixNano(sp.GetEndTimeUnixNano())
@@ -458,6 +458,15 @@ func looksLikeStatusCode(s string) bool {
 		}
 	}
 	return true
+}
+
+// noiseRequest reports a request that carries no work worth a line on Logs: CORS preflight
+// (OPTIONS) and HEAD, as the Python package skips them too. A failed one still gets its line.
+func noiseRequest(h *model.HTTPInfo) bool {
+	if h == nil || h.Status >= 500 {
+		return false
+	}
+	return strings.EqualFold(h.Method, "OPTIONS") || strings.EqualFold(h.Method, "HEAD")
 }
 
 // spanRow builds the stored span from the decoded span and the event template that already
