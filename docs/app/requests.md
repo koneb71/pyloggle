@@ -29,8 +29,8 @@ failed steps, `duration:>250` for slow ones, `service:api` for one app.
 
 The timeline shows each step as a bar, placed where it started and as long as it took, nested
 under the step that called it and colored by app. Failed steps are red. Click a step to see its
-details, such as the database query or the address it called; the arrow next to a step hides the
-steps inside it.
+details, such as the database query or the address it called, and for the request itself, the
+**Request body** your app received; the arrow next to a step hides the steps inside it.
 
 Below the timeline:
 

@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from typing import Any, Callable, Optional
 
+from . import _body
 from . import scope as _scope
-from ._request import begin_request, client_ip, end_request, headers_for_event
+from ._request import begin_request, client_ip, end_request, headers_for_event, ignored_request
 from .client import Client
 from .context import ensure_request_id, get_user_id_hash, set_request_id, set_user_id_hash
+from .otel import annotate_request_body
 from .otel import current_ids as _otel_ids
-from .otel import server_span_active as _otel_server_span_active
+from .otel import server_span as _otel_server_span
 from .stack import captured_event_id, exception_to_payload, mark_captured
 from .user import hash_user_id
 
@@ -68,57 +69,33 @@ def _pyloggle_get_server_addr(request) -> str:
         return ""
 
 
-def _pyloggle_capture_request_body(client: Client, request) -> tuple[object | None, bool]:
-    """
-    Capture request body/payload in a size-limited way. Returns (body, truncated).
-
-    - Only captures when client.config.emit_request_body is truthy.
-    - Enforces client.config.max_request_body_bytes.
-    - Prefers JSON decoding when possible and when not truncated.
-    """
-    if not bool(getattr(client.config, "emit_request_body", False)):
+def _pyloggle_capture_request_body(client: Client, request) -> tuple:
+    """(body, truncated); see ``_body.describe_body``. Forms come from ``request.form`` and
+    ``request.files`` (Werkzeug empties the raw data once it parses a form); a body larger than
+    the read cap that the view did not read is summarized rather than read into memory."""
+    if not _body.enabled(client.config):
         return None, False
-
     try:
-        max_bytes = int(getattr(client.config, "max_request_body_bytes", 4096) or 4096)
+        ct = request.content_type or ""
+        media = _body.media_type(ct)
+        length = request.content_length
+        cap = _body.read_cap(client.config)
+        if _body.is_form(media):
+            if "form" not in vars(request) and length and length > cap:
+                return _body.describe_body(None, ct, complete=False, size=length)  # an upload the view never read
+            files = request.files if media == _body.MULTIPART else None
+            return _body.describe_body(None, ct, size=length, form=request.form, files=files)
+        raw = getattr(request, "_cached_data", None)  # already read by the view
+        if raw is None:
+            if not length:
+                return None, False
+            if length > cap:
+                return _body.describe_body(None, ct, complete=False, size=length)
+            raw = request.get_data(cache=True)
+        raw = bytes(raw or b"")
+        return _body.describe_body(raw[:cap], ct, complete=len(raw) <= cap, size=len(raw))
     except Exception:
-        max_bytes = 4096
-    if max_bytes <= 0:
         return None, False
-
-    try:
-        raw: bytes = request.get_data(cache=True, as_text=False) or b""
-    except Exception:
-        return None, False
-    if not raw:
-        return None, False
-
-    truncated = len(raw) > max_bytes
-    if truncated:
-        raw = raw[:max_bytes]
-
-    if not truncated:
-        try:
-            ct = (getattr(request, "mimetype", "") or "").lower()
-        except Exception:
-            ct = ""
-        looks_json = "json" in ct
-        if not looks_json:
-            try:
-                looks_json = raw.lstrip().startswith((b"{", b"["))
-            except Exception:
-                looks_json = False
-
-        if looks_json:
-            try:
-                return json.loads(raw.decode("utf-8")), False
-            except Exception:
-                pass
-
-    try:
-        return raw.decode("utf-8", errors="replace"), truncated
-    except Exception:
-        return None, truncated
 
 
 def _iso_now() -> str:
@@ -187,6 +164,9 @@ def init_app(
                     return
                 if bool(getattr(client.config, "otel_owns_exceptions", False)):
                     mark_captured(exception, "otel")
+                    span = getattr(g, "_pyloggle_otel_span", None)
+                    if span is not None:
+                        annotate_request_body(span, client, *_pyloggle_capture_request_body(client, request))
                     return
                 attrs: dict = {}
                 duration_ms = None
@@ -240,7 +220,13 @@ def init_app(
             http.pop("headers", None)  # headers are attached on error events only
         except Exception:
             http = {}
-        token, rid = begin_request(config=client.config, headers=headers, http=http)
+        req = request._get_current_object()
+        token, rid = begin_request(
+            config=client.config,
+            headers=headers,
+            http=http,
+            read_body=lambda: _pyloggle_capture_request_body(client, req),
+        )
         otel_tid, otel_sid = _otel_ids()
         if otel_tid:
             sc = _scope.effective_scope()
@@ -249,7 +235,7 @@ def init_app(
             g._pyloggle_scope_token = token
             g._pyloggle_request_start = time.perf_counter()
             g._pyloggle_had_exception = False
-            g._pyloggle_otel_server = _otel_server_span_active()
+            g._pyloggle_otel_span = _otel_server_span()
         except Exception:
             pass
         set_request_id(rid)
@@ -262,17 +248,28 @@ def init_app(
 
     @app.after_request
     def _pyloggle_after_request(response):
+        try:
+            from flask import g, request
+
+            otel_span = getattr(g, "_pyloggle_otel_span", None)
+            if otel_span is not None and not bool(getattr(g, "_pyloggle_had_exception", False)):
+                annotate_request_body(otel_span, client, *_pyloggle_capture_request_body(client, request))
+        except Exception:
+            otel_span = None
         if not bool(getattr(client.config, "emit_request_latency", False)):
             return response
         try:
             from flask import g, request
 
-            if bool(getattr(g, "_pyloggle_had_exception", False)) or bool(getattr(g, "_pyloggle_otel_server", False)):
+            if bool(getattr(g, "_pyloggle_had_exception", False)) or otel_span is not None:
                 return response  # the error event, or the server span, already covers the request
             start = float(getattr(g, "_pyloggle_request_start", 0.0) or 0.0)
             duration_ms = round((time.perf_counter() - start) * 1000, 2) if start > 0 else None
             latency_ms = str(int(duration_ms)) if duration_ms is not None else None
             status = int(getattr(response, "status_code", 200) or 200)
+            rule = getattr(request.url_rule, "rule", "") or ""
+            if ignored_request(client.config, request.method, request.path, rule, status):
+                return response
             level = "info"
             if status >= 500:
                 level = "error"

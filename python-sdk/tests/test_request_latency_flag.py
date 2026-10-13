@@ -11,7 +11,9 @@ def test_fastapi_middleware_latency_is_opt_in():
             self.emitted = []
 
         def emit(self, event):
-            self.emitted.append(event)
+            from pyloggle.client import Client
+
+            self.emitted.append(Client._fit_body(self, event))  # the real client cuts bodies here
 
     async def app_raises(scope, receive, send):
         raise RuntimeError("boom")
@@ -60,7 +62,9 @@ def test_fastapi_middleware_emits_request_timing_on_success_when_enabled():
             self.emitted = []
 
         def emit(self, event):
-            self.emitted.append(event)
+            from pyloggle.client import Client
+
+            self.emitted.append(Client._fit_body(self, event))  # the real client cuts bodies here
 
     async def app_ok(scope, receive, send):
         await send({"type": "http.response.start", "status": 204, "headers": []})
@@ -97,7 +101,7 @@ def test_fastapi_middleware_emits_request_timing_on_success_when_enabled():
     assert (ev.get("http") or {}).get("status") == 204
 
 
-def test_fastapi_middleware_includes_url_and_body_opt_in_on_success():
+def test_fastapi_middleware_includes_url_and_body_on_success():
     import asyncio
 
     from pyloggle.client import ClientConfig
@@ -114,7 +118,9 @@ def test_fastapi_middleware_includes_url_and_body_opt_in_on_success():
             self.emitted = []
 
         def emit(self, event):
-            self.emitted.append(event)
+            from pyloggle.client import Client
+
+            self.emitted.append(Client._fit_body(self, event))  # the real client cuts bodies here
 
     async def app_reads_body_and_ok(scope, receive, send):
         # Ensure the middleware's receive wrapper doesn't break body consumption.
@@ -180,10 +186,10 @@ def test_fastapi_middleware_includes_url_and_body_opt_in_on_success():
     assert len(c_trunc.emitted) == 1
     ev3 = c_trunc.emitted[0]
     assert (ev3.get("http") or {}).get("body") is not None
-    assert (ev3.get("attrs") or {}).get("request_body_truncated") is True
+    assert (ev3.get("attrs") or {}).get("request_body_truncated") == "true"
 
 
-def test_fastapi_middleware_includes_url_and_body_opt_in_on_exception():
+def test_fastapi_middleware_includes_url_and_body_on_exception():
     import asyncio
 
     from pyloggle.client import ClientConfig
@@ -200,7 +206,9 @@ def test_fastapi_middleware_includes_url_and_body_opt_in_on_exception():
             self.emitted = []
 
         def emit(self, event):
-            self.emitted.append(event)
+            from pyloggle.client import Client
+
+            self.emitted.append(Client._fit_body(self, event))  # the real client cuts bodies here
 
     async def app_reads_body_then_raises(scope, receive, send):
         await receive()
@@ -254,7 +262,7 @@ def test_fastapi_middleware_includes_url_and_body_opt_in_on_exception():
     assert len(c_on.emitted) == 1
     ev2 = c_on.emitted[0]
     assert (ev2.get("http") or {}).get("body") is not None
-    assert (ev2.get("attrs") or {}).get("request_body_truncated") is True
+    assert (ev2.get("attrs") or {}).get("request_body_truncated") == "true"
 
 
 def test_flask_integration_emits_request_timing_on_success_when_enabled():
@@ -278,7 +286,9 @@ def test_flask_integration_emits_request_timing_on_success_when_enabled():
             self.emitted = []
 
         def emit(self, event):
-            self.emitted.append(event)
+            from pyloggle.client import Client
+
+            self.emitted.append(Client._fit_body(self, event))  # the real client cuts bodies here
 
     def _run_once(emit_request_latency: bool, *, emit_request_body: bool = False):
         c = FakeClient(emit_request_latency, emit_request_body=emit_request_body)
@@ -318,7 +328,7 @@ def test_flask_integration_emits_request_timing_on_success_when_enabled():
     ev2 = c_body.emitted[0]
     assert (ev2.get("http") or {}).get("body") is not None
     # We set a tiny max_request_body_bytes above; ensure truncation is flagged.
-    assert (ev2.get("attrs") or {}).get("request_body_truncated") is True
+    assert (ev2.get("attrs") or {}).get("request_body_truncated") == "true"
 
 
 def test_flask_integration_includes_latency_in_error_event_when_enabled():
@@ -342,7 +352,9 @@ def test_flask_integration_includes_latency_in_error_event_when_enabled():
             self.emitted = []
 
         def emit(self, event):
-            self.emitted.append(event)
+            from pyloggle.client import Client
+
+            self.emitted.append(Client._fit_body(self, event))  # the real client cuts bodies here
 
     def _run_once(emit_request_latency: bool, *, emit_request_body: bool = False):
         c = FakeClient(emit_request_latency, emit_request_body=emit_request_body)
@@ -381,6 +393,6 @@ def test_flask_integration_includes_latency_in_error_event_when_enabled():
     assert len(c_body.emitted) == 1
     evb = c_body.emitted[0]
     assert (evb.get("http") or {}).get("body") is not None
-    assert (evb.get("attrs") or {}).get("request_body_truncated") is True
+    assert (evb.get("attrs") or {}).get("request_body_truncated") == "true"
 
 

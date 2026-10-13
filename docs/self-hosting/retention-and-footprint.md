@@ -15,7 +15,8 @@ memory and disk, and which settings change that.
 | Counts behind the charts and lists (issue counts, messages per minute, request statistics) | 365 days | `PYLOGGLE_RETENTION_STATS_DAYS` |
 
 Issues themselves, their comments and history, projects, keys and alert rules are not deleted
-by age.
+by age. An admin can also delete all of a project's messages at once, whatever their age; see
+[Clearing all messages](../app/logs.md#clearing-all-messages).
 
 The server applies a changed setting the next time it starts. Data is stored in one partition
 per day, so expired data goes away by dropping that day's files instead of rewriting them.
@@ -125,8 +126,8 @@ retention window is a runtime setting (`PYLOGGLE_RETENTION_LOGS_DAYS`,
 `PYLOGGLE_RETENTION_ERRORS_DAYS`, `PYLOGGLE_RETENTION_STATS_DAYS`), applied with `MODIFY TTL`
 at startup only when the value changed.
 
-**Column codecs and low-cardinality columns.** Timestamps use `Delta + ZSTD`, messages, URLs and
-JSON blobs `ZSTD(3)`, and service / env / level / logger / host / release are `LowCardinality`.
+**Column codecs and low-cardinality columns.** Timestamps use `Delta + ZSTD`, messages, URLs,
+request bodies and JSON blobs `ZSTD(3)`, and service / env / level / logger / host / release are `LowCardinality`.
 Bloom-filter indexes on `trace_id`, `request_id`, `event_id` and attribute keys plus a token
 index on `message` keep the explorer's lookups off full scans.
 

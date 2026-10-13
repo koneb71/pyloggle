@@ -1,9 +1,11 @@
 """Shared request-context helpers for the framework integrations."""
 from __future__ import annotations
 
+import fnmatch
 import uuid
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
+from . import _body
 from . import scope as _scope
 from .context import parse_traceparent
 
@@ -54,13 +56,35 @@ def headers_for_event(headers: Mapping[str, str], config: Any) -> Dict[str, str]
     return out
 
 
+BodyReader = Callable[[], Tuple[Any, bool]]
+
+
+def request_details(config: Any, headers: Mapping[str, str], read_body: BodyReader) -> Callable[[], Tuple[Dict[str, Any], bool]]:
+    """What an error raised inside the request adds to the scope's http block: the scrubbed
+    headers and the body, read only if such an error happens."""
+
+    def details() -> Tuple[Dict[str, Any], bool]:
+        out: Dict[str, Any] = {}
+        hdrs = headers_for_event(headers, config)
+        if hdrs:
+            out["headers"] = hdrs
+        body, truncated = read_body() if _body.enabled(config) else (None, False)
+        if body is not None:
+            out["body"] = body
+        return out, truncated
+
+    return details
+
+
 def begin_request(
     *,
     config: Any,
     headers: Mapping[str, str],
     http: Dict[str, Any],
+    read_body: Optional[BodyReader] = None,
 ) -> Tuple[Any, str]:
-    """Push a fresh request scope with identity + http context. Returns (token, request_id)."""
+    """Push a fresh request scope with identity + http context. Returns (token, request_id).
+    ``read_body`` lets errors logged inside the request carry its body."""
     token = _scope.push_scope(inherit=True)
     sc = _scope.effective_scope()
     rid, trace_id, span_id = request_identity(headers, config)
@@ -69,6 +93,7 @@ def begin_request(
         sc.trace_id = trace_id
         sc.span_id = span_id
     sc.http = dict(http)
+    sc.request_details = request_details(config, headers, read_body) if read_body is not None else None
     sc.transaction = str(http.get("route") or "") or None
     _scope.add_breadcrumb(
         f"{http.get('method', '')} {http.get('route') or http.get('url') or ''}".strip(),
@@ -77,6 +102,24 @@ def begin_request(
         data={k: http[k] for k in ("method", "url") if http.get(k)},
     )
     return token, rid
+
+
+def ignored_request(config: Any, method: str, path: str, route: str = "", status: int = 0) -> bool:
+    """Whether this request should get no request line (``ignore_requests``). A failed (5xx)
+    request is never ignored: its line is how a failure without an exception gets seen."""
+    if status >= 500:
+        return False
+    method = (method or "").upper()
+    for rule in getattr(config, "ignore_requests", ()) or ():
+        verb, _, glob = str(rule).strip().partition(" ")
+        if not glob:
+            verb, glob = "*", verb
+        glob = glob.strip()
+        if verb != "*" and verb.upper() != method:
+            continue
+        if fnmatch.fnmatchcase(path or "", glob) or (route and fnmatch.fnmatchcase(route, glob)):
+            return True
+    return False
 
 
 def end_request(token: Any) -> None:

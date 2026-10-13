@@ -30,6 +30,8 @@ type LogEvent struct {
 	HTTPStatus uint16  `json:"http_status,omitempty"`
 	HTTPURL    string  `json:"http_url,omitempty"`
 	DurationMS float32 `json:"duration_ms,omitempty"`
+	// HTTPBody is the request body, only on GET /logs/{event_id}: lists leave it out.
+	HTTPBody string `json:"http_body,omitempty"`
 
 	UserIDHash    string `json:"user_id_hash,omitempty"`
 	ExceptionType string `json:"exception_type,omitempty"`

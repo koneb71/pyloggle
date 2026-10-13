@@ -186,6 +186,8 @@ export interface LogEvent {
   http_route?: string;
   http_status?: number;
   http_url?: string;
+  /** The request body: only on GET /logs/{event_id}, the lists leave it out. */
+  http_body?: string;
   duration_ms?: number;
   user_id_hash?: string;
   exception_type?: string;

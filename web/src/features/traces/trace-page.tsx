@@ -5,6 +5,7 @@ import { useTrace } from "@/api/hooks";
 import { ApiRequestError } from "@/api/client";
 import type { Span } from "@/api/types";
 import { Badge, CopyButton, EmptyState, ErrorState, KeyValueList, LevelBadge, LinkButton, MetaLine, Page, SidePanel, Skeleton, Swatch, Tabs } from "@/components/ui";
+import { RequestBody, expectsBody } from "@/components/request-body";
 import { useUrlState } from "@/lib/url";
 import { fmtTs, fmtWhen } from "@/lib/time";
 import { pluralize } from "@/lib/format";
@@ -157,6 +158,9 @@ function StepPanel({ span, traceStart, onClose }: { span: Span; traceStart: stri
     parent_span_id: span.parent_span_id,
   };
   const failed = span.status === "error";
+  // The request body has its own section; the rest of the attributes stay in Details.
+  const { "http.request.body": body, request_body_truncated: truncated, ...details } = span.attrs ?? {};
+  const showBody = !!body || (span.kind === "server" && expectsBody(span.http_method));
   return (
     <SidePanel open width={460} onClose={onClose} title="Step details" actions={<CopyButton text={JSON.stringify(span, null, 2)} label="Copy raw data" size="sm" />}>
       <div className="border-b border-border px-4 py-3">
@@ -174,8 +178,13 @@ function StepPanel({ span, traceStart, onClose }: { span: Span; traceStart: stri
       <Block title="About this step">
         <KeyValueList entries={about} />
       </Block>
+      {showBody && (
+        <Block title="Request body">
+          <RequestBody body={body} truncated={truncated === "true"} method={span.http_method} />
+        </Block>
+      )}
       <Block title="Details" hint="Fields recorded with this step.">
-        <KeyValueList entries={span.attrs} emptyText="No details were recorded." />
+        <KeyValueList entries={details} emptyText="No details were recorded." />
       </Block>
       {(span.events?.length ?? 0) > 0 && (
         <Block title="What happened during this step">

@@ -25,6 +25,7 @@ const AUDIT_WORDS: Record<string, string> = {
   "key.revoke": "disabled an access key",
   "key.rotate": "replaced the access key",
   "user.purge": "erased one person's data",
+  "logs.clear": "cleared all messages",
 };
 
 /** "created an access key": an admin action in words. */

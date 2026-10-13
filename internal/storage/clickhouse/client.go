@@ -150,7 +150,7 @@ func (c *Client) flushLogs(ctx context.Context, events []model.Event) error {
 		INSERT INTO logs_raw (
 			ts, event_id, project_id, service, env, level, logger, message,
 			trace_id, span_id, request_id, issue_id, release, hostname, source,
-			http_method, http_route, http_status, http_url, http_remote_addr, http_server_addr,
+			http_method, http_route, http_status, http_url, http_remote_addr, http_server_addr, http_body,
 			duration_ms, user_id_hash, exception_type, attrs, tags
 		)
 	`)
@@ -192,6 +192,7 @@ func (c *Client) flushLogs(ctx context.Context, events []model.Event) error {
 			h.URL,
 			h.RemoteAddr,
 			h.ServerAddr,
+			string(h.Body),
 			float32(ev.DurationMS),
 			userHash,
 			excType,

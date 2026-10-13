@@ -3,6 +3,8 @@
 // sends: every v0.1 line still decodes (see testdata/sdk_v0.1.ndjson and event_test.go).
 package model
 
+import "unicode/utf8"
+
 // Event is one log line or error occurrence.
 type Event struct {
 	// EventID is a client-generated uuid4 hex; the server fills it in when empty.
@@ -107,7 +109,7 @@ type HTTPInfo struct {
 	URL        string   `json:"url,omitempty"`
 	Query      string   `json:"query,omitempty"`
 	Headers    Attrs    `json:"headers,omitempty"` // scrubbed client-side
-	Body       JSONText `json:"body,omitempty"`    // opt-in; v0.1 sent decoded JSON objects
+	Body       JSONText `json:"body,omitempty"`    // scrubbed client-side; v0.1 sent decoded JSON objects
 	UserAgent  string   `json:"user_agent"`
 	RemoteAddr string   `json:"remote_addr"`
 	ServerAddr string   `json:"server_addr"`
@@ -180,6 +182,28 @@ func (e *Event) Normalize() {
 			e.Breadcrumbs[i].Level = NormalizeLevel(e.Breadcrumbs[i].Level)
 		}
 	}
+	if e.HTTP != nil && len(e.HTTP.Body) > MaxHTTPBodyBytes {
+		e.HTTP.Body = JSONText(CutUTF8(string(e.HTTP.Body), MaxHTTPBodyBytes))
+		e.Attrs = e.Attrs.Set(BodyTruncatedAttr, "true")
+	}
+}
+
+// MaxHTTPBodyBytes caps a stored request body whatever the sender: the SDK keeps 4 KB by default,
+// and other senders (OpenTelemetry attributes, hand-written clients) get the same ceiling.
+const MaxHTTPBodyBytes = 64 << 10
+
+// BodyTruncatedAttr marks an event whose request body is only the start of the original.
+const BodyTruncatedAttr = "request_body_truncated"
+
+// CutUTF8 returns at most n bytes of s without splitting a character.
+func CutUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // IsError reports whether the event should become an error occurrence candidate.

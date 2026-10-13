@@ -135,6 +135,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the commit check reads the pushed commits
+      - name: Commits credit no AI assistant
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            range="$PR_BASE..$PR_HEAD"
+          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="$BEFORE..$GITHUB_SHA"
+          else
+            range="$GITHUB_SHA^!" # a new branch or a force push: the pushed commit itself
+          fi
+          scripts/check-commits.sh "$range"
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

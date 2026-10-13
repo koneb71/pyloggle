@@ -22,6 +22,7 @@ import { SavedViewsMenu, type ViewState } from "./saved-views";
 import { BUILTIN_COLUMNS, DEFAULT_COLUMNS, FACET_TO_FIELD } from "./log-fields";
 import { AnalyticsView } from "./analytics";
 import { ExportMenu } from "./export-menu";
+import { LogsMoreMenu } from "./clear-logs-dialog";
 import { DEFAULT_ANALYTICS, isMetric, type AnalyticsState } from "./analytics-model";
 
 /** What the chart can be colored by (sidebar field names). */
@@ -190,6 +191,7 @@ export function LogsPage() {
             }
           />
           <ExportMenu q={q} range={range} />
+          <LogsMoreMenu />
           <Button
             icon={live ? <span className="live-dot" aria-hidden /> : <Radio size={14} />}
             active={live}

@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Trash2, UserX } from "lucide-react";
+import { AlertTriangle, Eraser, Trash2, UserX } from "lucide-react";
 import clsx from "clsx";
 import { useProjectMutations, useProjectUsage } from "@/api/hooks";
 import type { Project } from "@/api/types";
 import { Sparkline } from "@/components/charts/sparkline";
 import { Button, Dialog, ErrorState, Field, Input, Skeleton, toast } from "@/components/ui";
 import { fmtBytes, fmtNumber, fmtPct } from "@/lib/time";
+import { ClearLogsDialog } from "@/features/logs/clear-logs-dialog";
 
 const SOURCE_LABEL: Record<string, string> = { logs: "Messages", errors: "Error details", spans: "Request steps", metrics: "Custom measurements" };
 
@@ -105,6 +106,7 @@ export function DangerZone({ project, onDeleted }: { project: Project; onDeleted
   const { remove, purgeUser } = useProjectMutations();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [purge, setPurge] = useState(false);
+  const [clearLogs, setClearLogs] = useState(false);
   return (
     <div className="space-y-3 p-5">
       <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
@@ -114,6 +116,15 @@ export function DangerZone({ project, onDeleted }: { project: Project; onDeleted
         </div>
         <Button variant="danger" icon={<UserX size={14} />} onClick={() => setPurge(true)} className="flex-none">
           Erase…
+        </Button>
+      </div>
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
+        <div>
+          <div className="text-[13px] font-medium text-ink">Clear all messages</div>
+          <p className="mt-0.5 text-[13px] text-ink-3">Deletes every message on the Logs page, with the counts built from them. Issues, request timelines and measurements stay.</p>
+        </div>
+        <Button variant="danger" icon={<Eraser size={14} />} onClick={() => setClearLogs(true)} className="flex-none">
+          Clear…
         </Button>
       </div>
       <div className="flex items-start justify-between gap-4 rounded-lg border border-critical/30 p-4">
@@ -134,6 +145,7 @@ export function DangerZone({ project, onDeleted }: { project: Project; onDeleted
           onConfirm={() => remove.mutate(project.id, { onSuccess: () => (setConfirmDelete(false), onDeleted()) })}
         />
       )}
+      {clearLogs && <ClearLogsDialog project={project} onClose={() => setClearLogs(false)} />}
       {purge && (
         <PurgeUserDialog
           pending={purgeUser.isPending}

@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { AlertOctagon, GitBranch, ListTree, Route } from "lucide-react";
 import type { LogEvent } from "@/api/types";
+import { useLogEvent } from "@/api/hooks";
 import { Button, CopyButton, JsonView, KeyValueList, LevelBadge, LinkButton, SidePanel, Tabs } from "@/components/ui";
+import { RequestBody, expectsBody } from "@/components/request-body";
 import { fmtTs, fmtWhen } from "@/lib/time";
 import { term } from "@/lib/query";
 import { sourceLabel } from "@/lib/fields";
@@ -37,6 +39,13 @@ export function LogDetailPanel({ event, onClose, onFilter, onExclude, onPickColu
     span_id: event.span_id,
   };
   const attrCount = Object.keys(event.attrs ?? {}).length;
+  // Request lines and errors raised during a request carry the body; it is fetched on its own
+  // because the lists leave bodies out.
+  const isRequestLine = event.message === "request" && !!event.duration_ms;
+  const isError = event.level === "error" || event.level === "fatal";
+  const full = useLogEvent(event.event_id, !!event.http_method && (isRequestLine || isError));
+  const body = full.data?.http_body;
+  const showBody = !!body || (isRequestLine && full.isSuccess && expectsBody(event.http_method));
   return (
     <SidePanel
       open
@@ -95,6 +104,11 @@ export function LogDetailPanel({ event, onClose, onFilter, onExclude, onPickColu
             <Block title="About this message">
               <KeyValueList entries={about} actions={actions} />
             </Block>
+            {showBody && (
+              <Block title="Request body">
+                <RequestBody body={body} truncated={event.attrs?.request_body_truncated === "true"} method={event.http_method} />
+              </Block>
+            )}
             <Block title="Extra details" hint={attrCount ? "Fields your app sent with this message. Hover a row to filter by it or show it as a column." : undefined}>
               <KeyValueList entries={event.attrs} keyPrefix="attrs." actions={{ ...actions, onColumn: onPickColumn }} emptyText="No extra details were sent." />
             </Block>

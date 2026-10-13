@@ -32,6 +32,7 @@ type Store interface {
 	QueryLogs(ctx context.Context, q clickhouse.LogQuery) ([]api.LogEvent, error)
 	LogHistogram(ctx context.Context, q clickhouse.LogQuery, groupBy string, bucket time.Duration) (api.Histogram, error)
 	LogFacets(ctx context.Context, q clickhouse.LogQuery, fields []string, attrKeys int, attrKey string) (api.LogFacets, error)
+	GetLog(ctx context.Context, projectID, eventID string) (api.LogEvent, bool, error)
 	LogContext(ctx context.Context, projectID, eventID string, before, after int) (api.LogContext, bool, error)
 	LogPatterns(ctx context.Context, q clickhouse.LogQuery, limit int) ([]api.LogPattern, error)
 	CountLogs(ctx context.Context, q clickhouse.LogQuery) (uint64, error)
@@ -74,6 +75,7 @@ type Store interface {
 	MarkProjectDeleted(ctx context.Context, projectID string) error
 	PurgeProjectData(ctx context.Context, projectID string) error
 	PurgeUser(ctx context.Context, projectID, userIDHash, userEmail string) error
+	ClearLogs(ctx context.Context, projectID string) error
 	ProjectUsage(ctx context.Context, projectID string, days int) ([]api.UsageDay, error)
 	TableCompression(ctx context.Context) (map[string]float64, error)
 	RecomputeUsage(ctx context.Context, projectID string) error

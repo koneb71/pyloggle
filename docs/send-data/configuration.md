@@ -9,7 +9,6 @@ pyloggle.init(
     service="checkout",
     env="production",
     release="2.3.0",
-    emit_request_latency=True,
     scrub_keys=["iban"],
 )
 ```
@@ -50,13 +49,40 @@ These are read by `pyloggle.init()` when the matching argument is not given.
 
 | Option | Default | What it does |
 |---|---|---|
-| `emit_request_latency` | `False` | Log one `request` message per web request, with its route, status and `duration_ms` |
-| `emit_request_body` | `False` | Include the request body in error reports and request messages |
-| `max_request_body_bytes` | `4096` | Keep at most this much of a body |
+| `emit_request_latency` | `False` | Log one `request` message per web request, with its route, status, `duration_ms` and body. It fills the response-time charts on **Dashboards**, at the cost of one line on **Logs** for every request |
+| `ignore_requests` | `("OPTIONS *", "HEAD *")` | Requests that never get a `request` message: `"METHOD pattern"` or just `"pattern"` for any method, matched against the path and the route, with `*` as a wildcard, such as `"/health"` or `"GET /static/*"`. The default skips CORS preflight and `HEAD` checks. Failed (5xx) requests and errors are always sent |
+| `emit_request_body` | `True` | Include the request body in error reports and request messages. See [Request bodies](#request-bodies) |
+| `max_request_body_bytes` | `4096` | Keep at most this much of a body, after secrets are blanked out |
 | `capture_request_headers` | `True` | Include the request headers in error reports, with secrets blanked out |
 | `max_request_headers` | `50` | Keep at most this many headers |
 | `trust_incoming_request_id` | `True` | Use the `X-Request-ID` and `traceparent` headers sent by the caller |
 | `trust_proxy_headers` | `False` | Take the client's IP address from `X-Forwarded-For`. Turn on only behind a proxy you control |
+
+### Request bodies
+
+The body of each web request goes with the errors it causes, and with its `request` message
+when `emit_request_latency=True`. Errors you log or capture yourself while handling a request
+(`logger.exception(...)`, `pyloggle.capture_exception()`) carry it too. What is recorded
+depends on the kind of body:
+
+| The request sends | What is recorded |
+|---|---|
+| JSON | Its fields. Pyloggle shows them as a tree you can fold |
+| A form (`application/x-www-form-urlencoded`) | Its fields, the same way |
+| A form with files (`multipart/form-data`) | Its fields, and for each file only its name, type and size, such as `[file report.pdf, application/pdf, 12.3 KB]` |
+| Text, XML, GraphQL | The text |
+| Anything else (images, archives, binary data) | Only its type and size, such as `[image/png body, 1.2 MB, not recorded]` |
+
+Fields whose name looks secret (`password`, `token`, `api_key` and the others on the
+[security page](../self-hosting/security.md#what-the-python-package-leaves-out)) are blanked
+out as `[REDACTED]` first. Then the body is cut to `max_request_body_bytes`, so a cut body
+never shows a secret the whole body would have hidden. A body larger than 64 KB is not read
+into memory just to be recorded. The package records what your app already read, or only its
+type and size.
+
+Turn bodies off with `emit_request_body=False`, or add field names to blank out with
+`scrub_keys`. With OpenTelemetry, the body goes on the request's server span as the
+`http.request.body` attribute instead (see [OpenTelemetry](opentelemetry.md)).
 
 ## People
 

@@ -9,7 +9,7 @@ Coming from 0.2 or 0.1? Upgrade to 0.3 first: see [upgrading to 0.3](upgrading-0
 
 ## Before you start
 
-- **Back up ClickHouse** if the data matters. The new migration only adds a table and two
+- **Back up ClickHouse** if the data matters. The new migrations only add a table and three
   columns, but a backup makes going back trivial.
 - **Check how people sign in** (below). This is the change most likely to stop a server from
   starting.
@@ -20,7 +20,9 @@ Coming from 0.2 or 0.1? Upgrade to 0.3 first: see [upgrading to 0.3](upgrading-0
 
 Migration `016_alert_once_and_recap` creates `alert_notified`, where alert rules record what
 they have already told you, and adds `send_hour` and `timezone` to `alert_rules` for the new
-recap rules. Nothing else changes in the database.
+recap rules. Migration `017_logs_http_body` adds `http_body` to `logs_raw`, so messages about
+web requests keep the request's body, and recreates the view that estimates each project's
+storage so it counts bodies. Nothing else changes in the database.
 
 ## Changes that need your attention
 
@@ -82,6 +84,8 @@ machines reached Pyloggle on port 8080 directly, put a reverse proxy in front of
   [alerting](alerting.md#how-often-you-hear-about-it).
 - **A recap of yesterday**, as a new kind of alert rule, at the hour and in the time zone you
   choose.
+- **Request bodies** on issues, messages and request timelines, and **Clear all messages** for
+  admins, on Logs and in a project's Danger zone.
 - **Documentation** at [koneb71.github.io/pyloggle](https://koneb71.github.io/pyloggle/), and a
   **Help** page in the app.
 
@@ -95,7 +99,9 @@ Python package was marked MIT before but never published under it.
 
 ## Python package
 
-`pip install -U pyloggle` installs 1.0.0. It needs no code change.
+`pip install -U pyloggle` installs 1.0.0. It needs no code change. It records request bodies
+by default, with secret fields blanked out and files left out; pass `emit_request_body=False`
+to `pyloggle.init()` to keep them out, as 0.3 did.
 
 ## Rolling back
 

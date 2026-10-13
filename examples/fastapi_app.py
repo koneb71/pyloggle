@@ -14,7 +14,7 @@ from pyloggle.fastapi import PyloggleFastAPIMiddleware, telemetry
 
 logging.basicConfig(level=logging.INFO)
 
-client = pyloggle.init(service="example-fastapi", env="dev", emit_request_latency=True)
+client = pyloggle.init(service="example-fastapi", env="dev")
 
 app = FastAPI(telemetry=telemetry(exclude=lambda scope: scope["path"] == "/health"))
 app.add_middleware(PyloggleFastAPIMiddleware, client=client)

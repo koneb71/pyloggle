@@ -40,7 +40,9 @@ class _Capture:
         self.emitted = []
 
     def emit(self, ev):
-        self.emitted.append(ev)
+        from pyloggle.client import Client
+
+        self.emitted.append(Client._fit_body(self, ev))  # the real client cuts bodies here
 
 
 class FakeAuthMiddleware:
@@ -85,6 +87,15 @@ def not_found(request):
     raise Http404("nope")
 
 
+def logged(request):
+    """A view that handles its own error and logs it (tests/test_body.py)."""
+    try:
+        raise ValueError(request.POST.get("user"))
+    except ValueError:
+        logging.getLogger("shop.views").exception("handled failure")
+    return JsonResponse({"ok": True})
+
+
 async def aboom(request):
     raise ValueError("async boom")
 
@@ -99,6 +110,7 @@ urlpatterns = [
     path("peek/", peek),
     path("sql/", sql),
     path("notfound/", not_found),
+    path("logged/", logged),
     path("aboom/", aboom),
     path("aok/", aok),
 ]
@@ -129,7 +141,7 @@ def test_one_event_per_failing_request_with_route_user_and_headers(capture):
     assert ev["http"]["headers"]["authorization"] == "[REDACTED]" and ev["http"]["headers"]["user-agent"] == "ua/1"
     assert ev["http"]["client_ip"] == ev["http"]["remote_addr"] == "127.0.0.1"
     assert ev["user"] == {"id_hash": hash_user_id(42, salt=None)}
-    assert "body" not in ev["http"]  # body capture is opt-in
+    assert ev["http"]["body"] == {"a": 1}  # bodies are recorded by default
     assert scope.current_scope() is None
 
 

@@ -22,12 +22,14 @@ import uuid
 from contextlib import ExitStack
 from typing import Any, Callable, Dict, Optional
 
+from . import _body
 from . import scope as _scope
-from ._request import begin_request, client_ip, end_request, headers_for_event
+from ._request import begin_request, client_ip, end_request, headers_for_event, ignored_request
 from .client import Client
 from .context import get_user_id_hash, set_request_id
+from .otel import annotate_request_body
 from .otel import current_ids as _otel_ids
-from .otel import server_span_active as _otel_server_span_active
+from .otel import server_span as _otel_server_span
 from .stack import captured_event_id, exception_to_payload, mark_captured
 from .user import hash_user_id
 
@@ -201,7 +203,7 @@ class PyloggleMiddleware:
         headers = _headers(request)
         http = _request_http(client, request)
         http.pop("headers", None)  # headers are attached on error events only
-        token, rid = begin_request(config=client.config, headers=headers, http=http)
+        token, rid = begin_request(config=client.config, headers=headers, http=http, read_body=lambda: _request_body(client, request))
         set_request_id(rid)
         otel_tid, otel_sid = _otel_ids()
         if otel_tid:
@@ -210,20 +212,25 @@ class PyloggleMiddleware:
         try:
             request._pyloggle_request_id = rid
             request._pyloggle_start = time.perf_counter()
-            request._pyloggle_otel_server = _otel_server_span_active()
+            request._pyloggle_otel_span = _otel_server_span()
         except Exception:
             pass
         return token
 
     def _finish(self, client: Client, request: Any, response: Any) -> None:
+        otel_span = getattr(request, "_pyloggle_otel_span", None)
+        if otel_span is not None:
+            annotate_request_body(otel_span, client, *_request_body(client, request))
         if not bool(getattr(client.config, "emit_request_latency", False)):
             return
-        if bool(getattr(request, "_pyloggle_had_exception", False)) or bool(getattr(request, "_pyloggle_otel_server", False)):
+        if bool(getattr(request, "_pyloggle_had_exception", False)) or otel_span is not None:
             return  # the error event, or the server span, already covers the request
         try:
             start = float(getattr(request, "_pyloggle_start", 0.0) or 0.0)
             ms = _elapsed_ms(start) if start > 0 else None
             status = int(getattr(response, "status_code", 200) or 200)
+            if ignored_request(client.config, str(getattr(request, "method", "")), str(getattr(request, "path", "")), _route(request), status):
+                return
             level = "info"
             if status >= 500:
                 level = "error"
@@ -397,35 +404,36 @@ def _request_http(client: Client, request: Any, *, status: Optional[int] = None)
 
 
 def _request_body(client: Client, request: Any) -> tuple:
-    """(body, truncated) when body capture is enabled; a stream Django already consumed
-    (form parsing) yields nothing rather than an error."""
-    if not bool(getattr(client.config, "emit_request_body", False)):
+    """(body, truncated); see ``_body.describe_body``. Forms come from ``request.POST`` and
+    ``request.FILES``, which also works after the view parsed them; a body larger than the read
+    cap is summarized rather than read into memory."""
+    if not _body.enabled(client.config):
         return None, False
     try:
-        max_bytes = int(getattr(client.config, "max_request_body_bytes", 4096) or 4096)
+        meta = getattr(request, "META", None) or {}
+        ct = str(meta.get("CONTENT_TYPE") or "")
+        media = _body.media_type(ct)
+        try:
+            length = int(meta.get("CONTENT_LENGTH") or 0)
+        except (TypeError, ValueError):
+            length = 0
+        cap = _body.read_cap(client.config)
+        if _body.is_form(media):
+            if not hasattr(request, "_post") and length > cap:
+                return _body.describe_body(None, ct, complete=False, size=length)  # an upload the view never read
+            files = request.FILES if media == _body.MULTIPART else None
+            return _body.describe_body(None, ct, size=length or None, form=request.POST, files=files)
+        raw = getattr(request, "_body", None)  # already read by the view
+        if raw is None:
+            if length <= 0:
+                return None, False
+            if length > cap:
+                return _body.describe_body(None, ct, complete=False, size=length)
+            raw = request.body
+        raw = bytes(raw or b"")
+        return _body.describe_body(raw[:cap], ct, complete=len(raw) <= cap, size=len(raw))
     except Exception:
-        max_bytes = 4096
-    if max_bytes <= 0:
         return None, False
-    try:
-        raw = bytes(request.body or b"")
-    except Exception:
-        return None, False
-    if not raw:
-        return None, False
-    truncated = len(raw) > max_bytes
-    if truncated:
-        raw = raw[:max_bytes]
-    if not truncated:
-        ct = str(getattr(request, "content_type", "") or "").lower()
-        if "json" in ct or raw.lstrip().startswith((b"{", b"[")):
-            try:
-                import json
-
-                return json.loads(raw.decode("utf-8")), False
-            except Exception:
-                pass
-    return raw.decode("utf-8", errors="replace"), truncated
 
 
 def _is_coroutine_function(fn: Any) -> bool:

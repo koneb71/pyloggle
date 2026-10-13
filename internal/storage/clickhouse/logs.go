@@ -68,6 +68,7 @@ type logRow struct {
 	HTTPStatus    uint16            `ch:"http_status"`
 	HTTPURL       string            `ch:"http_url"`
 	DurationMS    float32           `ch:"duration_ms"`
+	HTTPBody      string            `ch:"http_body"` // only selected by GetLog
 	UserIDHash    string            `ch:"user_id_hash"`
 	ExceptionType string            `ch:"exception_type"`
 	Attrs         map[string]string `ch:"attrs"`
@@ -80,7 +81,7 @@ func (r logRow) toAPI() api.LogEvent {
 		Message: r.Message, TraceID: r.TraceID, SpanID: r.SpanID, RequestID: r.RequestID, ProjectID: r.ProjectID,
 		IssueID: r.IssueID, Release: r.Release, Hostname: r.Hostname, Source: r.Source,
 		HTTPMethod: r.HTTPMethod, HTTPRoute: r.HTTPRoute, HTTPStatus: r.HTTPStatus, HTTPURL: r.HTTPURL,
-		DurationMS: r.DurationMS, UserIDHash: r.UserIDHash, ExceptionType: r.ExceptionType,
+		DurationMS: r.DurationMS, HTTPBody: r.HTTPBody, UserIDHash: r.UserIDHash, ExceptionType: r.ExceptionType,
 		Attrs: r.Attrs, Tags: r.Tags,
 	}
 }
@@ -437,6 +438,18 @@ func (c *Client) LogFacets(ctx context.Context, q LogQuery, fields []string, att
 }
 
 // LogContext returns the lines around one event (same project/service/env), chronological.
+// GetLog returns one message with its request body, which the lists leave out to stay light.
+func (c *Client) GetLog(ctx context.Context, projectID, eventID string) (api.LogEvent, bool, error) {
+	var rows []logRow
+	if err := c.conn.Select(ctx, &rows, "SELECT "+logColumns+", http_body FROM logs_raw WHERE project_id = ? AND event_id = ? LIMIT 1", projectID, eventID); err != nil {
+		return api.LogEvent{}, false, err
+	}
+	if len(rows) == 0 {
+		return api.LogEvent{}, false, nil
+	}
+	return rows[0].toAPI(), true, nil
+}
+
 func (c *Client) LogContext(ctx context.Context, projectID, eventID string, before, after int) (api.LogContext, bool, error) {
 	if before <= 0 {
 		before = 50

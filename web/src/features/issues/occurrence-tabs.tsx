@@ -3,8 +3,8 @@ import { Link } from "react-router";
 import { ExternalLink, GitBranch } from "lucide-react";
 import type { Occurrence } from "@/api/types";
 import { Badge, EmptyState, JsonView, KeyValueList, LinkButton, SegmentedControl } from "@/components/ui";
+import { RequestBody, expectsBody } from "@/components/request-body";
 import { term } from "@/lib/query";
-import { tryPrettyJson } from "@/lib/format";
 import { sourceLabel } from "@/lib/fields";
 import { ExceptionView } from "./exception-view";
 import { Breadcrumbs } from "./breadcrumbs";
@@ -136,9 +136,9 @@ function RequestTab({ occ, onFilterLogs }: { occ: Occurrence; onFilterLogs: (q: 
           <KeyValueList entries={h.headers} humanize={false} mono />
         </Block>
       )}
-      {h?.body && (
+      {(h?.body || expectsBody(method)) && (
         <Block title="Request body">
-          <pre className="max-h-80 overflow-auto rounded-md border border-border bg-surface-2 p-3 font-mono text-xs text-ink">{tryPrettyJson(h.body)}</pre>
+          <RequestBody body={h?.body} truncated={occ.attrs?.request_body_truncated === "true"} method={method} />
         </Block>
       )}
     </div>

@@ -40,7 +40,9 @@ Everything the 0.1 SDK and plain `logging` handlers sent is accepted:
   `true`/`false`), null (dropped) or objects/arrays (compact JSON text).
 - `level`: `warning → warn`, `critical|fatal → fatal`, `err → error`, `trace → debug`,
   `notice → info`; anything else is kept lower-cased.
-- `environment` is an alias of `env`; `http.body` may be a string or an object.
+- `environment` is an alias of `env`; `http.body` may be a string or an object (stored as
+  compact JSON text). The server keeps at most 64 KB of a body and marks a longer one with
+  `attrs.request_body_truncated = "true"`, which the SDK also sets when it cuts one.
 
 ## Event
 

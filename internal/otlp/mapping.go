@@ -218,6 +218,12 @@ func applyCommonAttrs(ev *model.Event, attrs []*commonv1.KeyValue) {
 			hasHTTP = true
 		case "url.query":
 			h.Query, hasHTTP = v, true
+		case "http.request.body": // not a semantic convention: the Python package sets it on server spans
+			h.Body, hasHTTP = model.JSONText(v), true
+		case "http.request.body.truncated":
+			if v == "true" {
+				ev.Attrs = ev.Attrs.Set(model.BodyTruncatedAttr, "true")
+			}
 		case "user_agent.original", "http.user_agent":
 			h.UserAgent, hasHTTP = v, true
 		case "client.address", "http.client_ip", "net.peer.ip":
@@ -404,7 +410,7 @@ func TracesToEventsAndSpans(td *tracev1.TracesData, storeServerSpans bool, now t
 					out = append(out, ev)
 					continue
 				}
-				if storeServerSpans && !hadException && sp.GetKind() == tracev1.Span_SPAN_KIND_SERVER {
+				if storeServerSpans && !hadException && sp.GetKind() == tracev1.Span_SPAN_KIND_SERVER && !noiseRequest(base.HTTP) {
 					ev := base
 					ev.Attrs = cloneAttrs(base.Attrs)
 					ev.Timestamp = unixNano(sp.GetEndTimeUnixNano())
@@ -454,6 +460,15 @@ func looksLikeStatusCode(s string) bool {
 	return true
 }
 
+// noiseRequest reports a request that carries no work worth a line on Logs: CORS preflight
+// (OPTIONS) and HEAD, as the Python package skips them too. A failed one still gets its line.
+func noiseRequest(h *model.HTTPInfo) bool {
+	if h == nil || h.Status >= 500 {
+		return false
+	}
+	return strings.EqualFold(h.Method, "OPTIONS") || strings.EqualFold(h.Method, "HEAD")
+}
+
 // spanRow builds the stored span from the decoded span and the event template that already
 // carries the resource and attribute mapping. Resource attributes stay on the log rows; the
 // span keeps its own attributes plus the HTTP details that have no column.
@@ -484,6 +499,12 @@ func spanRow(ri resourceInfo, scope string, sp *tracev1.Span, base model.Event, 
 		for k, v := range map[string]string{"url.full": h.URL, "url.query": h.Query, "user_agent.original": h.UserAgent, "client.address": h.ClientIP, "server.address": h.ServerAddr} {
 			if v != "" {
 				row.Attrs[k] = v
+			}
+		}
+		if body := string(h.Body); body != "" {
+			row.Attrs["http.request.body"] = model.CutUTF8(body, model.MaxHTTPBodyBytes)
+			if len(body) > model.MaxHTTPBodyBytes {
+				row.Attrs[model.BodyTruncatedAttr] = "true"
 			}
 		}
 	}

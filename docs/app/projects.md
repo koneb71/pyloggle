@@ -32,13 +32,14 @@ Choose **Settings** on a project's row:
   (GB)* and *Keep data for (days)*, as [retention](../self-hosting/retention-and-footprint.md)
   explains.
 - **Danger zone**: erase one person's data (their messages and error reports, found by their
-  e-mail address or user ID), or delete the project with all its data.
+  e-mail address or user ID), clear all of the project's messages (see
+  [Logs](logs.md#clearing-all-messages)), or delete the project with all its data.
 
 **New project** creates a project and its first access key.
 
 ## Admin activity
 
 **Admin activity** records who created, changed or deleted projects and keys, and who erased
-data, newest first.
+data or cleared messages, newest first.
 
 When `PYLOGGLE_UI_ADMINS` is set, only the people it names can change projects and keys.

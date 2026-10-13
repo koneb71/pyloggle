@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from typing import Any, Callable, Optional
 
+from . import _body
 from . import scope as _scope
-from ._request import begin_request, client_ip, end_request, headers_for_event
+from ._request import begin_request, client_ip, end_request, headers_for_event, ignored_request
 from .client import Client
 from .context import get_user_id_hash, set_request_id, set_user_id_hash
+from .otel import annotate_request_body
 from .otel import current_ids as _otel_ids
-from .otel import server_span_active as _otel_server_span_active
+from .otel import server_span as _otel_server_span
 from .stack import captured_event_id, exception_to_payload, mark_captured
 from .user import hash_user_id
 
@@ -93,7 +94,13 @@ class PyloggleFastAPIMiddleware:
         if qs_str:
             http_base["query"] = qs_str
 
-        token, request_id = begin_request(config=self.client.config, headers=headers, http=http_base)
+        tap = _BodyTap(headers.get("content-type", ""), self.client.config) if _body.enabled(self.client.config) else None
+        token, request_id = begin_request(
+            config=self.client.config,
+            headers=headers,
+            http=http_base,
+            read_body=tap.describe if tap is not None else None,
+        )
         set_request_id(request_id)
         otel_tid, otel_sid = _otel_ids()
         if otel_tid:
@@ -103,7 +110,7 @@ class PyloggleFastAPIMiddleware:
             sc.trace_id, sc.span_id = otel_tid, otel_sid
         # Decided now, while the span is recording: it ends with the last body chunk, before
         # this call returns.
-        otel_server_span = _otel_server_span_active()
+        otel_span = _otel_server_span()
 
         if self.user_id_getter is not None:
             try:
@@ -115,57 +122,44 @@ class PyloggleFastAPIMiddleware:
         start = time.perf_counter()
         status_code: Optional[int] = None
 
-        body_buf: bytearray | None = None
-        body_truncated = False
-        max_body_bytes = 0
-        if bool(getattr(self.client.config, "emit_request_body", False)):
-            try:
-                max_body_bytes = int(getattr(self.client.config, "max_request_body_bytes", 4096) or 4096)
-            except Exception:
-                max_body_bytes = 4096
-            if max_body_bytes > 0:
-                body_buf = bytearray()
+        async def receive_to_app():
+            msg = await receive()
+            if tap is not None:
+                tap.feed(msg)
+            return msg
 
-                async def receive_wrapper():
-                    nonlocal body_truncated
-                    msg = await receive()
-                    if msg and msg.get("type") == "http.request" and body_buf is not None:
-                        b = msg.get("body") or b""
-                        if isinstance(b, bytearray):
-                            b = bytes(b)
-                        if isinstance(b, (bytes,)) and b:
-                            remaining = max(0, max_body_bytes - len(body_buf))
-                            if remaining > 0:
-                                body_buf.extend(b[:remaining])
-                            if len(b) > remaining:
-                                body_truncated = True
-                    return msg
+        body_on_span = False
 
-                receive_to_app = receive_wrapper
-            else:
-                receive_to_app = receive
-        else:
-            receive_to_app = receive
+        def annotate_span() -> None:
+            nonlocal body_on_span
+            if otel_span is None or tap is None or body_on_span:
+                return
+            body_on_span = True
+            annotate_request_body(otel_span, self.client, *tap.describe())
 
         async def send_wrapper(message):
             nonlocal status_code
             if message.get("type") == "http.response.start":
                 status_code = int(message.get("status", 500))
+                annotate_span()  # the span ends with the response, so now
             await send(message)
 
         try:
             await self.app(scope, receive_to_app, send_wrapper)
         except Exception as exc:
             try:
-                self._capture(exc, scope, headers, http_base, status_code, start, body_buf, body_truncated, request_id)
+                annotate_span()
+                self._capture(exc, scope, headers, http_base, status_code, start, tap, request_id)
             except Exception:
                 pass
             raise
         else:
-            if not bool(getattr(self.client.config, "emit_request_latency", False)) or otel_server_span:
+            if not bool(getattr(self.client.config, "emit_request_latency", False)) or otel_span is not None:
                 return  # the server span already yields the request line
             try:
                 final_status = int(status_code if status_code is not None else 500)
+                if ignored_request(self.client.config, str(scope.get("method", "")), str(scope.get("path", "")), _route_path(scope), final_status):
+                    return
                 level = "info"
                 if final_status >= 500:
                     level = "error"
@@ -176,14 +170,12 @@ class PyloggleFastAPIMiddleware:
                 http = dict(http_base)
                 http["route"] = _route_path(scope)  # the router fills scope["route"] after we started
                 http["status"] = final_status
-                if body_buf is not None and len(body_buf) > 0:
-                    body_obj, body_truncated2 = _pyloggle_decode_request_body(scope, bytes(body_buf), body_truncated)
-                    if body_truncated2:
-                        body_truncated = True
-                    if body_obj is not None:
-                        http["body"] = body_obj
-                if body_truncated:
-                    attrs["request_body_truncated"] = True
+                if tap is not None:
+                    body, truncated = tap.describe()
+                    if body is not None:
+                        http["body"] = body
+                    if truncated:
+                        attrs["request_body_truncated"] = True
                 user_id_hash = get_user_id_hash() or ""
                 self.client.emit(
                     {
@@ -203,7 +195,7 @@ class PyloggleFastAPIMiddleware:
         finally:
             end_request(token)
 
-    def _capture(self, exc, scope, headers, http_base, status_code, start, body_buf, body_truncated, request_id):
+    def _capture(self, exc, scope, headers, http_base, status_code, start, tap, request_id):
         if captured_event_id(exc):
             return
         if bool(getattr(self.client.config, "otel_owns_exceptions", False)):
@@ -220,14 +212,12 @@ class PyloggleFastAPIMiddleware:
         hdrs = headers_for_event(headers, self.client.config)
         if hdrs:
             http["headers"] = hdrs
-        if body_buf is not None and len(body_buf) > 0:
-            body_obj, body_truncated2 = _pyloggle_decode_request_body(scope, bytes(body_buf), body_truncated)
-            if body_truncated2:
-                body_truncated = True
-            if body_obj is not None:
-                http["body"] = body_obj
-        if body_truncated:
-            attrs["request_body_truncated"] = True
+        if tap is not None:
+            body, truncated = tap.describe()
+            if body is not None:
+                http["body"] = body
+            if truncated:
+                attrs["request_body_truncated"] = True
         user_id_hash = get_user_id_hash() or ""
         event_id = uuid.uuid4().hex
         ev = {
@@ -332,41 +322,38 @@ def _pyloggle_get_server_addr(scope) -> str:
     return f"{_wrap_ipv6(host_s)}:{port_i}"
 
 
-def _pyloggle_decode_request_body(scope, raw: bytes, truncated: bool) -> tuple[object | None, bool]:
-    """
-    Decode a request body captured from ASGI receive() buffers.
+class _BodyTap:
+    """Keeps a copy of the request body as the app reads it, up to the read cap: the body a
+    request line or an error records. Nothing is read that the app did not read itself."""
 
-    - Prefers JSON decoding when possible and when not truncated.
-    - Falls back to best-effort UTF-8 text.
-    """
-    if not raw:
-        return None, False
+    def __init__(self, content_type: str, config: Any) -> None:
+        self.content_type = content_type
+        self.cap = _body.read_cap(config)
+        self.buf = bytearray()
+        self.size = 0
+        self.done = False
 
-    looks_json = False
-    if not truncated:
+    def feed(self, msg: Any) -> None:
+        if not msg or msg.get("type") != "http.request":
+            return
+        chunk = msg.get("body") or b""
+        if isinstance(chunk, (bytes, bytearray)) and chunk:
+            self.size += len(chunk)
+            room = self.cap - len(self.buf)
+            if room > 0:
+                self.buf.extend(chunk[:room])
+        if not msg.get("more_body", False):
+            self.done = True
+
+    def describe(self) -> tuple:
+        """(body, truncated) of what was read so far; never raises."""
+        if not self.size:
+            return None, False
         try:
-            headers = _headers_dict(scope)
-            ct = (headers.get("content-type", "") or "").lower()
+            complete = self.done and self.size <= self.cap
+            return _body.describe_body(bytes(self.buf), self.content_type, complete=complete, size=self.size if self.done else None)
         except Exception:
-            ct = ""
-        if "json" in ct:
-            looks_json = True
-        else:
-            try:
-                looks_json = raw.lstrip().startswith((b"{", b"["))
-            except Exception:
-                looks_json = False
-
-        if looks_json:
-            try:
-                return json.loads(raw.decode("utf-8")), False
-            except Exception:
-                pass
-
-    try:
-        return raw.decode("utf-8", errors="replace"), truncated
-    except Exception:
-        return None, truncated
+            return None, False
 
 
 def _route_path(scope) -> str:

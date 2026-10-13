@@ -49,6 +49,7 @@ var logsRawSpec = tableSpec{
 		{"http_url", "String CODEC(ZSTD(3))"},
 		{"http_remote_addr", "String"},
 		{"http_server_addr", "String"},
+		{"http_body", "String CODEC(ZSTD(3))"},
 		{"duration_ms", "Float32"},
 		{"user_id_hash", "String"},
 		{"exception_type", "String"},
@@ -406,4 +407,31 @@ func (c *Client) swapTables(ctx context.Context, live, fresh string) error {
 		return err
 	}
 	return c.Exec(ctx, "DROP TABLE IF EXISTS "+old)
+}
+
+// addLogsHTTPBody gives request lines their body: logs_raw.http_body, which installs created
+// before 1.0 lack (006 renders the current spec, so fresh installs already have it). The usage
+// view is recreated so stored-size estimates count the body.
+func addLogsHTTPBody(ctx context.Context, c *Client, _ MigrateOptions) error {
+	existing, err := c.tableColumns(ctx, logsRawSpec.Name)
+	if err != nil {
+		return err
+	}
+	for _, stmt := range logsRawSpec.addMissingColumnsSQL(existing) {
+		if err := c.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	for _, s := range usageSources {
+		if s.Table != logsRawSpec.Name {
+			continue
+		}
+		if err := c.Exec(ctx, "DROP VIEW IF EXISTS project_usage_"+s.Source+"_mv"); err != nil {
+			return err
+		}
+		if err := c.Exec(ctx, fmt.Sprintf("CREATE MATERIALIZED VIEW IF NOT EXISTS project_usage_%s_mv TO project_usage_daily AS %s", s.Source, s.selectSQL(""))); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -84,6 +84,13 @@ def default_scrub_config() -> ScrubConfig:
             "apikey",
             "client_secret",
             "private_key",
+            # payment cards, now that request bodies are sent by default
+            "card_number",
+            "cardnumber",
+            "cc_number",
+            "credit_card",
+            "cvv",
+            "cvc",
         ),
         # Catch "something_token", "jwt", etc. Users can extend/override.
         key_patterns=(
@@ -91,6 +98,7 @@ def default_scrub_config() -> ScrubConfig:
             r".*secret.*",
             r".*password.*",
             r".*api[-_]?key.*",
+            r".*card[-_]?number.*",
         ),
     )
 
@@ -142,6 +150,34 @@ def _scrub_value(cfg: ScrubConfig, v: str, path: Tuple[str, ...]) -> str:
     return out
 
 
+# "name": value pairs in JSON text, and name=value pairs in form text. A body the SDK could not
+# parse (cut short, or too large to read whole) is still text with names in it.
+_JSON_PAIR = re.compile(r'"((?:[^"\\]|\\.){1,128})"(\s*:\s*)("(?:[^"\\]|\\.)*"?|[^,{}\[\]\s"]*)')
+_FORM_PAIR = re.compile(r"(^|[&;\s])([^=&;\s]{1,128})=([^&;\s]*)")
+_BODY_PATH = ("http", "body")
+
+
+def _scrub_body_text(cfg: ScrubConfig, text: str) -> str:
+    """Blank the values of secret-named fields inside body text."""
+    import urllib.parse
+
+    def json_pair(m: "re.Match[str]") -> str:
+        if not _should_redact_key(cfg, m.group(1), path=_BODY_PATH):
+            return m.group(0)
+        return f'"{m.group(1)}"{m.group(2)}"{cfg.redacted}"'
+
+    def form_pair(m: "re.Match[str]") -> str:
+        name = urllib.parse.unquote_plus(m.group(2))
+        if not _should_redact_key(cfg, name, path=_BODY_PATH):
+            return m.group(0)
+        return f"{m.group(1)}{m.group(2)}={cfg.redacted}"
+
+    out = _JSON_PAIR.sub(json_pair, text)
+    if "=" in out:
+        out = _FORM_PAIR.sub(form_pair, out)
+    return out
+
+
 def _scrub_any(v: Any, cfg: ScrubConfig, *, path: Tuple[str, ...]) -> Any:
     if isinstance(v, dict):
         out: Dict[str, Any] = {}
@@ -157,5 +193,7 @@ def _scrub_any(v: Any, cfg: ScrubConfig, *, path: Tuple[str, ...]) -> Any:
     if isinstance(v, tuple):
         return tuple(_scrub_any(x, cfg, path=path) for x in v)
     if isinstance(v, str):
+        if path == _BODY_PATH:
+            v = _scrub_body_text(cfg, v)
         return _scrub_value(cfg, v, path)
     return v

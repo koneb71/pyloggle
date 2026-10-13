@@ -21,7 +21,7 @@ settings.configure(
     MIDDLEWARE=["pyloggle.django.PyloggleMiddleware", f"{__name__}.DemoUserMiddleware"],
     DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
     INSTALLED_APPS=[],
-    PYLOGGLE={"service": "example-django", "env": "dev", "emit_request_latency": True},
+    PYLOGGLE={"service": "example-django", "env": "dev"},
 )
 
 import django  # noqa: E402

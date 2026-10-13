@@ -90,7 +90,7 @@ routes answer `503` with `unavailable`.
 
 ## Logs
 
-All routes take `q` in the [search syntax](../app/search.md), `from` and `to`.
+The routes that search take `q` in the [search syntax](../app/search.md), `from` and `to`.
 
 | Route | What it does |
 |---|---|
@@ -102,6 +102,8 @@ All routes take `q` in the [search syntax](../app/search.md), `from` and `to`.
 | `GET /logs/aggregate` | Numbers over time: `metric` is `count`, `avg`, `sum`, `min`, `max`, `p50`, `p95` or `p99`; `of` is the field to measure, such as `duration_ms` (all but `count` need it); `group_by` splits the result, `limit` (up to 50) caps the groups, `buckets` or `bucket_seconds` sets the interval |
 | `GET /logs/export` | Every matching message as a file: `format=csv` (default) or `ndjson`, `cols` to pick columns, `limit` up to `PYLOGGLE_EXPORT_MAX_ROWS` |
 | `GET /logs/fields` | The fields you can search and group by |
+| `GET /logs/{event_id}` | One message, with the body of its web request (`http_body`), which the lists leave out |
+| `DELETE /logs` | Deletes every message of the project, with the per-minute counts and request statistics built from them. Issues, request timelines and metrics stay. The JSON body must repeat the project id, `{"confirm": "<project id>"}`. Admins only, recorded in the admin activity |
 | `GET /saved-views` | Saved searches |
 | `POST /saved-views` | Save a search: `{"name": "…", "query": "…", "is_public": true}`. With an `id`, changes that saved search |
 | `DELETE /saved-views/{id}` | Delete a saved search |
