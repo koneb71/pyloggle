@@ -63,6 +63,18 @@ func analyticsBucket(from, to time.Time) time.Duration {
 	}
 }
 
+// errorBucket is analyticsBucket for problems opened and fixed: they come a few a day, so a
+// range longer than a day is counted per day ("opened and fixed per day").
+func errorBucket(from, to time.Time) time.Duration {
+	if to.Sub(from) <= 24*time.Hour {
+		return time.Hour
+	}
+	if b := analyticsBucket(from, to); b > 24*time.Hour {
+		return b
+	}
+	return 24 * time.Hour
+}
+
 // bucketsBetween lists the bucket starts covering [from, to), aligned like toStartOfInterval.
 func bucketsBetween(from, to time.Time, step time.Duration) []time.Time {
 	var out []time.Time
@@ -88,7 +100,7 @@ func (c *Client) ErrorAnalytics(ctx context.Context, s AnalyticsScope) (api.Erro
 	if err != nil {
 		return api.ErrorAnalytics{}, err
 	}
-	step := analyticsBucket(s.From, s.To)
+	step := errorBucket(s.From, s.To)
 	out := api.ErrorAnalytics{From: s.From, To: s.To, BucketSeconds: int(step / time.Second),
 		Points: []api.ErrorFlowPoint{}, Releases: []api.ReleaseHealth{}, Types: []api.ErrorGroupCount{}, Apps: []api.ErrorGroupCount{}, People: []api.PersonImpact{}}
 	if out.Points, out.Totals, err = c.errorFlow(ctx, s, step); err != nil {

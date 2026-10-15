@@ -43,4 +43,13 @@ func TestAnalyticsBucket(t *testing.T) {
 			t.Errorf("%v: %v want %v", span, got, want)
 		}
 	}
+	for span, want := range map[time.Duration]time.Duration{
+		24 * time.Hour:       time.Hour,
+		48 * time.Hour:       24 * time.Hour,
+		365 * 24 * time.Hour: 7 * 24 * time.Hour,
+	} {
+		if got := errorBucket(now.Add(-span), now); got != want {
+			t.Errorf("errors over %v: %v want %v", span, got, want)
+		}
+	}
 }
