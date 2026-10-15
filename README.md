@@ -23,13 +23,15 @@ the Apache License 2.0.
 ## What you get
 
 - **Errors you can act on.** Each report carries the line that failed, local variables, chained
-  causes, the steps just before, the web request and the person affected (counted, not named).
+  causes, the steps just before, the web request with its body (passwords and keys blanked out)
+  and the person affected (counted, not named).
   Errors are grouped by their path through your code, not by line numbers. Resolve one, and you
   see the moment it comes back; mark it fixed in the next version, and servers still running the
   old one do not reopen it.
 - **Logs you can search.** Type words or `service:api level:error duration_ms:>1000`, or click
   filters. Similar messages are grouped, charts show p95 by route, live mode follows new
-  messages, and any search can be saved or exported.
+  messages, and any search can be saved or exported. An admin can clear a project's messages to
+  start over.
 - **Every request, step by step.** OpenTelemetry request timelines across all your apps, with
   the messages and errors of each request.
 - **Alerts worth reading.** E-mail, Slack, Telegram or webhooks when a new problem appears, an old
