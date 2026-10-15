@@ -6,7 +6,7 @@ export const MAX_SERIES = 8;
 /** Color for a named series. Levels use the level tokens; everything else takes categorical slots in fixed order. */
 export function seriesColor(groupBy: string, name: string, index: number): string {
   if (groupBy === "level" || groupBy === "") return levelVar(name);
-  if (name === "Other") return "var(--lvl-other)";
+  if (name === "Other" || name === "other") return "var(--lvl-other)";
   return SERIES_VARS[index % SERIES_VARS.length];
 }
 
@@ -23,7 +23,8 @@ export function orderSeries(groupBy: string, series: string[]): { kept: string[]
 
 /** A series name as people read it: level names in words, "" as "empty". */
 export function seriesLabel(groupBy: string, name: string): string {
-  if (name === "") return "empty";
+  if (name === "") return groupBy === "exception" ? "No exception" : "empty";
+  if (name === "other") return "Other";
   if (groupBy === "level" || groupBy === "") return levelLabel(name);
   return name;
 }

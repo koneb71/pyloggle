@@ -6,7 +6,7 @@ from typing import Any, Callable, Optional
 
 from . import _body
 from . import scope as _scope
-from ._request import begin_request, client_ip, end_request, headers_for_event, ignored_request
+from ._request import begin_request, client_ip, count_request, end_request, headers_for_event, ignored_request
 from .client import Client
 from .context import get_user_id_hash, set_request_id, set_user_id_hash
 from .otel import annotate_request_body
@@ -154,10 +154,14 @@ class PyloggleFastAPIMiddleware:
                 pass
             raise
         else:
-            if not bool(getattr(self.client.config, "emit_request_latency", False)) or otel_span is not None:
+            if otel_span is not None:
                 return  # the server span already yields the request line
             try:
                 final_status = int(status_code if status_code is not None else 500)
+                if not bool(getattr(self.client.config, "emit_request_latency", False)):
+                    duration = round((time.perf_counter() - start) * 1000, 2)
+                    count_request(self.client, str(scope.get("method", "")), str(scope.get("path", "")), _matched_route(scope), final_status, duration, get_user_id_hash())
+                    return
                 if ignored_request(self.client.config, str(scope.get("method", "")), str(scope.get("path", "")), _route_path(scope), final_status):
                     return
                 level = "info"
@@ -358,11 +362,13 @@ class _BodyTap:
 
 def _route_path(scope) -> str:
     # Best-effort: Starlette stores route on scope["route"] with .path
-    r = scope.get("route")
-    p = getattr(r, "path", None)
-    if p:
-        return str(p)
-    return scope.get("path", "")
+    return _matched_route(scope) or scope.get("path", "")
+
+
+def _matched_route(scope) -> str:
+    """The route template the router matched ("/orders/{id}"), or "" when none did."""
+    p = getattr(scope.get("route"), "path", None)
+    return str(p) if p else ""
 
 
 def _iso_now() -> str:

@@ -11,6 +11,7 @@ import { OverviewPage } from "@/features/overview/overview-page";
 import { IssueDetailPage } from "@/features/issues/issue-detail-page";
 import { LogsPage } from "@/features/logs/logs-page";
 import { DashboardsPage } from "@/features/dashboards/dashboards-page";
+import { AnalyticsPage } from "@/features/analytics/analytics-page";
 import { AlertsPage } from "@/features/alerts/alerts-page";
 import { ProjectsPage } from "@/features/projects/projects-page";
 import { TracesPage } from "@/features/traces/traces-page";
@@ -71,6 +72,7 @@ export function App() {
         <Route path="/traces" element={<NeedsProject me={me.data}><TracesPage /></NeedsProject>} />
         <Route path="/traces/:id" element={<NeedsProject me={me.data}><TracePage /></NeedsProject>} />
         <Route path="/dashboards" element={<NeedsProject me={me.data}><DashboardsPage /></NeedsProject>} />
+        <Route path="/analytics" element={<NeedsProject me={me.data}><AnalyticsPage /></NeedsProject>} />
         <Route path="/alerts" element={<NeedsProject me={me.data}><AlertsPage me={me.data} /></NeedsProject>} />
         <Route path="/projects" element={<ProjectsPage me={me.data} />} />
         <Route path="/system" element={<SystemPage me={me.data} />} />

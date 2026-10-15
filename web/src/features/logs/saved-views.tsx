@@ -5,6 +5,7 @@ import { useDeleteView, useSaveView, useSavedViews } from "@/api/hooks";
 import type { SavedView } from "@/api/types";
 import { Button, Checkbox, Dialog, Field, Input, MenuItem, Popover } from "@/components/ui";
 import { rangeLabel } from "@/lib/time";
+import { parseSavedChart } from "@/features/analytics/chart-model";
 
 export interface ViewState {
   q: string;
@@ -13,9 +14,9 @@ export interface ViewState {
   group_by?: string;
   cols?: string;
   facets?: string;
-  /** Explorer mode: list (default) | patterns | analytics. */
+  /** Explorer mode: list (default) | patterns. Searches saved with "analytics" open in Analytics → Charts. */
   view?: string;
-  /** Analytics mode settings. */
+  /** The Charts settings of searches saved before charts moved to Analytics. */
   group_by_a?: string;
   metric?: string;
   of?: string;
@@ -34,7 +35,8 @@ export function SavedViewsMenu({ current, onApply, activeName }: { current: View
   const views = useSavedViews();
   const del = useDeleteView();
   const [saving, setSaving] = useState(false);
-  const items = views.data?.items ?? [];
+  // Saved charts live in Analytics → Charts.
+  const items = (views.data?.items ?? []).filter((v) => parseSavedChart(v.query) === null);
   return (
     <>
       <Popover
@@ -122,7 +124,7 @@ function SaveViewDialog({ current, onClose }: { current: ViewState; onClose: () 
           {current.view && (
             <>
               <dt className="text-ink-3">Showing</dt>
-              <dd className="text-ink">{current.view === "patterns" ? "Similar messages" : current.view === "analytics" ? "Charts" : "Messages"}</dd>
+              <dd className="text-ink">{current.view === "patterns" ? "Similar messages" : "Messages"}</dd>
             </>
           )}
         </dl>

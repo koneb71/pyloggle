@@ -90,7 +90,7 @@ func TestIntegrationRequestBodiesAndClearLogs(t *testing.T) {
 	if err := c.ClearLogs(ctx, "p1"); err != nil {
 		t.Fatalf("clear: %v", err)
 	}
-	for _, table := range []string{"logs_raw", "log_counts_minutely", "request_stats_minutely"} {
+	for _, table := range []string{"logs_raw", "log_counts_minutely"} {
 		if n := count(table, "p1"); n != 0 {
 			t.Fatalf("%s still holds %d p1 rows", table, n)
 		}
@@ -98,8 +98,9 @@ func TestIntegrationRequestBodiesAndClearLogs(t *testing.T) {
 			t.Fatalf("clearing p1 must leave p2's %s alone", table)
 		}
 	}
-	// Issues and their occurrences (with the body) stay.
-	for _, table := range []string{"error_occurrences", "issues_agg"} {
+	// Issues and their occurrences (with the body) stay, and so do request counts: every request
+	// is counted on arrival, not built from the messages.
+	for _, table := range []string{"error_occurrences", "issues_agg", "request_stats_minutely", "request_usage_hourly"} {
 		if count(table, "p1") == 0 {
 			t.Fatalf("clearing messages must keep %s", table)
 		}

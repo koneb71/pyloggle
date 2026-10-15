@@ -98,14 +98,14 @@ How many days each kind of data is kept. A change applies when the server next s
 | `PYLOGGLE_RETENTION_ERRORS_DAYS` | `30` | Each time an error happened, with its full report. |
 | `PYLOGGLE_RETENTION_SPANS_DAYS` | `7` | Request steps (spans), shown on the Requests page. |
 | `PYLOGGLE_RETENTION_METRICS_DAYS` | `30` | OpenTelemetry metrics. |
-| `PYLOGGLE_RETENTION_STATS_DAYS` | `365` | The counts behind the charts and lists: issue counts, messages per minute, request statistics. |
+| `PYLOGGLE_RETENTION_STATS_DAYS` | `365` | The counts behind the charts and lists: issue counts, messages per minute, request counts. |
 
 ## OpenTelemetry
 
 | Variable | Default | What it does |
 |---|---|---|
 | `OTLP_STORE_SPANS` | `true` | Keep the request steps (spans) sent through OpenTelemetry. Errors and requests found in them are kept either way. |
-| `OTLP_STORE_SERVER_SPANS` | `true` | Also record each incoming request (a server span) as a message, so OpenTelemetry requests appear on Logs and in the request charts like the ones the Python package reports. CORS preflight (`OPTIONS`) and `HEAD` requests are left out unless they failed. Set `false` to keep request lines off Logs. |
+| `OTLP_STORE_SERVER_SPANS` | `true` | Also list each incoming request (a server span) on Logs as a `request` message. Every server span is counted either way, for **Analytics** and the request charts. CORS preflight (`OPTIONS`) and `HEAD` requests are left out unless they failed. Set `false` to keep request lines off Logs. |
 | `OTLP_STORE_METRICS` | `true` | Keep the metrics sent through OpenTelemetry. |
 
 ## Alerts

@@ -26,6 +26,7 @@ type memSink struct {
 	occs   []issue.ErrorOccurrence
 	spans  []model.Span
 	points []model.MetricPoint
+	counts []model.RequestCount
 }
 
 func (m *memSink) EnqueueLog(_ context.Context, ev model.Event) error {
@@ -51,6 +52,12 @@ func (m *memSink) EnqueueMetricPoints(_ context.Context, points []model.MetricPo
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.points = append(m.points, points...)
+	return nil
+}
+func (m *memSink) EnqueueRequestCounts(_ context.Context, counts []model.RequestCount) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.counts = append(m.counts, counts...)
 	return nil
 }
 

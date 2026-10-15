@@ -53,12 +53,16 @@ type Store interface {
 	RequestStatsFromOTel(ctx context.Context, projectID, service, env string, from, to time.Time, bucketSeconds, routeLimit int) (api.RequestStats, bool, error)
 	ServiceHealth(ctx context.Context, projectID, env string, from, to time.Time, limit int) ([]api.ServiceHealth, error)
 	ListReleases(ctx context.Context, projectID string, from, to time.Time, limit int) ([]api.Release, error)
+	ErrorAnalytics(ctx context.Context, s clickhouse.AnalyticsScope) (api.ErrorAnalytics, error)
+	ChartAggregate(ctx context.Context, q clickhouse.ChartQuery, spec clickhouse.AggregateSpec) (api.LogAggregate, error)
+	UsageAnalytics(ctx context.Context, s clickhouse.AnalyticsScope, sortBy string) (api.UsageAnalytics, error)
 	IssueSpikeCounts(ctx context.Context, rule api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, limit int) ([]clickhouse.IssueSpikeRow, error)
 	MetricNames(ctx context.Context, projectID string) ([]api.MetricInfo, error)
 	MetricSeries(ctx context.Context, q clickhouse.MetricQuery) (api.MetricSeries, bool, error)
 
 	// saved views
 	ListSavedSearches(ctx context.Context, projectID, userID string, includePublic bool, onlyPinned bool, limit int) ([]api.SavedSearch, error)
+	GetSavedSearch(ctx context.Context, projectID, id string) (api.SavedSearch, bool, error)
 	UpsertSavedSearch(ctx context.Context, s api.SavedSearch) (api.SavedSearch, error)
 	SoftDeleteSavedSearch(ctx context.Context, projectID, userID, id string) error
 

@@ -75,9 +75,9 @@ type Config struct {
 	RetentionSpansDays   int
 	RetentionMetricsDays int
 
-	// OTLP ingestion. OTLPStoreSpans keeps every span in the spans table (7-day TTL by default);
-	// OTLPStoreServerSpans also stores OK server spans as "request" log rows so the explorer,
-	// analytics and request stats see OTLP traffic like SDK traffic.
+	// OTLP ingestion. OTLPStoreSpans keeps every span in the spans table (7-day TTL by default).
+	// Every OK server span is counted as a request; OTLPStoreServerSpans also lists it on Logs as
+	// a "request" row, like the Python package's request lines.
 	OTLPStoreSpans       bool
 	OTLPStoreServerSpans bool
 	OTLPStoreMetrics     bool // keep OTLP metric points (30-day TTL by default)

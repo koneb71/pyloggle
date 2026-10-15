@@ -122,5 +122,26 @@ def ignored_request(config: Any, method: str, path: str, route: str = "", status
     return False
 
 
+def count_request(
+    client: Any,
+    method: str,
+    path: str,
+    route: str,
+    status: int,
+    duration_ms: Optional[float] = None,
+    user_id_hash: Optional[str] = None,
+) -> None:
+    """Count a finished request that gets no request line, unless ``ignore_requests`` matches it
+    or it matched no route (unknown paths would make every typo an endpoint). Callers leave out
+    requests that crashed (their error event counts them) and OpenTelemetry server spans (the
+    server counts those)."""
+    count = getattr(client, "count_request", None)
+    if count is None or not route:
+        return
+    if ignored_request(client.config, method, path, route, status):
+        return
+    count(method, route, status, duration_ms, user_id_hash)
+
+
 def end_request(token: Any) -> None:
     _scope.reset_scope(token)

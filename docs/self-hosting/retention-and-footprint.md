@@ -12,7 +12,7 @@ memory and disk, and which settings change that.
 | Each time an error happened | 30 days | `PYLOGGLE_RETENTION_ERRORS_DAYS` |
 | Request steps (spans) | 7 days | `PYLOGGLE_RETENTION_SPANS_DAYS` |
 | OpenTelemetry metrics | 30 days | `PYLOGGLE_RETENTION_METRICS_DAYS` |
-| Counts behind the charts and lists (issue counts, messages per minute, request statistics) | 365 days | `PYLOGGLE_RETENTION_STATS_DAYS` |
+| Counts behind the charts and lists (issue counts, messages per minute, request counts) | 365 days | `PYLOGGLE_RETENTION_STATS_DAYS` |
 
 Issues themselves, their comments and history, projects, keys and alert rules are not deleted
 by age. An admin can also delete all of a project's messages at once, whatever their age; see
@@ -64,6 +64,7 @@ materialized views (usage, request stats, releases) that run on every insert.
 |---|---|---|---|---|---|
 | spans | 160 546 | 5.9 MiB | 25.9 MiB | 4.4 | 39 |
 | request_stats_minutely | 13 417 | 1.6 MiB | 3.2 MiB | 2.0 | 124 |
+| request_usage_hourly | 438 | 123 KiB | 340 KiB | 2.8 | 288 |
 | metrics_points | 1 042 | 14 KiB | 292 KiB | 20.9 | 14 |
 | project_usage_daily | 24 | 1.7 KiB | 1 KiB | | |
 
@@ -74,6 +75,12 @@ each with the default 15 buckets). Rule of thumb with everything on:
 ```
 disk ≈ lines/day × ~100 B × 30 days + traced requests/day × ~160 B × 7 days + metric series × 1 440 × 14 B × 30 days
 ```
+
+Requests the Python package counts (the default) cost no log rows at all: they go to
+`request_stats_minutely` per endpoint and minute and to `request_usage_hourly` per endpoint,
+version and hour. With `make demo-data`, 32,400 requests over two days took 124 KiB in the hourly
+table and 176 KiB in the per-minute one, about 300 KB, where the same requests as `request` lines
+would take about 4 MB of messages.
 
 Log rows and error occurrences are unchanged from 0.2 (124 and 136 bytes per row in this run).
 The ingest rate during the burst (5 300 lines/s paced, every line stored, queues never

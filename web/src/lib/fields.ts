@@ -57,6 +57,9 @@ const LABELS: Record<string, string> = {
   http_method: "Method",
   "http.route": "Route",
   http_route: "Route",
+  endpoint: "Endpoint",
+  handled: "Handled",
+  "exception.message": "Error message",
   "http.path": "Path",
   "http.url": "URL",
   http_url: "URL",
@@ -148,7 +151,7 @@ export function fieldLabel(key: string): string {
 }
 
 const CODE_KEY = /(^|[._])(id|ids|hash|trace_id|span_id|event_id|request_id|fingerprint|path|filepath|file|filename|function|func|module|namespace|logger|statement|query|sql|stacktrace|stack|url|uri|route|user_agent|sha|commit|key|token|uuid)$/i;
-const CODE_KEYS = new Set(["exception", "exception_type", "culprit", "code.lineno", "http.method", "http_method", "runtime.pid", "process.pid", "id_hash"]);
+const CODE_KEYS = new Set(["endpoint", "exception", "exception_type", "culprit", "code.lineno", "http.method", "http_method", "runtime.pid", "process.pid", "id_hash"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LONG_HEX = /^[0-9a-f]{12,}$/i;
 const PATHLIKE = /^(\/|[a-z]:\\|\.{1,2}\/)[^\s]*$/i;

@@ -1,14 +1,17 @@
 import { useMemo } from "react";
 import { ArrowRight, Check, ChevronDown } from "lucide-react";
-import { useErrorTrend, useLogFacets, useLogVolume, useMetricNames, useOverview, useRequestStats, useTopIssues } from "@/api/hooks";
+import { useErrorTrend, useLogVolume, useMetricNames, useOverview, useRequestStats, useTopIssues } from "@/api/hooks";
 import type { IssueSummary, RouteStats } from "@/api/types";
 import { TimeRangePicker } from "@/components/shell/time-range-picker";
 import { TimelineHistogram } from "@/components/charts/timeline-histogram";
 import { TrendChart } from "@/components/charts/trend-chart";
 import { MultiLineChart } from "@/components/charts/multi-line";
 import { Sparkline } from "@/components/charts/sparkline";
-import { Button, DataTable, EmptyState, ErrorState, LinkButton, MenuItem, MetaLine, Page, Popover, Section, Select, StatTile, Term, TimeAgo, type Column } from "@/components/ui";
+import { Button, DataTable, EmptyState, ErrorState, LinkButton, MenuItem, MetaLine, Page, Popover, Section, StatTile, Term, TimeAgo, type Column } from "@/components/ui";
+import { ScopeFilter } from "@/components/shell/scope-filter";
+import { chartHref, DEFAULT_CHART } from "@/features/analytics/chart-model";
 import { MetricCard } from "./metric-card";
+import { PinnedCharts } from "./pinned-charts";
 import { useRange } from "@/lib/use-range";
 import { useUrlState } from "@/lib/url";
 import { fmtMs, fmtNumber, fmtPct, previousLabel } from "@/lib/time";
@@ -17,7 +20,7 @@ import { issueHeadline } from "@/features/issues/issue-text";
 
 const DASH_DEFAULT = { from: "-24h", to: "" };
 
-/** Where the web-request numbers come from. "auto" uses request events and falls back to OpenTelemetry metrics. */
+/** Where the web-request numbers come from. "auto" uses counted requests and falls back to OpenTelemetry metrics. */
 type Source = "auto" | "logs" | "otel";
 
 export function DashboardsPage() {
@@ -39,7 +42,6 @@ export function DashboardsPage() {
   const fromOtel = useRequestStats({ ...scope, source: "otel", compare: "previous" }, chosen === "otel" || autoOtel);
   const source: "logs" | "otel" = chosen === "otel" || autoOtel ? "otel" : "logs";
   const reqs = source === "otel" ? fromOtel : fromLogs;
-  const facets = useLogFacets({ from: range.from, to: range.to || undefined, fields: ["service", "env"], attr_keys: 0 });
 
   const o = overview.data?.overview;
   const prev = overview.data?.previous;
@@ -124,31 +126,10 @@ export function DashboardsPage() {
       title="Dashboards"
       description="How this project is doing over time."
       actions={<TimeRangePicker value={range} onChange={setRange} onRefresh={refetch} refreshing={overview.isFetching || reqs.isFetching} />}
-      toolbar={
-        <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-3">
-          <span>For</span>
-          <Select value={service} onChange={(e) => set({ service: e.target.value || undefined })} className="w-auto min-w-32" aria-label="App">
-            <option value="">All apps</option>
-            {(facets.data?.fields.service ?? []).filter((f) => f.value).map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.value}
-              </option>
-            ))}
-            {service && !(facets.data?.fields.service ?? []).some((f) => f.value === service) && <option value={service}>{service}</option>}
-          </Select>
-          <span>in</span>
-          <Select value={env} onChange={(e) => set({ env: e.target.value || undefined })} className="w-auto min-w-36" aria-label="Environment">
-            <option value="">All environments</option>
-            {(facets.data?.fields.env ?? []).filter((f) => f.value).map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.value}
-              </option>
-            ))}
-            {env && !(facets.data?.fields.env ?? []).some((f) => f.value === env) && <option value={env}>{env}</option>}
-          </Select>
-        </div>
-      }
+      toolbar={<ScopeFilter range={range} service={service} env={env} onChange={(p) => set(p)} />}
     >
+      <PinnedCharts scope={{ from: range.from, to: range.to, service, env }} />
+
       <Section
         title="Errors"
         description="Problems your apps reported."
@@ -223,7 +204,7 @@ export function DashboardsPage() {
             <div className="-mx-4 -mb-4 mt-5 border-t border-border">
               <div className="flex items-center justify-between px-4 pb-1 pt-3">
                 <span className="text-[13px] font-semibold text-ink">Busiest endpoints</span>
-                <LinkButton to={`/logs?view=analytics&group_by_a=http.route&metric=p95&${rangeQs}`} size="xs" variant="ghost" icon={<ArrowRight size={13} />}>
+                <LinkButton to={chartHref({ ...DEFAULT_CHART.requests, metric: "p95" }, range, scope)} size="xs" variant="ghost" icon={<ArrowRight size={13} />}>
                   Chart any endpoint
                 </LinkButton>
               </div>
@@ -232,11 +213,11 @@ export function DashboardsPage() {
                 columns={routeColumns}
                 rows={reqs.data?.routes}
                 rowKey={(r) => `${r.method} ${r.route}`}
-                rowHref={(r) => `/logs?q=${encodeURIComponent(`http.route:${JSON.stringify(r.route ?? "")} http.method:${r.method ?? ""}`)}&${rangeQs}`}
+                rowHref={(r) => chartHref({ ...DEFAULT_CHART.requests, q: `endpoint:${JSON.stringify(`${r.method} ${r.route}`)}`, groupBy: "" }, range, scope)}
                 loading={reqs.isPending}
                 skeletonRows={4}
                 stickyHeader={false}
-                empty={<EmptyState title="No web requests in this time range" hint="Requests are recorded by the SDK's web integrations and by OpenTelemetry." className="py-8" />}
+                empty={<EmptyState title="No web requests in this time range" hint="Requests are counted by the Python package's web integrations and by OpenTelemetry." className="py-8" />}
               />
             </div>
           </>
@@ -266,13 +247,13 @@ export function DashboardsPage() {
 }
 
 const SOURCE_WORDS: Record<"logs" | "otel", { label: string; hint: string }> = {
-  logs: { label: "App logs", hint: "Requests recorded by the SDK, and requests reported by OpenTelemetry" },
+  logs: { label: "Counted requests", hint: "Every request the Python package counts or lists, and the requests OpenTelemetry reports" },
   otel: { label: "OpenTelemetry metrics", hint: "The http.server.request.duration metric your apps send" },
 };
 
-/** "Based on: App logs ▾": where the web-request numbers come from, automatic by default. */
+/** "Based on: Counted requests ▾": where the web-request numbers come from, automatic by default. */
 function SourceMenu({ chosen, effective, hasOtel, onChange }: { chosen: Source; effective: "logs" | "otel"; hasOtel: boolean; onChange: (v: Source) => void }) {
-  if (!hasOtel) return <span className="text-xs text-ink-3" title={SOURCE_WORDS.logs.hint}>Based on app logs</span>;
+  if (!hasOtel) return <span className="text-xs text-ink-3" title={SOURCE_WORDS.logs.hint}>Based on counted requests</span>;
   return (
     <Popover
       align="end"
@@ -290,7 +271,7 @@ function SourceMenu({ chosen, effective, hasOtel, onChange }: { chosen: Source; 
             <MenuItem key={v} icon={chosen === v ? <Check size={14} className="text-accent" /> : <span className="inline-block w-[14px]" />} onClick={() => (onChange(v), close())}>
               <span className="min-w-0 flex-1">
                 {v === "auto" ? "Automatic" : SOURCE_WORDS[v].label}
-                <span className="block text-xs text-ink-3">{v === "auto" ? "App logs, or OpenTelemetry metrics when there are no request events" : SOURCE_WORDS[v].hint}</span>
+                <span className="block text-xs text-ink-3">{v === "auto" ? "Counted requests, or OpenTelemetry metrics when there are none" : SOURCE_WORDS[v].hint}</span>
               </span>
             </MenuItem>
           ))}

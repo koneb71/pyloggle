@@ -6,8 +6,9 @@ The first open-source release. Pyloggle is now licensed under the Apache License
 documentation site, and is released as a Docker image, binaries and a Python package on PyPI.
 It also brings a redesigned app for the whole team, not only engineers, alerts that say what
 went wrong and where, each alert sent only once, a recap of yesterday, request bodies wherever
-a request shows, and a way to clear a project's messages. Two migrations: 016 adds a table and
-two columns, and 017 adds the request body to messages.
+a request shows, a way to clear a project's messages, and an Analytics page fed by requests that
+are counted without filling Logs. Three migrations: 016 adds a table and two columns, 017 adds
+the request body to messages, and 018 counts requests.
 
 Read [upgrading to 1.0](https://koneb71.github.io/pyloggle/self-hosting/upgrading) before you
 upgrade: a server that relied on the old sign-in default no longer starts until the mode is set.
@@ -179,13 +180,51 @@ about each.
   turn on `emit_request_latency=True`, and the setup guides no longer turn them on.
 - **Clear all messages**: admins can delete every message of a project, from Logs (**More** →
   **Clear all messages**) or the project's Danger zone, after typing the project id. The
-  per-minute counts and request statistics built from them go too; issues, request timelines and
+  per-minute counts built from them go too; issues, request counts, request timelines and
   measurements stay. `DELETE /logs` with `{"confirm": "<project id>"}` does the same through the
   API, for the project of the session or access key only, and is recorded in the admin
   activity.
 
+### Analytics, and every request counted
+
+- **Analytics**, a new page in three tabs (`g` then `y`), for the last 30 days by default and one
+  app or environment if you like:
+  - **Errors**: problems opened, fixed and coming back per day against the period before, the
+    typical time to fix and how it spreads, each version's errors per 1,000 requests and the
+    problems it brought, and the most frequent error types, noisiest apps and most affected
+    people (named only when the app sends names).
+  - **Usage**: requests, people and failures over time and per week, pages and endpoints ranked
+    by requests or by people, and traffic by version.
+  - **Charts**: the chart builder that was on Logs, now over messages, errors or requests. New
+    measures: people, problems, failed requests and the share that failed. Charts can be saved,
+    shared and **pinned to Dashboards**, where they follow the dashboard's range, app and
+    environment. Logs' **Chart** button opens its search here, and old Logs chart links land
+    here with their settings.
+- **Requests are counted without being listed.** The Python package tallies every request per
+  endpoint and minute (`count_requests`, on by default) and sends the tally to the new
+  `POST /v1/ingest/requests`: how many, how many failed, each response time and the hashed IDs
+  of signed-in people. Nothing reaches Logs, and Dashboards' request charts work again with
+  request lines off. Crashes are counted by their error report and OpenTelemetry server spans by
+  the server, each once; an older server's `404` turns counting off. Request lines and server
+  spans that are listed are counted on arrival, before sampling and the rate limit, so the
+  counts stay exact. `OTLP_STORE_SERVER_SPANS=false` now only keeps OpenTelemetry requests off
+  Logs; they are still counted.
+- Migration 018 adds `request_counts_in`, which stores nothing and feeds three views:
+  `request_stats_minutely`, the new `request_usage_hourly` (requests, failures, response times
+  and an estimate of people per endpoint, version and hour) and `releases`. It drops the view
+  that counted request rows of `logs_raw` and fills the hourly table from the ones still kept.
+  32,400 requests over two days take about 300 KB this way, against about 4 MB as lines.
+- `GET /analytics/errors`, `GET /analytics/usage`, `GET /analytics/aggregate` (`GET
+  /logs/aggregate` over messages, errors or requests), `GET /analytics/fields`, and
+  `POST /saved-views/{id}/pin` with `GET /saved-views?pinned=1`.
+- Only a saved view's owner or an admin can change, pin or delete it; anyone in the project
+  could before. Saving over a view keeps its owner.
+- `make demo-data` sends its web requests as counts, as the Python package now does.
+
 ### Fixed
 
+- Request counts were short whenever sampling or the rate limit dropped request lines: the
+  statistics were built from the lines that were kept.
 - The alert dialog's Slack field said "Empty uses the server's default", but an empty field
   turned Slack off, so the default webhook (`ALERT_SLACK_WEBHOOK_URL`) could not be chosen.
   When the server has one, the dialog now offers it as a checkbox, and rule cards that use it

@@ -45,7 +45,7 @@ const OUTCOME_LABEL: Record<string, string> = {
   queue_full: "Dropped: server too busy",
 };
 
-const KIND_LABEL: Record<string, string> = { logs: "Messages", errors: "Error details", spans: "Request steps", metrics: "Custom measurements" };
+const KIND_LABEL: Record<string, string> = { logs: "Messages", errors: "Error details", spans: "Request steps", metrics: "Custom measurements", "request counts": "Request counts" };
 
 /** Storage tables in words; the real table name stays visible underneath. */
 const TABLE_LABEL: Record<string, string> = {
@@ -61,6 +61,7 @@ const TABLE_LABEL: Record<string, string> = {
   issue_counts_hourly: "Errors per hour",
   log_counts_minutely: "Messages per minute",
   request_stats_minutely: "Requests per minute",
+  request_usage_hourly: "Requests and people per hour",
   releases: "Versions",
   alert_rules: "Alert rules",
   alert_firings: "Alerts sent",

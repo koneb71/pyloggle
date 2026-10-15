@@ -15,8 +15,10 @@ import (
 	"time"
 
 	"github.com/koneb71/pyloggle/internal/api"
+	"github.com/koneb71/pyloggle/internal/auth"
 	"github.com/koneb71/pyloggle/internal/config"
 	"github.com/koneb71/pyloggle/internal/issue"
+	"github.com/koneb71/pyloggle/internal/logquery"
 	"github.com/koneb71/pyloggle/internal/storage/clickhouse"
 	"github.com/koneb71/pyloggle/internal/tenant"
 )
@@ -47,6 +49,10 @@ type fakeStore struct {
 	spikeWindows    [4]time.Time
 	overviewRanges  [][2]time.Time
 	requestRanges   [][2]time.Time
+	analytics       []clickhouse.AnalyticsScope
+	usageSort       string
+	lastChart       clickhouse.ChartQuery
+	views           map[string]api.SavedSearch
 	down            error // when set, project lookups fail as if the database were unreachable
 }
 
@@ -193,6 +199,11 @@ func (f *fakeStore) LogAggregate(_ context.Context, q clickhouse.LogQuery, spec 
 	return api.LogAggregate{BucketSeconds: int(spec.Bucket / time.Second), GroupBy: spec.GroupBy, Metric: spec.Metric, Of: spec.Of,
 		Total: api.AggregateGroup{Key: "total", Rows: 3, Value: &v}, Groups: []api.AggregateGroup{{Key: "/orders", Rows: 3, Value: &v}}}, nil
 }
+func (f *fakeStore) ChartAggregate(_ context.Context, q clickhouse.ChartQuery, spec clickhouse.AggregateSpec) (api.LogAggregate, error) {
+	f.lastChart = q
+	f.lastAggregate = spec
+	return api.LogAggregate{BucketSeconds: int(spec.Bucket / time.Second), GroupBy: spec.GroupBy, Metric: spec.Metric}, nil
+}
 func (f *fakeStore) RequestStats(_ context.Context, _, service, _ string, from, to time.Time, bucket, limit int) (api.RequestStats, error) {
 	f.lastService = service
 	f.requestRanges = append(f.requestRanges, [2]time.Time{from, to})
@@ -331,6 +342,19 @@ func (f *fakeStore) ServiceHealth(_ context.Context, _, env string, _, _ time.Ti
 func (f *fakeStore) ListReleases(context.Context, string, time.Time, time.Time, int) ([]api.Release, error) {
 	return []api.Release{{Release: "1.4.0", Errors: 3, Issues: 1}}, nil
 }
+func (f *fakeStore) ErrorAnalytics(_ context.Context, s clickhouse.AnalyticsScope) (api.ErrorAnalytics, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.analytics = append(f.analytics, s)
+	return api.ErrorAnalytics{From: s.From, To: s.To, Totals: api.ErrorFlowTotals{Opened: 3, Fixed: 2}, Types: []api.ErrorGroupCount{{Key: "ValueError", Errors: 5}}}, nil
+}
+func (f *fakeStore) UsageAnalytics(_ context.Context, s clickhouse.AnalyticsScope, sortBy string) (api.UsageAnalytics, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.analytics = append(f.analytics, s)
+	f.usageSort = sortBy
+	return api.UsageAnalytics{From: s.From, To: s.To, Totals: api.UsageTotals{Requests: 250, People: 4}}, nil
+}
 func (f *fakeStore) IssueSpikeCounts(_ context.Context, _ api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, _ int) ([]clickhouse.IssueSpikeRow, error) {
 	f.spikeWindows = [4]time.Time{prevFrom, prevTo, curFrom, curTo}
 	return f.spikes, nil
@@ -344,14 +368,41 @@ func (f *fakeStore) LogVolumeByLevel(context.Context, string, string, string, ti
 func (f *fakeStore) TopIssues(context.Context, string, string, string, time.Time, time.Time, int) ([]api.IssueSummary, error) {
 	return nil, nil
 }
-func (f *fakeStore) ListSavedSearches(context.Context, string, string, bool, bool, int) ([]api.SavedSearch, error) {
-	return nil, nil
+func (f *fakeStore) ListSavedSearches(_ context.Context, _, userID string, _ bool, onlyPinned bool, _ int) ([]api.SavedSearch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []api.SavedSearch
+	for _, v := range f.views {
+		if (v.UserID == userID || v.IsPublic) && (!onlyPinned || v.IsPinned) {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+func (f *fakeStore) GetSavedSearch(_ context.Context, _, id string) (api.SavedSearch, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v, ok := f.views[id]
+	return v, ok, nil
 }
 func (f *fakeStore) UpsertSavedSearch(_ context.Context, s api.SavedSearch) (api.SavedSearch, error) {
-	s.ID = "sv1"
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if s.ID == "" {
+		s.ID = "sv1"
+	}
+	if f.views == nil {
+		f.views = map[string]api.SavedSearch{}
+	}
+	f.views[s.ID] = s
 	return s, nil
 }
-func (f *fakeStore) SoftDeleteSavedSearch(context.Context, string, string, string) error { return nil }
+func (f *fakeStore) SoftDeleteSavedSearch(_ context.Context, _, _, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.views, id)
+	return nil
+}
 func (f *fakeStore) ListProjects(context.Context, int) ([]clickhouse.ProjectView, error) {
 	if f.down != nil {
 		return nil, f.down
@@ -1257,5 +1308,108 @@ func TestClearLogs(t *testing.T) {
 	ua := NewForTest(cfg, store, fakeKeys{}, nil)
 	if rec, _ := do(t, ua, "DELETE", "/ui/api/logs", map[string]any{"confirm": "default"}, csrf); rec.Code == 200 {
 		t.Fatal("non-admin clear must be refused")
+	}
+}
+
+func TestAnalyticsErrorsAndUsage(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/analytics/errors?service=shop&env=prod", nil, nil)
+	if rec.Code != 200 || out["totals"].(map[string]any)["opened"] != float64(3) || out["details_kept_days"] != float64(u.cfg.RetentionErrorsDays) {
+		t.Fatalf("errors: %d %s", rec.Code, rec.Body.String())
+	}
+	s := store.analytics[0]
+	if s.ProjectID != "default" || s.Service != "shop" || s.Env != "prod" || s.To.Sub(s.From) < 29*24*time.Hour {
+		t.Fatalf("scope: %+v (the default range is 30 days)", s)
+	}
+	rec, out = do(t, u, "GET", "/ui/api/analytics/usage?from=-7d&sort=people", nil, nil)
+	if rec.Code != 200 || out["totals"].(map[string]any)["requests"] != float64(250) || store.usageSort != "people" {
+		t.Fatalf("usage: %d %s", rec.Code, rec.Body.String())
+	}
+	if d := store.analytics[1].To.Sub(store.analytics[1].From); d < 7*24*time.Hour-time.Minute || d > 7*24*time.Hour+time.Minute {
+		t.Fatalf("range: %v", d)
+	}
+}
+
+func TestChartAggregate(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	rec, _ := do(t, u, "GET", "/ui/api/analytics/aggregate?source=requests&q=route:/orders*&metric=p95&group_by=release&service=shop&from=-6h", nil, nil)
+	if rec.Code != 200 || store.lastChart.Source != "requests" || store.lastChart.Service != "shop" || store.lastAggregate.Metric != "p95" || store.lastAggregate.GroupBy != "release" {
+		t.Fatalf("requests chart: %d %s %+v", rec.Code, rec.Body.String(), store.lastChart)
+	}
+	if !store.lastChart.Query.Mentions(logquery.Requests, "http.route") {
+		t.Fatalf("the search reaches the store: %+v", store.lastChart.Query)
+	}
+	for path, code := range map[string]string{
+		"/ui/api/analytics/aggregate?source=spans":               "bad_source",
+		"/ui/api/analytics/aggregate?source=requests&metric=avg": "bad_metric",
+		"/ui/api/analytics/aggregate?source=requests&q=timeout":  "bad_query",
+		"/ui/api/analytics/aggregate?source=requests&q=@user:1":  "bad_query",
+		"/ui/api/analytics/aggregate?source=errors&metric=avg":   "bad_metric",
+		"/ui/api/analytics/aggregate?source=messages&q=level:(":  "bad_query",
+	} {
+		if rec, out := do(t, u, "GET", path, nil, nil); rec.Code != 400 || out["error"] != code {
+			t.Errorf("%s: %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+	for _, ok := range []string{"source=errors&metric=problems&group_by=exception", "source=messages&metric=people", "source=errors&metric=p95&of=http.status"} {
+		if rec, _ := do(t, u, "GET", "/ui/api/analytics/aggregate?"+ok, nil, nil); rec.Code != 200 {
+			t.Errorf("%s: %d %s", ok, rec.Code, rec.Body.String())
+		}
+	}
+	rec, out := do(t, u, "GET", "/ui/api/analytics/fields?source=requests", nil, nil)
+	if rec.Code != 200 || out["attrs"] != false || len(out["fields"].([]any)) != 6 {
+		t.Fatalf("request fields: %s", rec.Body.String())
+	}
+}
+
+func TestSavedViewOwnersAndPins(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	csrf := map[string]string{csrfHeader: "1"}
+	store.views = map[string]api.SavedSearch{
+		"mine":   {ID: "mine", ProjectID: "default", UserID: "anonymous", Name: "Mine", Query: `{"kind":"chart"}`},
+		"shared": {ID: "shared", ProjectID: "default", UserID: "bob", Name: "Bob's", Query: `{"kind":"chart"}`, IsPublic: true},
+		"hidden": {ID: "hidden", ProjectID: "default", UserID: "bob", Name: "Bob's own", Query: "{}"},
+	}
+	me := currentUser(httptest.NewRequest("GET", "/", nil))
+	v := store.views["mine"]
+	v.UserID = me
+	store.views["mine"] = v
+
+	if rec, out := do(t, u, "POST", "/ui/api/saved-views/mine/pin", map[string]any{"pinned": true}, csrf); rec.Code != 200 || out["view"].(map[string]any)["is_pinned"] != true {
+		t.Fatalf("pin own: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out := do(t, u, "GET", "/ui/api/saved-views?pinned=1", nil, nil)
+	if items := out["items"].([]any); rec.Code != 200 || len(items) != 1 {
+		t.Fatalf("pinned list: %s", rec.Body.String())
+	}
+	// Signed in, not an admin: other people's views are theirs to change.
+	cfg := u.cfg
+	cfg.UIAuthMode = "azure"
+	cfg.UIAdmins = []string{"root@example.com"}
+	signed := NewForTest(cfg, store, fakeKeys{}, nil)
+	as := func(email, id string) int {
+		r := httptest.NewRequest("POST", "/", nil)
+		r = r.WithContext(withUIUser(auth.WithProject(r.Context(), tenant.Project{ID: "default"}), uiSessionClaims{Sub: email, Email: email}))
+		rec := httptest.NewRecorder()
+		if _, ok := signed.ownedView(rec, r, id); ok {
+			return 200
+		}
+		return rec.Code
+	}
+	if code := as("carol@example.com", "shared"); code != 403 {
+		t.Fatalf("someone else's shared view can be read, not changed: %d", code)
+	}
+	if code := as("carol@example.com", "hidden"); code != 404 {
+		t.Fatalf("someone else's private view is not found: %d", code)
+	}
+	if as("bob", "hidden") != 200 || as("root@example.com", "shared") != 200 {
+		t.Fatal("the owner and an admin may change a view")
+	}
+	// Saving over a view keeps its owner whatever the body says.
+	if rec, out := do(t, u, "POST", "/ui/api/saved-views", map[string]any{"id": "mine", "name": "Renamed", "query": "{}", "user_id": "mallory"}, csrf); rec.Code != 200 || out["view"].(map[string]any)["user_id"] != me {
+		t.Fatalf("owner kept: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec, _ := do(t, u, "POST", "/ui/api/saved-views/nope/pin", map[string]any{"pinned": true}, csrf); rec.Code != 404 {
+		t.Fatalf("unknown view: %d", rec.Code)
 	}
 }

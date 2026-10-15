@@ -24,7 +24,7 @@ from typing import Any, Callable, Dict, Optional
 
 from . import _body
 from . import scope as _scope
-from ._request import begin_request, client_ip, end_request, headers_for_event, ignored_request
+from ._request import begin_request, client_ip, count_request, end_request, headers_for_event, ignored_request
 from .client import Client
 from .context import get_user_id_hash, set_request_id
 from .otel import annotate_request_body
@@ -221,15 +221,17 @@ class PyloggleMiddleware:
         otel_span = getattr(request, "_pyloggle_otel_span", None)
         if otel_span is not None:
             annotate_request_body(otel_span, client, *_request_body(client, request))
-        if not bool(getattr(client.config, "emit_request_latency", False)):
-            return
         if bool(getattr(request, "_pyloggle_had_exception", False)) or otel_span is not None:
             return  # the error event, or the server span, already covers the request
         try:
             start = float(getattr(request, "_pyloggle_start", 0.0) or 0.0)
             ms = _elapsed_ms(start) if start > 0 else None
             status = int(getattr(response, "status_code", 200) or 200)
-            if ignored_request(client.config, str(getattr(request, "method", "")), str(getattr(request, "path", "")), _route(request), status):
+            method, path, route = str(getattr(request, "method", "")), str(getattr(request, "path", "")), _route(request)
+            if not bool(getattr(client.config, "emit_request_latency", False)):
+                count_request(client, method, path, route, status, ms, get_user_id_hash())
+                return
+            if ignored_request(client.config, method, path, route, status):
                 return
             level = "info"
             if status >= 500:

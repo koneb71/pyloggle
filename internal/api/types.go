@@ -633,3 +633,128 @@ type AuditEntry struct {
 	Target    string    `json:"target,omitempty"`
 	Details   string    `json:"details,omitempty"`
 }
+
+// ErrorAnalytics answers Analytics → Errors: how the project's health moves over a range.
+type ErrorAnalytics struct {
+	From          time.Time         `json:"from"`
+	To            time.Time         `json:"to"`
+	BucketSeconds int               `json:"bucket_seconds"`
+	Points        []ErrorFlowPoint  `json:"points"`
+	Totals        ErrorFlowTotals   `json:"totals"`
+	Previous      ErrorFlowTotals   `json:"previous"` // the same length of time just before From
+	TimeToFix     TimeToFix         `json:"time_to_fix"`
+	Releases      []ReleaseHealth   `json:"releases"`
+	Types         []ErrorGroupCount `json:"types"`
+	Apps          []ErrorGroupCount `json:"apps"`
+	People        []PersonImpact    `json:"people"`
+	// DetailsKeptDays is how long error details (who, which release) are kept; releases and
+	// people reach back no further than that.
+	DetailsKeptDays int `json:"details_kept_days"`
+}
+
+// ErrorFlowPoint is one bucket of problems opened, fixed and coming back.
+type ErrorFlowPoint struct {
+	TS       time.Time `json:"ts"`
+	Opened   uint64    `json:"opened"`
+	Fixed    uint64    `json:"fixed"`
+	CameBack uint64    `json:"came_back"`
+}
+
+// ErrorFlowTotals sums ErrorFlowPoint over a range.
+type ErrorFlowTotals struct {
+	Opened   uint64 `json:"opened"`
+	Fixed    uint64 `json:"fixed"`
+	CameBack uint64 `json:"came_back"`
+}
+
+// TimeToFix describes how long the problems fixed in a range had been open.
+type TimeToFix struct {
+	Fixed       int     `json:"fixed"`
+	MedianHours float64 `json:"median_hours"`
+	WithinHour  int     `json:"within_hour"`
+	WithinDay   int     `json:"within_day"`
+	WithinWeek  int     `json:"within_week"`
+	Longer      int     `json:"longer"`
+}
+
+// ReleaseHealth is one release's errors next to its traffic.
+type ReleaseHealth struct {
+	Release     string    `json:"release"`
+	FirstSeen   time.Time `json:"first_seen"`
+	Errors      uint64    `json:"errors"`
+	Problems    uint64    `json:"problems"`
+	NewProblems uint64    `json:"new_problems"`
+	People      uint64    `json:"people"`
+	Requests    uint64    `json:"requests"` // counted requests; 0 when the app does not count them
+}
+
+// ErrorGroupCount is errors grouped by one thing: an exception type or an app.
+type ErrorGroupCount struct {
+	Key      string `json:"key"`
+	Errors   uint64 `json:"errors"`
+	Problems uint64 `json:"problems"`
+	People   uint64 `json:"people"`
+}
+
+// PersonImpact is one person's errors. Label is their e-mail, user name or ID when the app sends
+// them (send_default_pii), else empty: the UI then shows the start of the hash.
+type PersonImpact struct {
+	IDHash   string    `json:"id_hash"`
+	Label    string    `json:"label,omitempty"`
+	Errors   uint64    `json:"errors"`
+	Problems uint64    `json:"problems"`
+	LastSeen time.Time `json:"last_seen"`
+}
+
+// UsageAnalytics answers Analytics → Usage from the request counts.
+type UsageAnalytics struct {
+	From          time.Time         `json:"from"`
+	To            time.Time         `json:"to"`
+	BucketSeconds int               `json:"bucket_seconds"`
+	Totals        UsageTotals       `json:"totals"`
+	Previous      UsageTotals       `json:"previous"`
+	Points        []UsagePoint      `json:"points"`
+	Weeks         []UsagePoint      `json:"weeks"` // people per week (Monday to Sunday)
+	Endpoints     []EndpointUsage   `json:"endpoints"`
+	Versions      []VersionUsage    `json:"versions"`
+	VersionSeries []AggregateSeries `json:"version_series"` // requests per bucket for each version in Versions, plus "other"
+}
+
+// UsageTotals sums requests, failures (status 500 or above) and distinct people.
+type UsageTotals struct {
+	Requests uint64 `json:"requests"`
+	Errors   uint64 `json:"errors"`
+	People   uint64 `json:"people"`
+}
+
+// UsagePoint is one bucket of usage.
+type UsagePoint struct {
+	TS       time.Time `json:"ts"`
+	Requests uint64    `json:"requests"`
+	Errors   uint64    `json:"errors"`
+	People   uint64    `json:"people"`
+}
+
+// EndpointUsage is one page or endpoint.
+type EndpointUsage struct {
+	Method   string `json:"method"`
+	Route    string `json:"route"`
+	Requests uint64 `json:"requests"`
+	Errors   uint64 `json:"errors"`
+	People   uint64 `json:"people"`
+}
+
+// VersionUsage is one release's traffic ("" for requests sent without one).
+type VersionUsage struct {
+	Release   string     `json:"release"`
+	FirstSeen *time.Time `json:"first_seen,omitempty"`
+	Requests  uint64     `json:"requests"`
+	Errors    uint64     `json:"errors"`
+	People    uint64     `json:"people"`
+}
+
+// AggregateSeries is one named line of values, one per bucket.
+type AggregateSeries struct {
+	Name   string   `json:"name"`
+	Values []uint64 `json:"values"`
+}

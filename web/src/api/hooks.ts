@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiRequestError, del, get, post } from "./client";
-import type { APIKey, AlertFiring, AlertRule, AttentionItem, AttentionReason, AuditEntry, Histogram, IssueActivity, IssueDetail, IssueListResponse, LogAggregate, LogContext, LogEvent, LogFacets, LogPattern, LogsResponse, Me, MetricInfo, MetricSeries, Occurrence, Overview, Project, ProjectUsage, Release, RequestStatsResponse, SavedView, ServiceHealth, TimeSeriesPoint, TraceDetail, TracesResponse } from "./types";
+import type { APIKey, AlertFiring, AlertRule, AttentionItem, AttentionReason, AuditEntry, ChartFields, ChartSource, ErrorAnalytics, Histogram, IssueActivity, IssueDetail, IssueListResponse, LogAggregate, LogContext, LogEvent, LogFacets, LogPattern, LogsResponse, Me, MetricInfo, MetricSeries, Occurrence, Overview, Project, ProjectUsage, Release, RequestStatsResponse, SavedView, ServiceHealth, TimeSeriesPoint, TraceDetail, TracesResponse, UsageAnalytics } from "./types";
 
 export const useMe = () =>
   useQuery({
@@ -160,7 +160,8 @@ export const useLogContext = (eventId: string | undefined) =>
 export const useLogFields = () =>
   useQuery({ queryKey: ["logs-fields"], queryFn: () => get<{ fields: string[]; facets: string[]; histogram_group: string[]; syntax: string[] }>("/logs/fields"), staleTime: Infinity });
 
-export const useSavedViews = () => useQuery({ queryKey: ["saved-views"], queryFn: () => get<{ items: SavedView[] }>("/saved-views") });
+export const useSavedViews = (p: { pinned?: boolean } = {}) =>
+  useQuery({ queryKey: ["saved-views", p], queryFn: () => get<{ items: SavedView[] }>("/saved-views", p.pinned ? { pinned: 1 } : undefined) });
 
 export function useSaveView() {
   const qc = useQueryClient();
@@ -174,6 +175,45 @@ export function useDeleteView() {
   const qc = useQueryClient();
   return useMutation({ meta: { action: "delete the saved search" }, mutationFn: (id: string) => del(`/saved-views/${id}`), onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-views"] }) });
 }
+
+/** Pin a saved chart to Dashboards, or unpin it. */
+export function usePinView() {
+  const qc = useQueryClient();
+  return useMutation({
+    meta: { action: "pin the chart" },
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => post<{ view: SavedView }>(`/saved-views/${id}/pin`, { pinned }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-views"] }),
+  });
+}
+
+export interface AnalyticsParams {
+  from?: string;
+  to?: string;
+  service?: string;
+  env?: string;
+}
+
+export const useErrorAnalytics = (p: AnalyticsParams, enabled = true) =>
+  useQuery({ queryKey: ["analytics-errors", p], queryFn: () => get<ErrorAnalytics>("/analytics/errors", p), enabled, placeholderData: keepPreviousData });
+
+export const useUsageAnalytics = (p: AnalyticsParams & { sort?: "requests" | "people" }, enabled = true) =>
+  useQuery({ queryKey: ["analytics-usage", p], queryFn: () => get<UsageAnalytics>("/analytics/usage", p), enabled, placeholderData: keepPreviousData });
+
+export interface ChartParams extends AnalyticsParams {
+  source: ChartSource;
+  q?: string;
+  group_by?: string;
+  metric?: string;
+  of?: string;
+  limit?: number;
+  buckets?: number;
+}
+
+export const useChartAggregate = (p: ChartParams, enabled = true) =>
+  useQuery({ queryKey: ["analytics-aggregate", p], queryFn: () => get<LogAggregate>("/analytics/aggregate", p), enabled, placeholderData: keepPreviousData, retry: false });
+
+export const useChartFields = (source: ChartSource) =>
+  useQuery({ queryKey: ["analytics-fields", source], queryFn: () => get<ChartFields>("/analytics/fields", { source }), staleTime: Infinity });
 
 export const useOverview = (p: { from?: string; to?: string; service?: string; env?: string; compare?: "previous" }, refetchInterval?: number | false) =>
   useQuery({ queryKey: ["overview", p], queryFn: () => get<{ overview: Overview; previous?: Overview }>("/metrics/overview", p), placeholderData: keepPreviousData, refetchInterval: refetchInterval ?? false });

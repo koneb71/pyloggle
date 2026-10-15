@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Columns3, PanelLeft, Radio, SlidersHorizontal, WrapText } from "lucide-react";
+import { ArrowUp, Columns3, LineChart, PanelLeft, Radio, SlidersHorizontal, WrapText } from "lucide-react";
+import { Navigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLogHistogram, useLogs } from "@/api/hooks";
 import { get, ApiRequestError } from "@/api/client";
 import type { LogEvent, LogsResponse } from "@/api/types";
 import { TimeRangePicker } from "@/components/shell/time-range-picker";
 import { TimelineHistogram } from "@/components/charts/timeline-histogram";
-import { Button, Checkbox, EmptyState, ErrorState, IconButton, Input, LoadMore, Page, Popover, SegmentedControl, Select, Sheet, Skeleton, UpdatingDot, friendlyError } from "@/components/ui";
+import { Button, Checkbox, EmptyState, ErrorState, IconButton, Input, LinkButton, LoadMore, Page, Popover, SegmentedControl, Select, Sheet, Skeleton, UpdatingDot, friendlyError } from "@/components/ui";
 import { useRange } from "@/lib/use-range";
 import { useUrlState } from "@/lib/url";
 import { addTerm } from "@/lib/query";
@@ -20,16 +21,22 @@ import { LogDetailPanel } from "./log-detail";
 import { PatternsView } from "./patterns";
 import { SavedViewsMenu, type ViewState } from "./saved-views";
 import { BUILTIN_COLUMNS, DEFAULT_COLUMNS, FACET_TO_FIELD } from "./log-fields";
-import { AnalyticsView } from "./analytics";
 import { ExportMenu } from "./export-menu";
 import { LogsMoreMenu } from "./clear-logs-dialog";
-import { DEFAULT_ANALYTICS, isMetric, type AnalyticsState } from "./analytics-model";
+import { chartHref, chartHrefFromLogs, DEFAULT_CHART } from "@/features/analytics/chart-model";
 
 /** What the chart can be colored by (sidebar field names). */
 const GROUPS = ["level", "service", "env", "logger", "http_status", "hostname", "release", "source"];
 const PAGE = 300;
 
 export function LogsPage() {
+  const [params] = useSearchParams();
+  // Charts moved to Analytics: old links (bookmarks, saved searches, Dashboards) land there.
+  if (params.get("view") === "analytics") return <Navigate to={chartHrefFromLogs(params)} replace />;
+  return <LogsExplorer />;
+}
+
+function LogsExplorer() {
   const { range, setRange, zoom, isLive } = useRange();
   const { get: g, set } = useUrlState();
   const q = g("q");
@@ -43,32 +50,11 @@ export function LogsPage() {
   const selId = g("sel");
   const viewName = g("view_name");
   const qc = useQueryClient();
-  const analytics = useMemo<AnalyticsState>(() => {
-    const m = g("metric", DEFAULT_ANALYTICS.metric);
-    const gb = g("group_by_a", DEFAULT_ANALYTICS.groupBy);
-    return {
-      groupBy: gb === "none" ? "" : gb,
-      metric: isMetric(m) ? m : DEFAULT_ANALYTICS.metric,
-      of: g("of", DEFAULT_ANALYTICS.of),
-      limit: Number(g("top", String(DEFAULT_ANALYTICS.limit))) || DEFAULT_ANALYTICS.limit,
-    };
-  }, [g]);
-  const setAnalytics = useCallback(
-    (p: Partial<AnalyticsState>) =>
-      set({
-        ...(p.groupBy !== undefined ? { group_by_a: p.groupBy === DEFAULT_ANALYTICS.groupBy ? undefined : p.groupBy || "none" } : {}),
-        ...(p.metric !== undefined ? { metric: p.metric === DEFAULT_ANALYTICS.metric ? undefined : p.metric } : {}),
-        ...(p.of !== undefined ? { of: p.of === DEFAULT_ANALYTICS.of ? undefined : p.of } : {}),
-        ...(p.limit !== undefined ? { top: p.limit === DEFAULT_ANALYTICS.limit ? undefined : p.limit } : {}),
-        view_name: undefined,
-      }),
-    [set],
-  );
 
   const setQuery = useCallback((nq: string) => set({ q: nq || undefined, sel: undefined, view_name: undefined }), [set]);
   const addFilter = useCallback((t: string) => setQuery(addTerm(q, ...splitTerm(t))), [q, setQuery]);
 
-  const hist = useLogHistogram({ q, from: range.from, to: range.to, group_by: groupBy, buckets: 90 }, view !== "analytics");
+  const hist = useLogHistogram({ q, from: range.from, to: range.to, group_by: groupBy, buckets: 90 });
   const logs = useLogs({ q, from: range.from, to: range.to, limit: PAGE }, view === "list");
   const queryError = useMemo(() => {
     const e = hist.error ?? logs.error;
@@ -157,9 +143,6 @@ export function LogsPage() {
     cols: cols.join(","),
     facets: pinnedFacets.join(","),
     view: view === "list" ? undefined : view,
-    group_by_a: view === "analytics" ? analytics.groupBy || "none" : undefined,
-    metric: view === "analytics" ? analytics.metric : undefined,
-    of: view === "analytics" ? analytics.of : undefined,
   };
 
   const histTotal = hist.data ? total : undefined;
@@ -225,15 +208,17 @@ export function LogsPage() {
               )}
               <SegmentedControl
                 label="View"
-                value={view as "list" | "patterns" | "analytics"}
+                value={view as "list" | "patterns"}
                 onChange={(v) => set({ view: v === "list" ? undefined : v, sel: undefined })}
                 options={[
                   { value: "list", label: "Messages" },
                   { value: "patterns", label: small ? "Similar" : "Similar messages", title: "Messages grouped by their shape" },
-                  { value: "analytics", label: "Charts", title: "Count or measure messages over time" },
                 ]}
               />
-              {view !== "analytics" && !small && (
+              <LinkButton to={chartHref({ ...DEFAULT_CHART.messages, q }, range)} icon={<LineChart size={14} />} title="Count or measure these messages over time, in Analytics">
+                Chart
+              </LinkButton>
+              {!small && (
                 <label className="ml-2 flex items-center gap-2 text-[13px] text-ink-3">
                   Color chart by
                   <Select value={groupBy} onChange={(e) => set({ group_by: e.target.value === "level" ? undefined : e.target.value })} className="w-auto min-w-32" aria-label="Color the chart by">
@@ -247,7 +232,7 @@ export function LogsPage() {
               )}
               <div className="ml-auto flex items-center gap-2">
                 <UpdatingDot active={(hist.isFetching && !!hist.data) || (logs.isFetching && !!logs.data)} />
-                {view !== "analytics" && histTotal !== undefined && <span className="text-[13px] tabular text-ink-2">{pluralize(histTotal, "message")}</span>}
+                {histTotal !== undefined && <span className="text-[13px] tabular text-ink-2">{pluralize(histTotal, "message")}</span>}
                 {view === "list" && (
                   <>
                     <span className="mx-1 h-5 w-px bg-border" aria-hidden />
@@ -257,17 +242,14 @@ export function LogsPage() {
                 )}
               </div>
             </div>
-            {view !== "analytics" &&
-              !queryError &&
+            {!queryError &&
               (hist.isError && !hist.data ? (
                 <ErrorState compact error={hist.error} retry={() => hist.refetch()} title="Couldn't load the chart" />
               ) : (
                 <TimelineHistogram data={hist.data} loading={hist.isPending} height={small ? 88 : 140} onZoom={zoom} className="mt-2.5" />
               ))}
           </div>
-          {view === "analytics" ? (
-            <AnalyticsView q={q} range={range} state={analytics} onState={setAnalytics} onFilter={(f, v) => setQuery(addTerm(q, f, v))} onZoom={zoom} />
-          ) : view === "patterns" ? (
+          {view === "patterns" ? (
             <PatternsView q={q} range={range} onFilter={(phrase) => setQuery(addTerm(q, "message", phrase))} />
           ) : queryError ? (
             <EmptyState title="Fix the search above to see messages" hint="Click the ? in the search box for examples of what you can type." />

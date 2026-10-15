@@ -7,6 +7,7 @@ export const DOCS = {
   home: "",
   quickStart: "introduction/quick-start",
   search: "app/search",
+  analytics: "app/analytics",
   python: "send-data/python",
   sdkConfiguration: "send-data/configuration",
   frameworks: "send-data/frameworks",

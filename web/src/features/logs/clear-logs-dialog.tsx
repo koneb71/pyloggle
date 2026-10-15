@@ -13,7 +13,7 @@ export function ClearLogsDialog({ project, onClose }: { project: { id: string; n
   return (
     <Dialog open onClose={onClose} title={`Clear all messages in ${project.name}?`}>
       <p className="text-[13px] text-ink-2">
-        Every message on the Logs page of this project is deleted{rows ? `, about ${fmtNumber(rows)} of them` : ""}, with the message counts and request statistics built from them. Issues, request timelines and custom measurements stay. This can't be undone.
+        Every message on the Logs page of this project is deleted{rows ? `, about ${fmtNumber(rows)} of them` : ""}, with the message counts built from them. Issues, request counts, request timelines and custom measurements stay. This can't be undone.
       </p>
       <Field label={`Type ${project.id} to confirm`} className="mt-3">
         <Input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus autoComplete="off" />

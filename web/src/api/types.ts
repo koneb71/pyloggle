@@ -575,3 +575,111 @@ export interface APIKey {
   revoked_at?: string;
   revoked_by?: string;
 }
+
+// --- Analytics ---------------------------------------------------------------------------
+
+export interface ErrorFlowPoint {
+  ts: string;
+  opened: number;
+  fixed: number;
+  came_back: number;
+}
+
+export interface ErrorFlowTotals {
+  opened: number;
+  fixed: number;
+  came_back: number;
+}
+
+export interface TimeToFix {
+  fixed: number;
+  median_hours: number;
+  within_hour: number;
+  within_day: number;
+  within_week: number;
+  longer: number;
+}
+
+export interface ReleaseHealth {
+  release: string;
+  first_seen: string;
+  errors: number;
+  problems: number;
+  new_problems: number;
+  people: number;
+  /** Counted requests; 0 when the app does not count them. */
+  requests: number;
+}
+
+export interface ErrorGroupCount {
+  key: string;
+  errors: number;
+  problems: number;
+  people: number;
+}
+
+export interface PersonImpact {
+  id_hash: string;
+  /** E-mail, user name or ID, only when the app sends them. */
+  label?: string;
+  errors: number;
+  problems: number;
+  last_seen: string;
+}
+
+export interface ErrorAnalytics {
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  points: ErrorFlowPoint[];
+  totals: ErrorFlowTotals;
+  previous: ErrorFlowTotals;
+  time_to_fix: TimeToFix;
+  releases: ReleaseHealth[];
+  types: ErrorGroupCount[];
+  apps: ErrorGroupCount[];
+  people: PersonImpact[];
+  details_kept_days: number;
+}
+
+export interface UsageTotals {
+  requests: number;
+  errors: number;
+  people: number;
+}
+
+export interface UsagePoint extends UsageTotals {
+  ts: string;
+}
+
+export interface EndpointUsage extends UsageTotals {
+  method: string;
+  route: string;
+}
+
+export interface VersionUsage extends UsageTotals {
+  release: string;
+  first_seen?: string;
+}
+
+export interface UsageAnalytics {
+  from: string;
+  to: string;
+  bucket_seconds: number;
+  totals: UsageTotals;
+  previous: UsageTotals;
+  points: UsagePoint[];
+  weeks: UsagePoint[];
+  endpoints: EndpointUsage[];
+  versions: VersionUsage[];
+  version_series: { name: string; values: number[] }[];
+}
+
+export type ChartSource = "messages" | "errors" | "requests";
+
+export interface ChartFields {
+  source: ChartSource;
+  fields: { name: string; kind: "number" | "string" | "level" | "text" }[];
+  metrics: string[];
+  attrs: boolean;
+}

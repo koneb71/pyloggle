@@ -14,13 +14,14 @@ import (
 var projectTables = []string{
 	"logs_raw", "error_occurrences", "spans", "metrics_points",
 	"issues_state", "issues_activity", "issues_agg", "issue_counts_hourly", "log_counts_minutely",
-	"request_stats_minutely", "releases", "metrics_catalog", "project_usage_daily",
+	"request_stats_minutely", "request_usage_hourly", "releases", "metrics_catalog", "project_usage_daily",
 	"alert_rules", "alert_firings", "saved_searches", "project_api_keys", "project_api_key_usage",
 }
 
-// logTables hold a project's messages and what is built from them alone: the per-minute counts
-// and the request statistics. Issues, request timelines, metrics and releases stay.
-var logTables = []string{"logs_raw", "log_counts_minutely", "request_stats_minutely"}
+// logTables hold a project's messages and what is built from them alone: the per-minute counts.
+// Request counts are not built from messages (every request is counted on arrival, listed or
+// not), so they stay, with issues, request timelines, metrics and releases.
+var logTables = []string{"logs_raw", "log_counts_minutely"}
 
 // deleteRows removes the rows matching cond: a lightweight DELETE first (they disappear from
 // reads at once), then a regular mutation that rewrites the parts and frees the disk.

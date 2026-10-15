@@ -125,9 +125,10 @@ func TestTracesMapping(t *testing.T) {
 	}
 	now := time.Now()
 	evs := TracesToEvents(&td, false, now)
-	if len(evs) != 2 {
-		t.Fatalf("without server spans: %d events (want exception + error span)", len(evs))
+	if len(evs) != 3 || !evs[1].CountOnly || evs[1].Message != "request" {
+		t.Fatalf("without listing server spans: %d events (want exception, a counted request, error span)", len(evs))
 	}
+	evs = []model.Event{evs[0], evs[2]}
 	exc := evs[0]
 	if exc.Exception == nil || exc.Exception.Type != "KeyError" || exc.Level != "error" || exc.HTTP == nil || exc.HTTP.Status != 500 || exc.Transaction != "POST /jobs" || exc.DurationMS != 250 {
 		t.Fatalf("exception event: %+v http=%+v", exc, exc.HTTP)
@@ -144,7 +145,7 @@ func TestTracesMapping(t *testing.T) {
 		t.Fatalf("with server spans: %d", len(evs))
 	}
 	req := evs[1]
-	if req.Message != "request" || req.Level != "info" || req.Attrs["latency_ms"] != "5" || req.HTTP == nil || req.HTTP.Status != 200 {
+	if req.Message != "request" || req.CountOnly || req.Level != "info" || req.Attrs["latency_ms"] != "5" || req.HTTP == nil || req.HTTP.Status != 200 {
 		t.Fatalf("request log: %+v", req)
 	}
 }
@@ -155,6 +156,7 @@ type memSink struct {
 	occs   []issue.ErrorOccurrence
 	spans  []model.Span
 	points []model.MetricPoint
+	counts []model.RequestCount
 }
 
 func (m *memSink) EnqueueLog(_ context.Context, ev model.Event) error {
@@ -179,6 +181,12 @@ func (m *memSink) EnqueueMetricPoints(_ context.Context, points []model.MetricPo
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.points = append(m.points, points...)
+	return nil
+}
+func (m *memSink) EnqueueRequestCounts(_ context.Context, counts []model.RequestCount) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.counts = append(m.counts, counts...)
 	return nil
 }
 
