@@ -21,7 +21,11 @@ data to someone else or running a large monitoring stack.
   follows new ones as they arrive.
 - **Each request, step by step.** See how long requests take, which ones fail, and what one
   request did across all your apps, with the messages it logged and the errors it caused.
-- **Dashboards** for errors, web traffic, response times and your own OpenTelemetry metrics.
+- **Dashboards** for errors, web traffic, response times and your own OpenTelemetry metrics,
+  with the charts you pin.
+- **Analytics** for the longer view: problems opened and fixed, time to fix, how each release
+  did, how many people use each page and endpoint, and any chart of messages, errors or
+  requests. Requests are counted without filling your logs.
 - **Alerts that are worth reading.** Get an e-mail, Slack, Telegram or webhook message when a
   new problem appears, an old one comes back, errors jump, or a search finds matching messages.
   Each problem alerts once, and a daily recap tells you how yesterday went.

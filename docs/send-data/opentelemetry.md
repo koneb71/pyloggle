@@ -118,8 +118,10 @@ SDK's report of the same crash into one occurrence (below).
   convention but any sender may set, is the request body: it becomes the body of the `request`
   line or the error, kept up to 64 KB (`http.request.body.truncated=true` marks a cut one).
   `OTLP_STORE_SPANS=false` keeps only the logs and issues derived from spans;
-  `OTLP_STORE_SERVER_SPANS=false` stops the `request` lines. CORS preflight (`OPTIONS`) and
-  `HEAD` requests never get a `request` line unless they failed; their spans are kept.
+  `OTLP_STORE_SERVER_SPANS=false` stops the `request` lines on Logs. Every server span is
+  counted either way, for **Analytics** and the request charts, so turning the lines off loses
+  no numbers. CORS preflight (`OPTIONS`) and `HEAD` requests are neither listed nor counted
+  unless they failed; their spans are kept.
 - **Metrics**: gauges and sums keep their value; histograms keep count, sum, bounds and bucket
   counts; summaries and exponential histograms keep count and sum only. At most 16 attribute
   keys per point; the series hash is over the sorted attributes. 30 days by default

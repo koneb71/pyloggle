@@ -1,8 +1,9 @@
 # Logs
 
 **Logs** holds every message your apps wrote: log lines, errors, and a line for each web
-request when request messages are turned on. Search them, filter them, chart them, and follow
-one request from start to finish.
+request when request messages are turned on (requests are always counted for
+[Analytics](analytics.md), listed or not). Search them, filter them, chart them, and follow one
+request from start to finish.
 
 ![Logs: the search bar, filters, a chart by severity, the messages and one message's details](../images/screenshots/logs-details-light.png#gh-light-mode-only)
 ![Logs: the search bar, filters, a chart by severity, the messages and one message's details](../images/screenshots/logs-details-dark.png#gh-dark-mode-only)
@@ -49,13 +50,10 @@ what fills your logs, or what changed after a deploy.
 
 ## Charts
 
-![Charts: the slowest 5% of requests by route over time](../images/screenshots/logs-charts-light.png#gh-light-mode-only)
-![Charts: the slowest 5% of requests by route over time](../images/screenshots/logs-charts-dark.png#gh-dark-mode-only)
-
-**Charts** counts or measures messages over time: how many, or the sum, average, typical (p50),
-slow (p95) or slowest (p99) value of a number such as `duration_ms`, split by any field. For
-example, *Slow (p95) of Duration split by Route* shows which endpoints got slower. Click a row to
-show only its messages.
+**Chart** opens the messages you are looking at in [Analytics → Charts](analytics.md#charts),
+where you can count or measure them over time (how many, or the sum, average, typical, slow or
+slowest value of a number such as `duration_ms`), split by any field, save the chart and pin it
+to Dashboards. Links to the Charts view that used to be here open there too.
 
 ## Live, saved and exported
 
@@ -71,7 +69,7 @@ How long messages are kept depends on the server's settings; see
 
 To start over, for example after testing, an admin can delete every message of the project:
 **More** (the `⋯` button) → **Clear all messages**, then type the project id to confirm. The
-per-minute message counts and request statistics on **Overview** and **Dashboards** go with
-them. Issues, request timelines and custom measurements stay. The messages disappear at once;
+per-minute message counts on **Overview** and **Dashboards** go with them. Issues, request
+counts, request timelines and custom measurements stay. The messages disappear at once;
 the disk space is freed in the background. The same action is under **Projects** → **Settings**
 → **Danger zone**, and it is recorded under **Admin activity**.

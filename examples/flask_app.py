@@ -1,4 +1,5 @@
-"""Flask app instrumented with pyloggle: request scope, unhandled exceptions (once), logs."""
+"""Flask app instrumented with pyloggle: request scope, unhandled exceptions (once), logs, and
+every request counted for Analytics without a line on Logs."""
 import logging
 
 from flask import Flask
@@ -8,7 +9,7 @@ from pyloggle.flask import init_app
 
 logging.basicConfig(level=logging.INFO)
 
-client = pyloggle.init(service="example-flask", env="dev", emit_request_latency=True)
+client = pyloggle.init(service="example-flask", env="dev")
 
 app = Flask(__name__)
 init_app(app, client)

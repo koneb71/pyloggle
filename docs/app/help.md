@@ -29,6 +29,7 @@ Press `?` on any page to see them.
 | `g` then `l` | Go to Logs |
 | `g` then `t` | Go to Requests |
 | `g` then `d` | Go to Dashboards |
+| `g` then `y` | Go to Analytics |
 | `g` then `a` | Go to Alerts |
 | `g` then `p` | Go to Projects |
 | `g` then `s` | Go to System (administrators) |

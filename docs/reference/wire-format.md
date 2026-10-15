@@ -101,6 +101,33 @@ Type + module (unless `builtins`) + up to six in-app frames from the crash site 
 three innermost frames. No exception → `logger` + the message with numbers, hex, uuids and quoted
 strings replaced. The culprit shown in lists is the innermost in-app frame.
 
+## Request counts
+
+The Python package counts requests instead of sending a line for each one. It posts the
+counts to `POST /v1/ingest/requests`, with the same access key, encoding and response as
+`/v1/ingest`. The body is NDJSON, one tally per line: the requests to one endpoint during one
+minute.
+
+```json
+{"minute": "2026-10-15T04:12:00Z", "service": "shop", "env": "prod", "release": "1.4.0",
+ "method": "POST", "route": "/orders/{id}", "requests": 37, "errors": 1,
+ "durations_ms": [12.5, 8.1, 30.2], "users": ["9f86d081884c7d65…", "6b86b273ff34fce1…"]}
+```
+
+| Field | Meaning |
+|---|---|
+| `minute` | The start of the minute, UTC. Optional: the server uses the current minute |
+| `service`, `env`, `release` | As on events. `service` and `env` fall back to the server's defaults |
+| `method`, `route` | Required. The route template, never the raw path, so the number of endpoints stays small |
+| `requests` | Required, 1 to 100,000 |
+| `errors` | Requests answered with status 500 or above. Requests that crashed are counted by their error report instead, so leave them out here |
+| `durations_ms` | Each request's response time, at most one per request. Optional |
+| `users` | The distinct user ID hashes (as `user.id_hash` on events) among these requests. Optional; at most one per request |
+
+Send a tally when its minute is over, or earlier when it gets large: the package sends one at
+1,000 requests. Two tallies for the same endpoint and minute add up. A line that breaks these
+rules is rejected and listed in the response's `errors`. A server older than 1.0 answers `404`.
+
 ## OpenTelemetry
 
 `POST /v1/logs`, `/v1/traces` and `/v1/metrics` take OTLP/HTTP in protobuf or JSON. What each

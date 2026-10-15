@@ -47,6 +47,9 @@ The `pyloggle` package cleans each event in your app's process, before it is sen
 - **Web requests** carry their method, route, full address with the query string, status,
   headers (with the secret ones blanked out), user agent and the client's IP address (read from
   `X-Forwarded-For` only with `trust_proxy_headers=True`), and the body.
+- **Request counts** (`count_requests`, on by default) carry only the method, the route
+  template, how many requests there were, how many failed, how long each took and the hashed IDs
+  of signed-in people: no addresses, headers, bodies or IP addresses.
 - **Secrets are blanked out** as `[REDACTED]`:
   - headers such as `Authorization`, `Cookie`, `Set-Cookie` and `X-API-Key`;
   - fields anywhere in the event whose name contains `password`, `secret`, `token`, `api_key`
@@ -81,7 +84,9 @@ The [SDK configuration](../send-data/configuration.md) lists every option.
 - To remove one person's data, for example after a deletion request, use
   `POST /projects/{id}/purge-user` in the [HTTP API](../reference/http-api.md#projects-and-access-keys)
   with their e-mail address or user ID hash. Their messages and error reports are deleted;
-  counts of people affected are kept, as numbers.
+  counts of people affected are kept, as numbers. Request counts keep only an estimate of how
+  many people there were (a HyperLogLog sketch), from which nobody can be picked out, so there
+  is nothing in them to delete.
 - Deleting a project on the **Projects** page removes all its data, keys and rules.
 
 Administrators' changes to projects, keys and data are recorded under **Admin activity** on

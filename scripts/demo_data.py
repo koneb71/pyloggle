@@ -5,7 +5,8 @@
     python3 scripts/demo_data.py --url https://logs.example.com --key pl_...
 
 What it sends, all made up (apps, people and addresses use example names):
-  * web requests from five apps over two days, with versions, a slow and a failing endpoint;
+  * web requests from five apps over two days, counted per endpoint and minute as the Python
+    package counts them (none listed on Logs), with versions, people, a slow and a failing endpoint;
   * errors with full reports: one that jumps today, one that is new since a release, a steady
     old one, and one that is resolved and then comes back;
   * background-job messages from a worker that went quiet two hours ago;
@@ -53,6 +54,13 @@ class Server:
         # Access keys use the query API; the app's own API works while sign-in is off.
         return "/v1/q" if self.key else "/ui/api"
 
+    def send_counts(self, counts):
+        """Request counts go to their own door, a few thousand lines at a time."""
+        for i in range(0, len(counts), 2000):
+            res = self.post("/v1/ingest/requests", "\n".join(json.dumps(c) for c in counts[i : i + 2000]).encode(), "application/x-ndjson")
+            if res.get("rejected") or res.get("dropped"):
+                print("  counts not taken:", res, file=sys.stderr)
+
     def send(self, events):
         # Small, paced batches: each app has its own queue on the server (2,000 events by
         # default) and a burst bigger than that is dropped, as it would be from a real app.
@@ -98,7 +106,8 @@ def version_at(versions, t, now):
 
 
 def requests(now, days):
-    out = []
+    """Every request of every app, tallied per endpoint and minute like the Python package does."""
+    tallies = {}
     for app, (env, routes, per_minute, failed_before, failed_today, versions) in APPS.items():
         minutes = days * 24 * 60
         for m in range(minutes):
@@ -106,24 +115,26 @@ def requests(now, days):
             share = failed_today if minute > now - 24 * H else failed_before
             if app == "billing" and minute > now - 3 * H:
                 share = 0.09  # version 2.3.0 breaks charging
-            for _ in range(max(0, int(random.gauss(per_minute, per_minute * 0.25)))):
+            # Busier in the day than at night, so people per day rise and fall.
+            busy = 0.55 + 0.45 * abs(((minute / H) % 24) - 12) / 12
+            for _ in range(max(0, int(random.gauss(per_minute * busy, per_minute * 0.25)))):
                 t = minute + random.random() * 60
                 method, route, typical = random.choice(routes)
                 failed = random.random() < share
-                status = 500 if failed else (404 if random.random() < 0.01 else 200)
                 ms = max(1, int(random.lognormvariate(0, 0.45) * typical * (2.2 if failed else 1)))
-                line = {
-                    "ts": iso(t), "service": app, "env": env, "release": version_at(versions, t, now),
-                    "level": "error" if failed else "info", "logger": f"{app}.http",
-                    "message": f"{method} {route} failed" if failed else "request",
-                    "hostname": f"{app}-{random.randint(1, 3)}", "request_id": "req-" + hexid(12),
-                    "http": {"method": method, "route": route, "status": status}, "duration_ms": ms,
-                    "skip_issue": True,
-                }
+                key = (int(t // 60) * 60, app, env, version_at(versions, t, now), method, route)
+                c = tallies.setdefault(key, {"requests": 0, "errors": 0, "durations_ms": [], "users": set()})
+                c["requests"] += 1
+                c["errors"] += failed
+                c["durations_ms"].append(ms)
                 if random.random() < 0.6:
-                    line["user"] = {"id_hash": f"user-{random.randint(1, 300)}"}
-                out.append(line)
-    return out
+                    # A few regulars and a long tail, so endpoints and hours differ in people.
+                    c["users"].add(f"user-{min(2000, int(random.expovariate(1 / 120)))}")
+    return [
+        {"minute": iso(minute), "service": app, "env": env, "release": release, "method": method, "route": route,
+         "requests": c["requests"], "errors": c["errors"], "durations_ms": c["durations_ms"], "users": sorted(c["users"])}
+        for (minute, app, env, release, method, route), c in tallies.items()
+    ]
 
 
 # --- errors with full reports ------------------------------------------------------------------
@@ -348,8 +359,10 @@ def main():
     now = time.time()
 
     try:
-        print("web requests and messages")
-        server.send(requests(now, args.days) + worker_messages(now, args.days))
+        print("web requests")
+        server.send_counts(requests(now, args.days))
+        print("messages")
+        server.send(worker_messages(now, args.days))
         print("errors")
         server.send(errors(now))
         # A problem from yesterday that is resolved now and comes back in the last hour.

@@ -26,6 +26,7 @@ const sidebar: DefaultTheme.SidebarItem[] = [
       { text: "Logs", link: "/app/logs" },
       { text: "Requests", link: "/app/requests" },
       { text: "Dashboards", link: "/app/dashboards" },
+      { text: "Analytics", link: "/app/analytics" },
       { text: "Alerts", link: "/app/alerts" },
       { text: "Projects", link: "/app/projects" },
       { text: "System", link: "/app/system" },

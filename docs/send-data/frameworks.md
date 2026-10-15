@@ -24,10 +24,14 @@ that client.
   [Request bodies](configuration.md#request-bodies) for what a body becomes.
 - **One error per crash.** The framework usually logs the crash too; that line is kept but
   marked as the same error, so it does not become a second issue.
-- **Each request**, only if you turn on `emit_request_latency=True`: one `request` message per
-  request with its route, status, `duration_ms` and body. CORS preflight (`OPTIONS`) and `HEAD`
-  requests never get one, and `ignore_requests` skips more, such as `["/health"]`. These fill the response-time charts on **Dashboards** and let
-  you search for slow requests with `duration_ms:>1000`.
+- **Every request, counted**: how many, how many failed, how long each took and who made it,
+  tallied per endpoint and minute and sent once a minute, for **Analytics** and the request
+  charts on **Dashboards**. Nothing appears on **Logs**. CORS preflight (`OPTIONS`) and `HEAD`
+  requests are not counted, and `ignore_requests` skips more, such as `["/health"]`. See
+  [request counts](configuration.md#request-counts).
+- **Each request listed**, only if you turn on `emit_request_latency=True`: one `request`
+  message per request on Logs with its route, status, `duration_ms` and body, so you can search
+  for slow requests with `duration_ms:>1000`.
 
 ## Flask
 

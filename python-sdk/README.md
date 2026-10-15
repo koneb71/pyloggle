@@ -49,7 +49,8 @@ pyloggle.celery.init()
 
 Each request or task gets its own scope; an unhandled error is reported once, with the request's
 details and body (secret fields blanked out, files left out; `emit_request_body=False` turns
-bodies off); `emit_request_latency=True` records every request with its duration.
+bodies off). Every request is counted for Analytics without filling Logs (`count_requests=False`
+stops it); `emit_request_latency=True` also lists each request with its duration.
 
 ## Report and add context
 

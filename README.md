@@ -29,9 +29,12 @@ the Apache License 2.0.
   see the moment it comes back; mark it fixed in the next version, and servers still running the
   old one do not reopen it.
 - **Logs you can search.** Type words or `service:api level:error duration_ms:>1000`, or click
-  filters. Similar messages are grouped, charts show p95 by route, live mode follows new
-  messages, and any search can be saved or exported. An admin can clear a project's messages to
-  start over.
+  filters. Similar messages are grouped, live mode follows new messages, and any search can be
+  saved or exported. An admin can clear a project's messages to start over.
+- **Analytics.** Problems opened and fixed per day, time to fix, and whether a release made
+  things worse; how many people use each page and endpoint, and each version's traffic. Every
+  request is counted without filling your logs. Chart messages, errors or requests any way you
+  like and pin the charts to Dashboards.
 - **Every request, step by step.** OpenTelemetry request timelines across all your apps, with
   the messages and errors of each request.
 - **Alerts worth reading.** E-mail, Slack, Telegram or webhooks when a new problem appears, an old

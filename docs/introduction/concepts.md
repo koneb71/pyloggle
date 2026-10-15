@@ -78,7 +78,8 @@ alerting again**.
 | Step | span | One timed piece of work inside a request, like a database query or an outgoing call. |
 | Filters | facets | The most common values of each field, so you can narrow the list with one click. |
 | Similar messages | patterns | Messages grouped by their shape, with the changing parts (numbers, ids) blanked out. |
-| Charts | analytics | Count, sum or average messages over time, split by a field. |
+| Charts | analytics | Count or measure messages, errors or requests over time, split by a field. |
+| People | unique users | How many different signed-in people, from the hashed ID your app sends. An estimate, never a list of who. |
 | Wait before alerting again | cooldown | After an alert is sent, stay quiet for this long even if the condition is still true. |
 | Limit | threshold | The number the alert compares against. |
 | Permissions | scopes | What an access key is allowed to do. |

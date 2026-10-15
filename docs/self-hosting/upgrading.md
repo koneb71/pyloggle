@@ -22,7 +22,10 @@ Migration `016_alert_once_and_recap` creates `alert_notified`, where alert rules
 they have already told you, and adds `send_hour` and `timezone` to `alert_rules` for the new
 recap rules. Migration `017_logs_http_body` adds `http_body` to `logs_raw`, so messages about
 web requests keep the request's body, and recreates the view that estimates each project's
-storage so it counts bodies. Nothing else changes in the database.
+storage so it counts bodies. Migration `018_request_counts` adds `request_counts_in`, which
+stores nothing and feeds the request statistics, the new `request_usage_hourly` and the list of
+versions; it replaces the view that built request statistics from `logs_raw` and fills the new
+table from the request rows still kept. Nothing else changes in the database.
 
 ## Changes that need your attention
 
@@ -85,7 +88,12 @@ machines reached Pyloggle on port 8080 directly, put a reverse proxy in front of
 - **A recap of yesterday**, as a new kind of alert rule, at the hour and in the time zone you
   choose.
 - **Request bodies** on issues, messages and request timelines, and **Clear all messages** for
-  admins, on Logs and in a project's Danger zone.
+  admins, on Logs and in a project's Danger zone. Clearing keeps request counts.
+- **Analytics**: errors opened and fixed, time to fix and versions compared; usage by page,
+  endpoint, person and version; and the chart builder from Logs, over messages, errors or
+  requests, with charts pinned to Dashboards. See [Analytics](../app/analytics.md).
+- **Requests counted, not listed.** Request statistics now come from counts: exact even when
+  sampling drops lines, and kept apart from Logs.
 - **Documentation** at [koneb71.github.io/pyloggle](https://koneb71.github.io/pyloggle/), and a
   **Help** page in the app.
 
@@ -101,9 +109,13 @@ Python package was marked MIT before but never published under it.
 
 `pip install -U pyloggle` installs 1.0.0. It needs no code change. It records request bodies
 by default, with secret fields blanked out and files left out; pass `emit_request_body=False`
-to `pyloggle.init()` to keep them out, as 0.3 did.
+to `pyloggle.init()` to keep them out, as 0.3 did. It also counts every web request, sending a
+small tally per endpoint and minute to `<ingest_url>/requests`; pass `count_requests=False` to
+stop. A proxy in front of Pyloggle that only lets `/v1/ingest` through must let
+`/v1/ingest/requests` through too.
 
 ## Rolling back
 
-To go back to 0.3, run the 0.3 server against the same database. It ignores the new table and
-columns. Alerts sent while 1.0 ran are kept; recap rules are skipped by 0.3.
+To go back to 0.3, run the 0.3 server against the same database. It ignores the new tables and
+columns, and answers the Python package's request counts with `404`, which turns counting off;
+request statistics then come only from request lines again, as before. Alerts sent while 1.0 ran are kept; recap rules are skipped by 0.3.

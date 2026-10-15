@@ -25,10 +25,10 @@ features:
     details: Each error comes with the line that failed, the values of its variables, the steps before it, the request that caused it (body included, secrets blanked out) and the person it hit. Errors with the same cause are grouped into one issue.
   - icon: 🔎
     title: Logs you can search
-    details: Find any message in seconds by typing words or clicking filters. Charts, similar messages and live mode show what is going on, and an admin can clear them all to start over.
+    details: Find any message in seconds by typing words or clicking filters. Similar messages and live mode show what is going on, and an admin can clear them all to start over.
   - icon: ⏱️
-    title: Every request, step by step
-    details: See which requests are slow or failing and follow one request across your apps, with its messages and errors.
+    title: Requests, usage and trends
+    details: See which requests are slow or failing, how many people use each page and version, and how errors trend release after release. Follow one request across your apps, and pin any chart to Dashboards.
   - icon: 🔔
     title: Alerts that say what happened
     details: E-mail, Slack, Telegram or webhook. Each problem alerts once, and a recap of yesterday arrives every morning.
