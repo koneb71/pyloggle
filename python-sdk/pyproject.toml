@@ -5,16 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pyloggle"
 dynamic = ["version"]
-description = "Lightweight log + error tracking SDK for Pyloggle (structured tracebacks, breadcrumbs, Flask/FastAPI/Django/Celery/logging integrations)"
+description = "Send your Python app's errors, logs and requests to Pyloggle, the self-hosted error and log tracker. Flask, FastAPI, Django, Celery and logging; no dependencies."
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{name = "koneb71"}]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-keywords = ["logging", "error tracking", "exceptions", "observability", "flask", "fastapi", "django", "celery", "opentelemetry"]
+keywords = ["logging", "error tracking", "error monitoring", "log management", "exceptions", "observability", "tracing", "apm", "self-hosted", "sentry alternative", "flask", "fastapi", "django", "celery", "opentelemetry"]
 dependencies = []
 classifiers = [
   "Development Status :: 5 - Production/Stable",
+  "Framework :: Celery",
+  "Framework :: Django",
+  "Framework :: FastAPI",
+  "Framework :: Flask",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
@@ -25,6 +29,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Topic :: System :: Logging",
+  "Topic :: System :: Monitoring",
   "Topic :: Software Development :: Debuggers",
   "Typing :: Typed",
 ]

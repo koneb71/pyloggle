@@ -69,13 +69,27 @@ instead of publishing it, until Pages is turned on in the next step.
 On the new repository:
 
 - **About** (the gear next to it on the main page):
-  - Description: "Self-hosted errors, logs, request timelines and alerts for Python apps".
+  - Description: "Self-hosted error tracking, log search, request timelines and alerts for
+    Python apps. One Go program and ClickHouse, OpenTelemetry ready."
   - Website: `https://koneb71.github.io/pyloggle/`.
-  - Topics: `python`, `logging`, `error-tracking`, `observability`, `opentelemetry`,
-    `clickhouse`, `self-hosted`, `django`, `fastapi`, `flask`.
+  - Topics: `python`, `logging`, `error-tracking`, `error-monitoring`, `log-management`,
+    `observability`, `opentelemetry`, `tracing`, `alerting`, `clickhouse`, `golang`,
+    `self-hosted`, `sentry-alternative`, `django`, `fastapi`, `flask`, `celery`.
 - **Settings → General**:
   - Features: Issues on; Wiki and Projects off.
   - Pull requests: allow squash merging, and **Automatically delete head branches**.
+  - Social preview: upload [`docs/images/social-preview.png`](docs/images/social-preview.png),
+    the picture shown when the repository is linked elsewhere.
+
+  With the GitHub CLI, the About box and these features are one command:
+
+  ```bash
+  gh repo edit koneb71/pyloggle \
+    --description "Self-hosted error tracking, log search, request timelines and alerts for Python apps. One Go program and ClickHouse, OpenTelemetry ready." \
+    --homepage "https://koneb71.github.io/pyloggle/" \
+    --add-topic python,logging,error-tracking,error-monitoring,log-management,observability,opentelemetry,tracing,alerting,clickhouse,golang,self-hosted,sentry-alternative,django,fastapi,flask,celery \
+    --enable-wiki=false --enable-projects=false --delete-branch-on-merge
+  ```
 - **Settings → Pages → Build and deployment → Source: GitHub Actions**. Then
   **Actions → Docs → Run workflow** on `main`, and check that
   <https://koneb71.github.io/pyloggle/> loads.
