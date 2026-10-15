@@ -104,10 +104,11 @@ The routes that search take `q` in the [search syntax](../app/search.md), `from`
 | `GET /logs/export` | Every matching message as a file: `format=csv` (default) or `ndjson`, `cols` to pick columns, `limit` up to `PYLOGGLE_EXPORT_MAX_ROWS` |
 | `GET /logs/fields` | The fields you can search and group by |
 | `GET /logs/{event_id}` | One message, with the body of its web request (`http_body`), which the lists leave out |
-| `DELETE /logs` | Deletes every message of the project, with the per-minute counts and request statistics built from them. Issues, request timelines and metrics stay. The JSON body must repeat the project id, `{"confirm": "<project id>"}`. Admins only, recorded in the admin activity |
-| `GET /saved-views` | Saved searches |
-| `POST /saved-views` | Save a search: `{"name": "…", "query": "…", "is_public": true}`. With an `id`, changes that saved search |
-| `DELETE /saved-views/{id}` | Delete a saved search |
+| `DELETE /logs` | Deletes every message of the project, with the per-minute counts built from them. Issues, request counts, request timelines and metrics stay. The JSON body must repeat the project id, `{"confirm": "<project id>"}`. Admins only, recorded in the admin activity |
+| `GET /saved-views` | Saved searches and charts: yours and the shared ones. `pinned=1` lists only the charts pinned to Dashboards |
+| `POST /saved-views` | Save a search or a chart: `{"name": "…", "query": "…", "is_public": true}`. With an `id`, changes it: only its owner or an admin can |
+| `DELETE /saved-views/{id}` | Delete a saved search or chart (its owner or an admin) |
+| `POST /saved-views/{id}/pin` | Pin a saved chart to Dashboards, or unpin it: `{"pinned": true}`. A shared chart shows on everyone's Dashboards, so only its owner or an admin can |
 
 ## Requests
 
@@ -142,6 +143,8 @@ These take `from` and `to` (the last 30 days by default), `service` and `env`.
 |---|---|
 | `GET /analytics/errors` | Problems opened, fixed and coming back over time and against the period just before, time to fix, each recent release's errors next to its requests, and errors by type, by app and by person |
 | `GET /analytics/usage` | Counted requests: totals, requests and people over time and per week, pages and endpoints (`sort=requests` or `people`) and versions |
+| `GET /analytics/aggregate` | A chart: `source` is `messages`, `errors` or `requests`, searched with `q`, and the rest as for `GET /logs/aggregate`. Messages and errors take any numeric field; errors also count `problems`; both count `people`. Requests have `count`, `failed`, `failure_rate`, `p50`, `p95`, `p99` (response time) and `people`, and can be searched and split by app, environment, method, route, `endpoint` and version only |
+| `GET /analytics/fields` | What a `source` can be searched, measured and split by: each field with its kind, and the metrics |
 
 ## Projects and access keys
 

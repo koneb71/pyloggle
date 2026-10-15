@@ -15,17 +15,20 @@ type column struct {
 	aliases []string
 }
 
-// Schema maps query-language fields onto one table's columns. Logs is the explorer's; Spans
-// covers the traces page. Unknown fields fall back to attrs[key] in both.
+// Schema maps query-language fields onto one table's columns. Logs is the explorer's, Errors the
+// error details', Spans the traces page's: unknown fields fall back to attrs[key] in those.
+// Requests is strict: its tables only have the columns listed, and no text to search.
 type Schema struct {
 	name    string
 	columns map[string]column
 	alias   map[string]string
-	text    string // column bare words match
+	text    string // column bare words match ("" = none)
+	tags    bool   // has a tags map
+	strict  bool   // only the listed fields exist (no attrs, no tags)
 }
 
 func newSchema(name, text string, cols map[string]column) *Schema {
-	sc := &Schema{name: name, columns: cols, alias: map[string]string{}, text: text}
+	sc := &Schema{name: name, columns: cols, alias: map[string]string{}, text: text, tags: name == "logs" || name == "errors"}
 	for n, c := range cols {
 		sc.alias[n] = n
 		for _, a := range c.aliases {
@@ -59,6 +62,52 @@ var Logs = newSchema("logs", "message", map[string]column{
 	"message":     {expr: "message", kind: "text", aliases: []string{"msg"}},
 })
 
+// Errors is the error_occurrences schema: Logs' fields plus what only an error has.
+var Errors = newSchema("errors", "message", map[string]column{
+	"service":           {expr: "service", kind: "string"},
+	"env":               {expr: "env", kind: "string", aliases: []string{"environment"}},
+	"level":             {expr: "level", kind: "level", aliases: []string{"severity"}},
+	"logger":            {expr: "logger", kind: "string"},
+	"hostname":          {expr: "hostname", kind: "string", aliases: []string{"host"}},
+	"request_id":        {expr: "request_id", kind: "string", aliases: []string{"request"}},
+	"trace_id":          {expr: "trace_id", kind: "string", aliases: []string{"trace"}},
+	"release":           {expr: "release", kind: "string", aliases: []string{"version"}},
+	"issue_id":          {expr: "issue_id", kind: "string", aliases: []string{"issue", "problem"}},
+	"event_id":          {expr: "event_id", kind: "string", aliases: []string{"event"}},
+	"source":            {expr: "source", kind: "string"},
+	"http.method":       {expr: "http_method", kind: "string", aliases: []string{"method"}},
+	"http.route":        {expr: "http_route", kind: "string", aliases: []string{"route"}},
+	"http.status":       {expr: "http_status", kind: "number", aliases: []string{"status_code", "http.status_code"}},
+	"http.url":          {expr: "http_url", kind: "string", aliases: []string{"url"}},
+	"user":              {expr: "user_id_hash", kind: "string", aliases: []string{"user_id", "user.id"}},
+	"exception":         {expr: "exception_type", kind: "string", aliases: []string{"exception.type", "error.type"}},
+	"exception.message": {expr: "exception_message", kind: "text"},
+	"title":             {expr: "title", kind: "text"},
+	"culprit":           {expr: "culprit", kind: "string"},
+	"handled":           {expr: "mechanism_handled", kind: "number"},
+	"message":           {expr: "message", kind: "text", aliases: []string{"msg"}},
+})
+
+// Requests is the request counts' schema (request_stats_minutely, request_usage_hourly): only
+// these fields, no free text. release lives in the hourly table alone.
+var Requests = &Schema{name: "requests", strict: true, alias: map[string]string{}, columns: map[string]column{
+	"service":     {expr: "service", kind: "string"},
+	"env":         {expr: "env", kind: "string", aliases: []string{"environment"}},
+	"http.method": {expr: "http_method", kind: "string", aliases: []string{"method"}},
+	"http.route":  {expr: "http_route", kind: "string", aliases: []string{"route"}},
+	"endpoint":    {expr: "concat(http_method, ' ', http_route)", kind: "string"},
+	"release":     {expr: "release", kind: "string", aliases: []string{"version"}},
+}}
+
+func init() {
+	for n, c := range Requests.columns {
+		Requests.alias[n] = n
+		for _, a := range c.aliases {
+			Requests.alias[a] = n
+		}
+	}
+}
+
 // Spans is the spans table schema. duration_ms is derived so the same comparisons work.
 var Spans = newSchema("spans", "name", map[string]column{
 	"service":        {expr: "service", kind: "string"},
@@ -89,9 +138,67 @@ func (s *Schema) Fields() []string {
 	for name := range s.columns {
 		out = append(out, name)
 	}
-	out = append(out, "attrs.<key>", "@<key>")
-	if s.name == "logs" {
+	if !s.strict {
+		out = append(out, "attrs.<key>", "@<key>")
+	}
+	if s.tags {
 		out = append(out, "tags.<key>")
+	}
+	sortStrings(out)
+	return out
+}
+
+// FieldKind is one field and what it holds: "number", "string", "level" or "text".
+type FieldKind struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// Kinds lists the schema's named fields with their kinds, sorted by name.
+func (s *Schema) Kinds() []FieldKind {
+	out := make([]FieldKind, 0, len(s.columns))
+	for _, name := range s.Fields() {
+		if c, ok := s.columns[name]; ok {
+			out = append(out, FieldKind{Name: name, Kind: c.kind})
+		}
+	}
+	return out
+}
+
+// Name is the schema's name: logs, errors, spans or requests.
+func (s *Schema) Name() string { return s.name }
+
+// Canonical returns the canonical name of a named field ("route" -> "http.route"), or "" when
+// the schema has no such field (attribute and tag forms are not named fields).
+func (s *Schema) Canonical(field string) string {
+	return s.alias[strings.ToLower(strings.TrimSpace(field))]
+}
+
+// Mentions reports whether any term of the query filters on the named field.
+func (q Query) Mentions(s *Schema, canonical string) bool {
+	for _, g := range q.Groups {
+		for _, t := range g {
+			if t.Field != "" && s.Canonical(t.Field) == canonical {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Check reports a field the schema cannot answer: any field but the listed ones in a strict
+// schema. Other schemas take every field (unknown ones are attributes).
+func (s *Schema) Check(field string) error {
+	if !s.strict || s.Canonical(field) != "" {
+		return nil
+	}
+	return fmt.Errorf("%s cannot be filtered or split by %q: use %s", s.name, field, strings.Join(s.namedFields(), ", "))
+}
+
+func (s *Schema) namedFields() []string {
+	out := make([]string, 0, len(s.columns))
+	for n := range s.columns {
+		out = append(out, n)
 	}
 	sortStrings(out)
 	return out
@@ -180,6 +287,14 @@ func termSQL(s *Schema, t Term) (string, []any, error) {
 	var cond string
 	var args []any
 
+	if t.Field == "" && s.text == "" {
+		return "", nil, &Error{Pos: t.Pos, Msg: fmt.Sprintf("%s cannot be searched by words: filter by %s", s.name, strings.Join(s.namedFields(), ", "))}
+	}
+	if t.Field != "" {
+		if err := s.Check(t.Field); err != nil {
+			return "", nil, &Error{Pos: t.Pos, Msg: err.Error()}
+		}
+	}
 	if t.Field == "" {
 		// bare words match the schema's text column (message for logs, name for spans)
 		var parts []string

@@ -144,6 +144,17 @@ func (u *UI) apiLogsAggregate(w http.ResponseWriter, r *http.Request) {
 		writeQueryErr(w, err)
 		return
 	}
+	spec, ok := aggregateSpec(w, r, "messages", lq.From, lq.To)
+	if !ok {
+		return
+	}
+	agg, err := u.store.LogAggregate(r.Context(), lq, spec)
+	writeAggregate(w, agg, err)
+}
+
+// aggregateSpec reads a chart's settings: metric (checked against the source's), of, group_by,
+// limit, sort and the bucket (bucket_seconds, or buckets across the range).
+func aggregateSpec(w http.ResponseWriter, r *http.Request, source string, from, to time.Time) (clickhouse.AggregateSpec, bool) {
 	qs := r.URL.Query()
 	spec := clickhouse.AggregateSpec{
 		GroupBy: strings.TrimSpace(qs.Get("group_by")),
@@ -155,30 +166,49 @@ func (u *UI) apiLogsAggregate(w http.ResponseWriter, r *http.Request) {
 	if spec.Metric == "" {
 		spec.Metric = "count"
 	}
+	metrics := clickhouse.ChartMetrics[source]
 	known := false
-	for _, m := range clickhouse.AggregateMetrics {
+	for _, m := range metrics {
 		known = known || m == spec.Metric
 	}
 	if !known {
-		writeErr(w, http.StatusBadRequest, "bad_metric", "metric must be one of "+strings.Join(clickhouse.AggregateMetrics, ", "))
-		return
+		writeErr(w, http.StatusBadRequest, "bad_metric", "metric must be one of "+strings.Join(metrics, ", "))
+		return spec, false
 	}
-	if spec.Metric != "count" && spec.Of == "" {
+	if needsField(source, spec.Metric) && spec.Of == "" {
 		writeErr(w, http.StatusBadRequest, "bad_metric", "metric "+spec.Metric+" needs a field (of=duration_ms, of=http.status, of=attrs.<key>)")
-		return
+		return spec, false
 	}
 	if secs := qInt(r, "bucket_seconds", 0, 7*86400); secs > 0 {
 		spec.Bucket = time.Duration(secs) * time.Second
 	} else {
-		spec.Bucket = clickhouse.NiceBucket(lq.From, lq.To, qInt(r, "buckets", 60, 500))
+		spec.Bucket = clickhouse.NiceBucket(from, to, qInt(r, "buckets", 60, 500))
 	}
-	agg, err := u.store.LogAggregate(r.Context(), lq, spec)
+	return spec, true
+}
+
+// needsField reports a metric that measures a field: everything but the counts, and for
+// requests nothing (their response time is built in).
+func needsField(source, metric string) bool {
+	if source == "requests" {
+		return false
+	}
+	switch metric {
+	case "count", "people", "problems":
+		return false
+	}
+	return true
+}
+
+func writeAggregate(w http.ResponseWriter, agg api.LogAggregate, err error) {
 	if err != nil {
-		if strings.Contains(err.Error(), "not numeric") || strings.Contains(err.Error(), "needs a field") {
-			writeErr(w, http.StatusBadRequest, "bad_metric", err.Error())
+		msg := err.Error()
+		if strings.Contains(msg, "not numeric") || strings.Contains(msg, "needs a field") || strings.Contains(msg, "cannot be") ||
+			strings.Contains(msg, "measure their") || strings.Contains(msg, "are counted over") {
+			writeErr(w, http.StatusBadRequest, "bad_metric", msg)
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+		writeErr(w, http.StatusInternalServerError, "query_failed", msg)
 		return
 	}
 	writeJSON(w, http.StatusOK, agg)
@@ -312,7 +342,8 @@ func (u *UI) apiLogsFields(w http.ResponseWriter, r *http.Request) {
 
 // Saved views reuse saved_searches; Query holds the explorer state as JSON.
 func (u *UI) apiSavedViews(w http.ResponseWriter, r *http.Request) {
-	items, err := u.store.ListSavedSearches(r.Context(), auth.ProjectIDFromContext(r.Context()), currentUser(r), true, false, qInt(r, "limit", 100, 500))
+	pinned := r.URL.Query().Get("pinned") == "1" || r.URL.Query().Get("pinned") == "true"
+	items, err := u.store.ListSavedSearches(r.Context(), auth.ProjectIDFromContext(r.Context()), currentUser(r), true, pinned, qInt(r, "limit", 100, 500))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
 		return
@@ -330,12 +361,18 @@ func (u *UI) apiSavedViewUpsert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.ProjectID = auth.ProjectIDFromContext(r.Context())
-	if body.UserID == "" {
-		body.UserID = currentUser(r)
-	}
+	body.UserID = currentUser(r)
 	if strings.TrimSpace(body.Name) == "" {
 		writeErr(w, http.StatusBadRequest, "missing_name", "name is required")
 		return
+	}
+	if body.ID != "" {
+		// Saving over a view keeps its owner, and only the owner or an admin may do it.
+		cur, ok := u.ownedView(w, r, body.ID)
+		if !ok {
+			return
+		}
+		body.UserID, body.CreatedAt = cur.UserID, cur.CreatedAt
 	}
 	saved, err := u.store.UpsertSavedSearch(r.Context(), body)
 	if err != nil {
@@ -347,9 +384,55 @@ func (u *UI) apiSavedViewUpsert(w http.ResponseWriter, r *http.Request) {
 
 func (u *UI) apiSavedViewDelete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if _, ok := u.ownedView(w, r, id); !ok {
+		return
+	}
 	if err := u.store.SoftDeleteSavedSearch(r.Context(), auth.ProjectIDFromContext(r.Context()), currentUser(r), id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "delete_failed", fmt.Sprintf("delete %s: %v", id, err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// apiSavedViewPin pins a saved chart to Dashboards, or unpins it ({"pinned": bool}). A shared
+// chart pinned shows on everyone's Dashboards, so only its owner or an admin may.
+func (u *UI) apiSavedViewPin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Pinned bool `json:"pinned"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad_json", err.Error())
+		return
+	}
+	cur, ok := u.ownedView(w, r, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	cur.IsPinned = body.Pinned
+	saved, err := u.store.UpsertSavedSearch(r.Context(), cur)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "save_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"view": saved})
+}
+
+// ownedView loads a saved view the caller may change: their own, or any as an admin. Another
+// person's private view is not found.
+func (u *UI) ownedView(w http.ResponseWriter, r *http.Request, id string) (api.SavedSearch, bool) {
+	cur, ok, err := u.store.GetSavedSearch(r.Context(), auth.ProjectIDFromContext(r.Context()), id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "query_failed", err.Error())
+		return cur, false
+	}
+	me := currentUser(r)
+	if !ok || (!cur.IsPublic && cur.UserID != me && !u.isUIAdmin(r)) {
+		writeErr(w, http.StatusNotFound, "not_found", "no such saved view")
+		return cur, false
+	}
+	if cur.UserID != me && !u.isUIAdmin(r) {
+		writeErr(w, http.StatusForbidden, "not_owner", "only "+cur.UserID+" or an admin can change this view")
+		return cur, false
+	}
+	return cur, true
 }
