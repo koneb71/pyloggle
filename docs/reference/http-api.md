@@ -129,10 +129,19 @@ These take `from`, `to`, and usually `service` and `env`.
 | `GET /metrics/errors` | Errors over time |
 | `GET /metrics/logs` | Messages over time, by severity |
 | `GET /metrics/top-issues` | The most frequent issues in the range |
-| `GET /metrics/requests` | Web requests: count, failed share, response times and the busiest endpoints. `source` is `logs` (requests reported by the Python package and OpenTelemetry) or `otel` (the `http.server.request.duration` metric). `compare=previous` as above |
+| `GET /metrics/requests` | Web requests: count, failed share, response times and the busiest endpoints. `source` is `logs` (the requests the Python package and OpenTelemetry report or count) or `otel` (the `http.server.request.duration` metric). `compare=previous` as above |
 | `GET /releases` | Versions of your apps, in the order they were first seen |
 | `GET /metrics/names` | The OpenTelemetry metrics this project has received |
 | `GET /metrics/series` | One metric over time: `name`, `agg`, `group_by`, `buckets` or `bucket_seconds`. `agg` depends on the metric's type: `avg`, `sum`, `min`, `max` or `last` for gauges; `rate` too for counters; `p50`, `p95`, `p99`, `avg`, `count` or `rate` for histograms |
+
+## Analytics
+
+These take `from` and `to` (the last 30 days by default), `service` and `env`.
+
+| Route | What it does |
+|---|---|
+| `GET /analytics/errors` | Problems opened, fixed and coming back over time and against the period just before, time to fix, each recent release's errors next to its requests, and errors by type, by app and by person |
+| `GET /analytics/usage` | Counted requests: totals, requests and people over time and per week, pages and endpoints (`sort=requests` or `people`) and versions |
 
 ## Projects and access keys
 

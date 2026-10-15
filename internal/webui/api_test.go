@@ -47,6 +47,8 @@ type fakeStore struct {
 	spikeWindows    [4]time.Time
 	overviewRanges  [][2]time.Time
 	requestRanges   [][2]time.Time
+	analytics       []clickhouse.AnalyticsScope
+	usageSort       string
 	down            error // when set, project lookups fail as if the database were unreachable
 }
 
@@ -330,6 +332,19 @@ func (f *fakeStore) ServiceHealth(_ context.Context, _, env string, _, _ time.Ti
 }
 func (f *fakeStore) ListReleases(context.Context, string, time.Time, time.Time, int) ([]api.Release, error) {
 	return []api.Release{{Release: "1.4.0", Errors: 3, Issues: 1}}, nil
+}
+func (f *fakeStore) ErrorAnalytics(_ context.Context, s clickhouse.AnalyticsScope) (api.ErrorAnalytics, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.analytics = append(f.analytics, s)
+	return api.ErrorAnalytics{From: s.From, To: s.To, Totals: api.ErrorFlowTotals{Opened: 3, Fixed: 2}, Types: []api.ErrorGroupCount{{Key: "ValueError", Errors: 5}}}, nil
+}
+func (f *fakeStore) UsageAnalytics(_ context.Context, s clickhouse.AnalyticsScope, sortBy string) (api.UsageAnalytics, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.analytics = append(f.analytics, s)
+	f.usageSort = sortBy
+	return api.UsageAnalytics{From: s.From, To: s.To, Totals: api.UsageTotals{Requests: 250, People: 4}}, nil
 }
 func (f *fakeStore) IssueSpikeCounts(_ context.Context, _ api.AlertRule, prevFrom, prevTo, curFrom, curTo time.Time, _ int) ([]clickhouse.IssueSpikeRow, error) {
 	f.spikeWindows = [4]time.Time{prevFrom, prevTo, curFrom, curTo}
@@ -1257,5 +1272,24 @@ func TestClearLogs(t *testing.T) {
 	ua := NewForTest(cfg, store, fakeKeys{}, nil)
 	if rec, _ := do(t, ua, "DELETE", "/ui/api/logs", map[string]any{"confirm": "default"}, csrf); rec.Code == 200 {
 		t.Fatal("non-admin clear must be refused")
+	}
+}
+
+func TestAnalyticsErrorsAndUsage(t *testing.T) {
+	u, store, _ := newTestUI("disabled")
+	rec, out := do(t, u, "GET", "/ui/api/analytics/errors?service=shop&env=prod", nil, nil)
+	if rec.Code != 200 || out["totals"].(map[string]any)["opened"] != float64(3) || out["details_kept_days"] != float64(u.cfg.RetentionErrorsDays) {
+		t.Fatalf("errors: %d %s", rec.Code, rec.Body.String())
+	}
+	s := store.analytics[0]
+	if s.ProjectID != "default" || s.Service != "shop" || s.Env != "prod" || s.To.Sub(s.From) < 29*24*time.Hour {
+		t.Fatalf("scope: %+v (the default range is 30 days)", s)
+	}
+	rec, out = do(t, u, "GET", "/ui/api/analytics/usage?from=-7d&sort=people", nil, nil)
+	if rec.Code != 200 || out["totals"].(map[string]any)["requests"] != float64(250) || store.usageSort != "people" {
+		t.Fatalf("usage: %d %s", rec.Code, rec.Body.String())
+	}
+	if d := store.analytics[1].To.Sub(store.analytics[1].From); d < 7*24*time.Hour-time.Minute || d > 7*24*time.Hour+time.Minute {
+		t.Fatalf("range: %v", d)
 	}
 }

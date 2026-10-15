@@ -143,6 +143,8 @@ func (u *UI) newAPIMux(prefix string) *http.ServeMux {
 	reg("GET", "/metrics/services", u.apiServiceHealth)
 	reg("GET", "/metrics/attention", u.apiAttention)
 	reg("GET", "/releases", u.apiReleases)
+	reg("GET", "/analytics/errors", u.apiErrorAnalytics)
+	reg("GET", "/analytics/usage", u.apiUsageAnalytics)
 	reg("GET", "/metrics/names", u.apiMetricNames)
 	reg("GET", "/metrics/series", u.apiMetricSeries)
 	// projects
