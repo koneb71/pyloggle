@@ -49,14 +49,35 @@ These are read by `pyloggle.init()` when the matching argument is not given.
 
 | Option | Default | What it does |
 |---|---|---|
-| `emit_request_latency` | `False` | Log one `request` message per web request, with its route, status, `duration_ms` and body. It fills the response-time charts on **Dashboards**, at the cost of one line on **Logs** for every request |
-| `ignore_requests` | `("OPTIONS *", "HEAD *")` | Requests that never get a `request` message: `"METHOD pattern"` or just `"pattern"` for any method, matched against the path and the route, with `*` as a wildcard, such as `"/health"` or `"GET /static/*"`. The default skips CORS preflight and `HEAD` checks. Failed (5xx) requests and errors are always sent |
+| `count_requests` | `True` | Count every web request without listing it: one small tally per endpoint and minute, for **Analytics → Usage** and the request charts on **Dashboards**. See [Request counts](#request-counts) |
+| `emit_request_latency` | `False` | Also list each web request on **Logs** as a `request` message, with its route, status, `duration_ms` and body. Counted requests need no message; turn this on to read or search requests one by one |
+| `ignore_requests` | `("OPTIONS *", "HEAD *")` | Requests that are neither counted nor listed: `"METHOD pattern"` or just `"pattern"` for any method, matched against the path and the route, with `*` as a wildcard, such as `"/health"` or `"GET /static/*"`. The default skips CORS preflight and `HEAD` checks. Failed (5xx) requests and errors are always sent |
 | `emit_request_body` | `True` | Include the request body in error reports and request messages. See [Request bodies](#request-bodies) |
 | `max_request_body_bytes` | `4096` | Keep at most this much of a body, after secrets are blanked out |
 | `capture_request_headers` | `True` | Include the request headers in error reports, with secrets blanked out |
 | `max_request_headers` | `50` | Keep at most this many headers |
 | `trust_incoming_request_id` | `True` | Use the `X-Request-ID` and `traceparent` headers sent by the caller |
 | `trust_proxy_headers` | `False` | Take the client's IP address from `X-Forwarded-For`. Turn on only behind a proxy you control |
+
+### Request counts
+
+Every web request your app answers is counted, so **Analytics → Usage** can show how many
+requests and how many people each page and endpoint gets, per version, and the request charts
+on **Dashboards** fill in. Nothing appears on **Logs**: the package tallies requests in memory
+per endpoint and minute, and sends each tally once its minute is over (or once it holds 1,000
+requests) to `<ingest_url>/requests`. A tally holds the number of requests, how many failed,
+each response time and the people who made them, as the same hash `set_user()` sends, never
+their raw ID.
+
+- A request that crashed is counted by its error report, and with OpenTelemetry the server
+  counts each server span, so neither is counted twice.
+- Requests that matched no route (a `404` for an unknown path) are not counted.
+- With `emit_request_latency=True` each request is listed instead, and the server counts the
+  listed requests.
+- An older Pyloggle server answers `404`; the package then stops counting until the app
+  restarts, and says so once in your app's log.
+
+Turn counting off with `count_requests=False`.
 
 ### Request bodies
 

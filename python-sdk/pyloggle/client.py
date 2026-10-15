@@ -22,6 +22,7 @@ from typing import Any, Dict, Iterable, Optional, Sequence, Tuple
 
 from . import scope as _scope
 from ._body import fit_body
+from ._counts import RequestCounter, counts_url
 from ._version import SDK_NAME, __version__
 from .scrub import ScrubConfig, default_scrub_config, scrub_event
 from .stack import current_thread_name
@@ -47,8 +48,11 @@ class ClientConfig:
     release: Optional[str] = None
     hostname: Optional[str] = None  # auto-detected when None
 
-    # per-request telemetry (opt-in to avoid extra noise/cost)
+    # per-request telemetry: a request line on Logs for every request (opt-in to avoid noise/cost)
     emit_request_latency: bool = False
+    # count every request without listing it: one small tally per endpoint and minute, for
+    # Analytics -> Usage and the request charts (see _counts.py). Ignored requests are not counted.
+    count_requests: bool = True
     # requests that never get a request line: "METHOD path-glob" or "path-glob" (any method),
     # matched against the path and the route. Failed (5xx) requests and crashes are always sent.
     ignore_requests: Sequence[str] = ("OPTIONS *", "HEAD *")
@@ -175,6 +179,8 @@ class Client:
     def _start_sender(self) -> None:
         self._pid = os.getpid()
         self._runtime = _runtime_info()
+        self._counter = RequestCounter()
+        self._counting = bool(getattr(self.config, "count_requests", True))
         self._q: "queue.Queue[Any]" = queue.Queue(maxsize=max(1, int(self.config.max_queue_size)))
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._run, name="pyloggle-sender", daemon=True)
@@ -213,6 +219,25 @@ class Client:
                 return
 
     capture_event = emit
+
+    def count_request(
+        self,
+        method: str,
+        route: str,
+        status: int,
+        duration_ms: Optional[float] = None,
+        user_id_hash: Optional[str] = None,
+    ) -> None:
+        """Count one finished request without listing it. The integrations call this for every
+        request that gets no request line and did not crash; ``route`` is the matched route
+        template (requests that matched none are not counted)."""
+        if not self._counting or not route or self._stop.is_set():
+            return
+        try:
+            self._counter.add(method, route, int(status or 0), duration_ms, user_id_hash)
+        except Exception:
+            if self.config.debug:
+                _log.exception("pyloggle: count failed")
 
     def flush(self, timeout_s: float = 2.0) -> bool:
         """Send everything queued so far, including the in-flight batch. Returns True if done in time."""
@@ -415,6 +440,7 @@ class Client:
     def _run(self) -> None:
         buf: list = []
         last = time.monotonic()
+        counted = time.monotonic()
 
         def send_buf() -> None:
             if not buf:
@@ -427,19 +453,25 @@ class Client:
                 buf.clear()
 
         while True:
-            timeout = max(0.01, self.config.flush_interval_s - (time.monotonic() - last))
+            if time.monotonic() - counted >= 1.0:
+                self._send_counts()
+                counted = time.monotonic()
+            timeout = max(0.01, min(1.0, self.config.flush_interval_s - (time.monotonic() - last)))
             try:
                 item = self._q.get(timeout=timeout)
             except queue.Empty:
-                send_buf()
-                last = time.monotonic()
+                if time.monotonic() - last >= self.config.flush_interval_s:
+                    send_buf()
+                    last = time.monotonic()
                 continue
             if isinstance(item, _Stop):
                 send_buf()
+                self._send_counts(everything=True)
                 self._q.task_done()
                 break
             if isinstance(item, _Flush):
                 send_buf()
+                self._send_counts(everything=True)
                 self._q.task_done()
                 last = time.monotonic()
                 continue
@@ -462,7 +494,28 @@ class Client:
                 send_buf()
         send_buf()
 
-    def _send(self, events: list) -> bool:
+    def _send_counts(self, everything: bool = False) -> None:
+        """Post the request tallies that are ready (all of them on flush and shutdown)."""
+        if not self._counting:
+            return
+        try:
+            tallies = self._counter.take(everything=everything)
+        except Exception:
+            return
+        if not tallies:
+            return
+        cfg = self.config
+        meta = {"service": cfg.service, "env": cfg.env, "project_id": cfg.project_id}
+        if cfg.release:
+            meta["release"] = cfg.release
+        lines = [{**meta, **t} for t in tallies]
+        for i in range(0, len(lines), max(1, int(cfg.batch_size or 200))):
+            if not self._send(lines[i : i + max(1, int(cfg.batch_size or 200))], url=counts_url(cfg.ingest_url)):
+                return
+
+    def _send(self, events: list, url: Optional[str] = None) -> bool:
+        counts = url is not None
+        url = url or self.config.ingest_url
         payload = "\n".join(json.dumps(e, separators=(",", ":"), default=str) for e in events).encode("utf-8")
         headers = {
             "Content-Type": "application/x-ndjson",
@@ -480,14 +533,19 @@ class Client:
         backoff = float(self.config.retry_backoff_s or 0.5)
         for attempt in range(attempts):
             try:
-                req = urllib.request.Request(self.config.ingest_url, data=body, method="POST", headers=headers)
+                req = urllib.request.Request(url, data=body, method="POST", headers=headers)
                 with urllib.request.urlopen(req, timeout=self.config.request_timeout_s):
                     return True
             except urllib.error.HTTPError as e:
                 status = int(getattr(e, "code", 0) or 0)
+                if counts and status in (404, 405):
+                    # A Pyloggle server older than 1.1 does not take request counts.
+                    self._counting = False
+                    _log.warning("pyloggle: this Pyloggle server does not take request counts (HTTP %s); requests are not counted. Upgrade the server to see Analytics -> Usage.", status)
+                    return False
                 if status == 413 and len(events) > 1:
                     half = len(events) // 2
-                    return self._send(events[:half]) and self._send(events[half:])
+                    return self._send(events[:half], url if counts else None) and self._send(events[half:], url if counts else None)
                 retry = status == 429 or status >= 500
                 if not retry:
                     self._drop(f"server rejected batch with HTTP {status}")

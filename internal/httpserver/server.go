@@ -102,6 +102,8 @@ func New(cfg config.Config, ch *clickhouse.Client) *Server {
 	// Ingest endpoint
 	// Note: ingest handler supports both multi-tenant API keys and (optional) legacy shared secret.
 	s.mux.Handle("/v1/ingest", ing)
+	// Request counts from the Python package: one per endpoint and minute, never a line on Logs.
+	s.mux.Handle("POST /v1/ingest/requests", ing.Counts())
 
 	// OpenTelemetry door: OTLP/HTTP logs and traces through the same pipeline. The standard
 	// exporter paths (POST /v1/logs, /v1/traces, /v1/metrics) coexist with the GET query APIs.

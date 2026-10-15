@@ -26,6 +26,7 @@ type Sink interface {
 	EnqueueErrorOccurrence(ctx context.Context, occ issue.ErrorOccurrence) error
 	EnqueueSpans(ctx context.Context, spans []model.Span) error
 	EnqueueMetricPoints(ctx context.Context, points []model.MetricPoint) error
+	EnqueueRequestCounts(ctx context.Context, counts []model.RequestCount) error
 }
 
 // IssueStateStore is the slice of storage the pipeline needs for regression and snooze handling.
@@ -257,6 +258,45 @@ func (p *Pipeline) ProcessMetrics(ctx context.Context, t Tenant, points []model.
 	return len(points), Accepted
 }
 
+// ProcessRequestCounts stores the request counts an app sent (POST /v1/ingest/requests): the
+// storage quota and one rate-limit token per batch, like spans. Counts are never sampled. Returns
+// how many were accepted and, when none were, why; a count that fails Normalize is rejected.
+func (p *Pipeline) ProcessRequestCounts(ctx context.Context, t Tenant, counts []model.RequestCount, rawLen int) (accepted int, rejected []error, outcome Outcome) {
+	if len(counts) == 0 {
+		return 0, nil, Accepted
+	}
+	now := p.now().UTC()
+	if !p.qt.allow(t.ProjectID, false, rawLen, t.MaxStorageGB, now) {
+		return 0, nil, DroppedQuota
+	}
+	kept := counts[:0]
+	for i := range counts {
+		c := counts[i]
+		if err := c.Normalize(now); err != nil {
+			rejected = append(rejected, err)
+			continue
+		}
+		c.ProjectID = t.ProjectID
+		if c.Service == "" {
+			c.Service = p.cfg.DefaultSvc
+		}
+		if c.Env == "" {
+			c.Env = p.cfg.DefaultEnv
+		}
+		kept = append(kept, c)
+	}
+	if len(kept) == 0 {
+		return 0, rejected, Accepted
+	}
+	if t.RPS > 0 && !p.lim.take(t.ProjectID+"|"+kept[0].Service, t.RPS, t.Burst) {
+		return 0, rejected, DroppedRateLimit
+	}
+	if err := p.sink.EnqueueRequestCounts(ctx, kept); err != nil {
+		return 0, rejected, DroppedQueueFull
+	}
+	return len(kept), rejected, Accepted
+}
+
 // Process normalizes, protects and stores one event. rawLen is the encoded size for quotas.
 func (p *Pipeline) Process(ctx context.Context, t Tenant, ev model.Event, rawLen int) Outcome {
 	o := p.process(ctx, t, ev, rawLen)
@@ -303,10 +343,8 @@ func (p *Pipeline) process(ctx context.Context, t Tenant, ev model.Event, rawLen
 	if !p.qt.allow(t.ProjectID, isErr, rawLen, t.MaxStorageGB, now) {
 		return DroppedQuota
 	}
-	if o := p.lim.outcome(ev, t.RPS, t.Burst); o != Accepted {
-		return o
-	}
 
+	duplicate := false
 	if isErr && !ev.SkipIssue {
 		occ := issue.FromEvent(ev)
 		if ev.Exception != nil && ev.TraceID != "" {
@@ -317,8 +355,20 @@ func (p *Pipeline) process(ctx context.Context, t Tenant, ev model.Event, rawLen
 				ev.SkipIssue = true
 				ev.Attrs = ev.Attrs.Set("pyloggle.issue_id", prev.IssueID)
 				ev.Attrs = ev.Attrs.Set("pyloggle.duplicate_of", prev.EventID)
+				duplicate = true
 			}
 		}
+	}
+	// Requests are counted before sampling and the rate limit, so the counts stay exact when
+	// the line itself is not kept. A second report of the same crash is not a second request.
+	if c, ok := model.CountOf(ev); ok && !duplicate {
+		_ = p.sink.EnqueueRequestCounts(ctx, []model.RequestCount{c})
+	}
+	if ev.CountOnly {
+		return Accepted
+	}
+	if o := p.lim.outcome(ev, t.RPS, t.Burst); o != Accepted {
+		return o
 	}
 	if isErr && !ev.SkipIssue {
 		occ := issue.FromEvent(ev)

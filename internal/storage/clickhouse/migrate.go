@@ -79,6 +79,7 @@ var migrations = []migration{
 	{Name: "015_api_keys", Fn: createAPIKeys},
 	{Name: "016_alert_once_and_recap", SQL: "016_alert_once_and_recap.sql"},
 	{Name: "017_logs_http_body", Fn: addLogsHTTPBody},
+	{Name: "018_request_counts", Fn: createRequestCounts},
 }
 
 // Migrate applies every migration not yet recorded in schema_migrations, in order.

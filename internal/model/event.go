@@ -47,6 +47,10 @@ type Event struct {
 
 	// Source is set by the server: "sdk" or "otlp".
 	Source string `json:"-"`
+
+	// CountOnly is set by the server on a request that is counted but not listed on Logs (an
+	// OpenTelemetry server span when OTLP_STORE_SERVER_SPANS is off).
+	CountOnly bool `json:"-"`
 }
 
 // Exception is the raised exception. Frames are oldest-first (Python traceback order), so the

@@ -317,15 +317,16 @@ func LogsToEvents(ld *logsv1.LogsData, now time.Time) []model.Event {
 }
 
 // TracesToEvents maps spans onto events only (see TracesToEventsAndSpans).
-func TracesToEvents(td *tracev1.TracesData, storeServerSpans bool, now time.Time) []model.Event {
-	evs, _ := TracesToEventsAndSpans(td, storeServerSpans, now)
+func TracesToEvents(td *tracev1.TracesData, listServerSpans bool, now time.Time) []model.Event {
+	evs, _ := TracesToEventsAndSpans(td, listServerSpans, now)
 	return evs
 }
 
 // TracesToEventsAndSpans walks the payload once. Every span becomes a Span row; exception
-// events become error events, ERROR spans without one become error logs, and (optionally) OK
-// server spans become "request" logs with a duration.
-func TracesToEventsAndSpans(td *tracev1.TracesData, storeServerSpans bool, now time.Time) ([]model.Event, []model.Span) {
+// events become error events, ERROR spans without one become error logs, and OK server spans
+// become "request" events with a duration. Requests are always counted; listServerSpans decides
+// whether they are also listed on Logs (otherwise they are CountOnly).
+func TracesToEventsAndSpans(td *tracev1.TracesData, listServerSpans bool, now time.Time) ([]model.Event, []model.Span) {
 	var out []model.Event
 	var spans []model.Span
 	for _, rs := range td.GetResourceSpans() {
@@ -410,8 +411,9 @@ func TracesToEventsAndSpans(td *tracev1.TracesData, storeServerSpans bool, now t
 					out = append(out, ev)
 					continue
 				}
-				if storeServerSpans && !hadException && sp.GetKind() == tracev1.Span_SPAN_KIND_SERVER && !noiseRequest(base.HTTP) {
+				if !hadException && sp.GetKind() == tracev1.Span_SPAN_KIND_SERVER && !noiseRequest(base.HTTP) {
 					ev := base
+					ev.CountOnly = !listServerSpans
 					ev.Attrs = cloneAttrs(base.Attrs)
 					ev.Timestamp = unixNano(sp.GetEndTimeUnixNano())
 					if ev.Timestamp.IsZero() {
@@ -460,8 +462,9 @@ func looksLikeStatusCode(s string) bool {
 	return true
 }
 
-// noiseRequest reports a request that carries no work worth a line on Logs: CORS preflight
-// (OPTIONS) and HEAD, as the Python package skips them too. A failed one still gets its line.
+// noiseRequest reports a request that carries no work worth a line on Logs or a count: CORS
+// preflight (OPTIONS) and HEAD, as the Python package skips them too. A failed one still gets
+// its line.
 func noiseRequest(h *model.HTTPInfo) bool {
 	if h == nil || h.Status >= 500 {
 		return false

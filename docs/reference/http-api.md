@@ -9,6 +9,7 @@ it with the code, so a new route cannot go undocumented.
 | Path | Used by | Access |
 |---|---|---|
 | `POST /v1/ingest` | The Python package | An access key with *Send data*. See the [wire format](wire-format.md). |
+| `POST /v1/ingest/requests` | The Python package: request counts, one per endpoint and minute | An access key with *Send data*. See [request counts](wire-format.md#request-counts). |
 | `POST /v1/logs`, `/v1/traces`, `/v1/metrics` | OpenTelemetry exporters | An access key with *Send data*. See [OpenTelemetry](../send-data/opentelemetry.md). |
 | `/v1/q/…` | Scripts, notebooks, other dashboards | An access key: *View* to read, *Make changes* for everything else |
 | `/ui/api/…` | The app | The browser's sign-in cookie |

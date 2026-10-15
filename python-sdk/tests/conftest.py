@@ -8,7 +8,8 @@ import pytest
 
 
 class FakeIngest:
-    """In-process ingest server recording every NDJSON batch; statuses can be scripted."""
+    """In-process ingest server recording every NDJSON batch; statuses can be scripted. Request
+    counts (POST .../requests) are kept apart from events."""
 
     def __init__(self):
         self.requests = []  # list of dicts: headers, lines, raw_len
@@ -27,7 +28,7 @@ class FakeIngest:
                 with srv.lock:
                     status = srv.statuses.pop(0) if srv.statuses else 202
                     hdrs = {k.lower(): v for k, v in self.headers.items()}
-                    srv.requests.append({"headers": hdrs, "lines": lines, "raw_len": len(raw), "status": status})
+                    srv.requests.append({"headers": hdrs, "lines": lines, "raw_len": len(raw), "status": status, "path": self.path})
                 self.send_response(status)
                 if status == 429:
                     self.send_header("Retry-After", "0")
@@ -47,7 +48,13 @@ class FakeIngest:
     def events(self):
         """Events the server accepted (batches answered with a non-2xx status do not count)."""
         with self.lock:
-            return [ev for r in self.requests if 200 <= r["status"] < 300 for ev in r["lines"]]
+            return [ev for r in self.requests if 200 <= r["status"] < 300 and not r["path"].endswith("/requests") for ev in r["lines"]]
+
+    @property
+    def counts(self):
+        """Request-count lines the server accepted."""
+        with self.lock:
+            return [c for r in self.requests if 200 <= r["status"] < 300 and r["path"].endswith("/requests") for c in r["lines"]]
 
     def wait_for(self, n, timeout=5.0):
         deadline = time.time() + timeout

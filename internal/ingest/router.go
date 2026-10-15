@@ -118,6 +118,12 @@ func (r *streamRouter) EnqueueMetricPoints(ctx context.Context, points []model.M
 	return r.ch.InsertMetricPoints(ctx, points)
 }
 
+// EnqueueRequestCounts hands request counts to the client's batcher: they are small, and
+// counted requests never wait on a stream that is busy with log lines.
+func (r *streamRouter) EnqueueRequestCounts(ctx context.Context, counts []model.RequestCount) error {
+	return r.ch.InsertRequestCounts(ctx, counts)
+}
+
 // getStream returns the stream for (projectID, service). If stream capacity is exceeded,
 // returns the overflow stream, and overflowed=true.
 func (r *streamRouter) getStream(projectID, service string) (*stream, bool) {

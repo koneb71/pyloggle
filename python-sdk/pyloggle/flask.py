@@ -6,7 +6,7 @@ from typing import Any, Callable, Optional
 
 from . import _body
 from . import scope as _scope
-from ._request import begin_request, client_ip, end_request, headers_for_event, ignored_request
+from ._request import begin_request, client_ip, count_request, end_request, headers_for_event, ignored_request
 from .client import Client
 from .context import ensure_request_id, get_user_id_hash, set_request_id, set_user_id_hash
 from .otel import annotate_request_body
@@ -256,8 +256,6 @@ def init_app(
                 annotate_request_body(otel_span, client, *_pyloggle_capture_request_body(client, request))
         except Exception:
             otel_span = None
-        if not bool(getattr(client.config, "emit_request_latency", False)):
-            return response
         try:
             from flask import g, request
 
@@ -268,6 +266,9 @@ def init_app(
             latency_ms = str(int(duration_ms)) if duration_ms is not None else None
             status = int(getattr(response, "status_code", 200) or 200)
             rule = getattr(request.url_rule, "rule", "") or ""
+            if not bool(getattr(client.config, "emit_request_latency", False)):
+                count_request(client, request.method, request.path, rule, status, duration_ms, get_user_id_hash())
+                return response
             if ignored_request(client.config, request.method, request.path, rule, status):
                 return response
             level = "info"
