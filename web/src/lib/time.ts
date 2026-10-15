@@ -123,6 +123,21 @@ export function fmtDuration(ms: number): string {
   return `${Math.round(ms / 60_000)}m`;
 }
 
+/** A length of time from hours, in the unit that reads best: "40 minutes", "5 hours", "3 days". */
+export function fmtHours(hours: number): string {
+  if (!(hours > 0)) return "under a minute";
+  if (hours < 1) {
+    const m = Math.max(1, Math.round(hours * 60));
+    return `${m} minute${m === 1 ? "" : "s"}`;
+  }
+  if (hours < 48) {
+    const h = hours < 10 ? Math.round(hours * 10) / 10 : Math.round(hours);
+    return `${h} hour${h === 1 ? "" : "s"}`;
+  }
+  const d = hours < 240 ? Math.round((hours / 24) * 10) / 10 : Math.round(hours / 24);
+  return `${d} days`;
+}
+
 export function bucketLabel(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;

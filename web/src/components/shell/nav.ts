@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { Activity, AlertOctagon, Bell, FolderKanban, GitBranch, Home, LayoutDashboard, LifeBuoy, ScrollText } from "lucide-react";
+import { Activity, AlertOctagon, Bell, ChartNoAxesCombined, FolderKanban, GitBranch, Home, LayoutDashboard, LifeBuoy, ScrollText } from "lucide-react";
 import type { Me } from "@/api/types";
 
 export interface NavItem {
@@ -26,6 +26,7 @@ export const NAV: { title?: string; items: NavItem[] }[] = [
     title: "Monitor",
     items: [
       { to: "/dashboards", label: "Dashboards", hint: "How the project is doing over time", icon: LayoutDashboard, key: "d" },
+      { to: "/analytics", label: "Analytics", hint: "Health and use over days and weeks, and any chart you need", icon: ChartNoAxesCombined, key: "y" },
       { to: "/alerts", label: "Alerts", hint: "Get told when something goes wrong", icon: Bell, key: "a", show: (me) => !!me.features.alerting || me.is_admin },
     ],
   },

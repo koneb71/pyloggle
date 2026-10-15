@@ -121,7 +121,7 @@ export function DangerZone({ project, onDeleted }: { project: Project; onDeleted
       <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
         <div>
           <div className="text-[13px] font-medium text-ink">Clear all messages</div>
-          <p className="mt-0.5 text-[13px] text-ink-3">Deletes every message on the Logs page, with the counts built from them. Issues, request timelines and measurements stay.</p>
+          <p className="mt-0.5 text-[13px] text-ink-3">Deletes every message on the Logs page, with the counts built from them. Issues, request counts, request timelines and measurements stay.</p>
         </div>
         <Button variant="danger" icon={<Eraser size={14} />} onClick={() => setClearLogs(true)} className="flex-none">
           Clear…

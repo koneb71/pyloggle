@@ -20,3 +20,13 @@ describe("series ordering and colors", () => {
     expect(seriesColor("service", "api", 0)).toBe("var(--series-1)");
   });
 });
+
+describe("lone points", () => {
+  it("are found where a value has no neighbour", async () => {
+    const { hasLonePoint } = await import("./multi-line");
+    expect(hasLonePoint([null, 3, null])).toBe(true);
+    expect(hasLonePoint([5])).toBe(true);
+    expect(hasLonePoint([1, 2, null, null])).toBe(false);
+    expect(hasLonePoint([null, null])).toBe(false);
+  });
+});

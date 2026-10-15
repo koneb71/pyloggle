@@ -22,6 +22,8 @@ export interface MultiLineChartProps {
   emptyText?: string;
   /** Hide the legend (e.g. the caller renders one). */
   hideLegend?: boolean;
+  /** "linear" for a few whole counts, where a smoothed curve would suggest values in between. */
+  curve?: "monotone" | "linear";
 }
 
 interface Row {
@@ -41,7 +43,7 @@ export function lineColor(s: LineSeries, i: number): string {
  * has no value, a crosshair tooltip that lists every series at that X, and a legend for 2+
  * series. Callers keep it to 8 series (fold the rest into "other").
  */
-export function MultiLineChart({ buckets, series, bucketSeconds = 60, height = 180, format = fmtNumber, loading, className, emptyText = "Nothing in this time range", hideLegend }: MultiLineChartProps) {
+export function MultiLineChart({ buckets, series, bucketSeconds = 60, height = 180, format = fmtNumber, loading, className, emptyText = "Nothing in this time range", hideLegend, curve = "monotone" }: MultiLineChartProps) {
   const rows = useMemo<Row[]>(
     () =>
       buckets.map((ts, i) => {
@@ -66,7 +68,7 @@ export function MultiLineChart({ buckets, series, bucketSeconds = 60, height = 1
             <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
               <CartesianGrid vertical={false} strokeDasharray="0" />
               <XAxis dataKey="ts" tickFormatter={(v: string) => fmtAxisTime(new Date(v), spanMs)} minTickGap={48} tickLine={false} axisLine={{ stroke: "var(--border-strong)" }} height={18} />
-              <YAxis width={60} tickLine={false} axisLine={false} tickFormatter={(v: number) => (v === 0 ? "0" : format === fmtNumber ? fmtAxisNumber(v) : format(v))} domain={[0, "auto"]} />
+              <YAxis width={60} tickLine={false} axisLine={false} allowDecimals={format !== fmtNumber} tickFormatter={(v: number) => (v === 0 ? "0" : format === fmtNumber ? fmtAxisNumber(v) : format(v))} domain={[0, "auto"]} />
               <Tooltip
                 isAnimationActive={false}
                 cursor={{ stroke: "var(--border-strong)" }}
@@ -80,10 +82,11 @@ export function MultiLineChart({ buckets, series, bucketSeconds = 60, height = 1
                 <Line
                   key={s.name}
                   dataKey={s.name}
-                  type="monotone"
+                  type={curve}
                   stroke={lineColor(s, i)}
                   strokeWidth={2}
-                  dot={false}
+                  // A line needs two points: a series with lone points shows them as dots.
+                  dot={hasLonePoint(s.values) ? { r: 3, strokeWidth: 0, fill: lineColor(s, i) } : false}
                   activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2, fill: lineColor(s, i) }}
                   connectNulls={false}
                   isAnimationActive={false}
@@ -95,6 +98,11 @@ export function MultiLineChart({ buckets, series, bucketSeconds = 60, height = 1
       </div>
     </div>
   );
+}
+
+/** Whether some value has no neighbour to draw a line to (gaps are null). */
+export function hasLonePoint(values: (number | null)[]): boolean {
+  return values.some((v, i) => v !== null && v !== undefined && (values[i - 1] ?? null) === null && (values[i + 1] ?? null) === null);
 }
 
 function LineTooltip({ row, series, format, bucketSeconds }: { row: Row; series: LineSeries[]; format: (v: number) => string; bucketSeconds: number }) {
